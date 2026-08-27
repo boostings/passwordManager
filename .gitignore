@@ -1,0 +1,56 @@
+# Java and Gradle build output
+.gradle/
+build/
+out/
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Generated release artifacts
+dist/
+release/
+*.dmg
+*.msi
+*.exe
+*.pkg
+*.deb
+*.rpm
+
+# IDE and editor files
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Local configuration and environment files
+.env
+.env.*
+!.env.example
+
+# Private keys, certificates, and keystores
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Local passwordManager data
+*.pmvault
+*.vault
+vaults/
+backups/
+recovery/
