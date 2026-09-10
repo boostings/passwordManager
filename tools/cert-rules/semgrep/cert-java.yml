@@ -1,0 +1,156 @@
+rules:
+  - id: cert.MSC02-J.weak-random
+    languages: [java]
+    severity: ERROR
+    message: "MSC02-J: use SecureRandom via pm-crypto; java.util.Random / Math.random are banned."
+    pattern-either:
+      - pattern: new java.util.Random(...)
+      - pattern: new Random(...)
+      - pattern: Math.random()
+      - pattern: java.util.concurrent.ThreadLocalRandom.current()
+  - id: cert.MSC02-J.securerandom-outside-crypto
+    languages: [java]
+    severity: ERROR
+    message: "SR-017: only pm-crypto may construct SecureRandom."
+    paths: { exclude: ["modules/pm-crypto/**"] }
+    pattern-either:
+      - pattern: new SecureRandom(...)
+      - pattern: SecureRandom.getInstanceStrong()
+      - pattern: SecureRandom.getInstance(...)
+  - id: cert.SER12-J.native-serialization
+    languages: [java]
+    severity: ERROR
+    message: "SER12-J: Java native serialization is banned (ADR 0006)."
+    pattern-either:
+      - pattern: new ObjectInputStream(...)
+      - pattern: new ObjectOutputStream(...)
+      - pattern: |
+          class $C implements java.io.Serializable { ... }
+      - pattern: |
+          class $C implements Serializable { ... }
+  - id: cert.IDS07-J.runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: "IDS07-J: Runtime.exec is banned; use ProcessBuilder(List<String>) in pm-approval only."
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: $R.exec($S)
+  - id: cert.IDS07-J.processbuilder-outside-approval
+    languages: [java]
+    severity: ERROR
+    message: "SR-100/SR-102: only pm-approval may spawn processes."
+    paths: { exclude: ["modules/pm-approval/**", "modules/pm-platform-*/**"] }
+    pattern: new ProcessBuilder(...)
+  - id: cert.ERR09-J.system-exit
+    languages: [java]
+    severity: ERROR
+    message: "ERR09-J: System.exit only in pm-cli Main."
+    paths: { exclude: ["modules/pm-cli/src/main/java/pm/cli/Main.java"] }
+    pattern-either:
+      - pattern: System.exit(...)
+      - pattern: Runtime.getRuntime().halt(...)
+  - id: cert.MET12-J.finalizer
+    languages: [java]
+    severity: ERROR
+    message: "MET12-J: finalizers are banned."
+    pattern: |
+      protected void finalize() { ... }
+  - id: cert.THI05-J.thread-stop
+    languages: [java]
+    severity: ERROR
+    message: "THI05-J/THI01-J: Thread.stop/suspend/resume and ThreadGroup are banned."
+    pattern-either:
+      - pattern: $T.stop()
+      - pattern: $T.suspend()
+      - pattern: $T.resume()
+      - pattern: new ThreadGroup(...)
+  - id: cert.SEC05-J.set-accessible
+    languages: [java]
+    severity: ERROR
+    message: "SEC05-J: reflection may not raise accessibility."
+    pattern-either:
+      - pattern: $X.setAccessible(true)
+      - pattern: $X.trySetAccessible()
+  - id: cert.SEC-superseded.security-manager
+    languages: [java]
+    severity: ERROR
+    message: "SecurityManager/AccessController are superseded (ADR 0002); use JPMS + ArchUnit."
+    pattern-either:
+      - pattern: System.setSecurityManager(...)
+      - pattern: java.security.AccessController.doPrivileged(...)
+      - pattern: AccessController.doPrivileged(...)
+  - id: cert.CT-compare.non-constant-time
+    languages: [java]
+    severity: ERROR
+    message: "SR-016: compare tags/keys/codes with MessageDigest.isEqual, not Arrays.equals/equals."
+    pattern-either:
+      - pattern: Arrays.equals($A, $B)
+      - pattern: java.util.Arrays.equals($A, $B)
+    metavariable-regex:
+      metavariable: $A
+      regex: (?i).*(tag|mac|key|secret|code|hash|digest|token|sas).*
+  - id: cert.FIO11-J.default-charset
+    languages: [java]
+    severity: ERROR
+    message: "FIO11-J: always specify a charset."
+    pattern-either:
+      - pattern: $S.getBytes()
+      - pattern: new String($B)
+      - pattern: new String($B, $O, $L)
+      - pattern: new InputStreamReader($I)
+      - pattern: new OutputStreamWriter($O)
+      - pattern: new FileReader(...)
+      - pattern: new FileWriter(...)
+  - id: cert.FIO03-J.temp-file
+    languages: [java]
+    severity: ERROR
+    message: "FIO03-J/FIO00-J: temp files are banned; use pm-storage atomic writes."
+    pattern-either:
+      - pattern: File.createTempFile(...)
+      - pattern: Files.createTempFile(...)
+      - pattern: Files.createTempDirectory(...)
+  - id: cert.MSC03-J.secret-in-string
+    languages: [java]
+    severity: ERROR
+    message: "MSC03-J/ADR 0008: secrets must be SecretBytes, not String. Mark unavoidable boundaries @SecretBoundary."
+    patterns:
+      - pattern-either:
+          - pattern: String $V = ...;
+          - pattern: final String $V = ...;
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i)^(password|passphrase|secret|privatekey|private_key|apikey|api_key|token|vaultkey|recoverykey|masterkey|kek|dk)$
+      - pattern-not-inside: |
+          @SecretBoundary
+          $RET $M(...) { ... }
+  - id: cert.FIO13-J.log-secret
+    languages: [java]
+    severity: ERROR
+    message: "FIO13-J/IDS03-J: never log SecretBytes/SecretChars or password-like variables."
+    patterns:
+      - pattern-either:
+          - pattern: $LOG.$LEVEL(..., $S, ...)
+          - pattern: System.out.println($S)
+          - pattern: System.err.println($S)
+      - metavariable-regex:
+          metavariable: $S
+          regex: (?i).*(password|passphrase|secret|privatekey|vaultkey|recoverykey).*
+  - id: cert.ENV02-J.getenv-outside-accessor
+    languages: [java]
+    severity: ERROR
+    message: "ENV02-J: read env through the validating accessor in pm-domain."
+    paths: { exclude: ["modules/pm-domain/src/main/java/pm/domain/env/**", "modules/pm-approval/**"] }
+    pattern: System.getenv(...)
+  - id: cert.ENV04-J.verify-none
+    languages: [generic]
+    severity: ERROR
+    message: "ENV04-J: never disable bytecode verification."
+    pattern: -Xverify:none
+  - id: cert.ENV05-J.jmx-jdwp
+    languages: [generic]
+    severity: ERROR
+    message: "ENV05-J: no remote monitoring/debug flags in launchers."
+    paths: { include: ["**/*.kts", "**/*.gradle", "**/*.sh", "**/*.cfg", "**/*.properties"] }
+    pattern-either:
+      - pattern: jdwp
+      - pattern: com.sun.management.jmxremote

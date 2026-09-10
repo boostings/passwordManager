@@ -1,0 +1,24 @@
+title = "passwordManager gitleaks config (SR-800, MSC03-J)"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "pm-vault-file"
+description = "Committed vault or backup file"
+path = '''(?i)\.(pmv|pmvault|vault|pmbackup)$'''
+
+[[rules]]
+id = "pm-recovery-key"
+description = "Recovery key pattern (8 groups of 4 base32)"
+regex = '''\b([A-Z2-7]{4}-){7}[A-Z2-7]{4}\b'''
+
+[allowlist]
+description = "Obviously fake fixtures only"
+paths = [
+  '''docs/security/.*\.md''',
+  '''RULES\.md''',
+]
+regexes = [
+  '''CANARY-7f3a9c2e-DO-NOT-LOG''',
+  '''EXAMPLE-FAKE-''',
+]

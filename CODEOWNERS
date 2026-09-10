@@ -1,0 +1,20 @@
+# Review routing. Replace placeholder handles with real team members before M1.
+# Tier 1 (security-critical) paths require two approving reviews (branch protection).
+
+# Security owner: signs off milestone security exit criteria and CERT exceptions.
+*                                   @TEAM-SECURITY-OWNER
+
+# Tier 1 modules
+modules/pm-crypto/                  @TEAM-SECURITY-OWNER @TEAM-CRYPTO-REVIEWER
+modules/pm-vault/                   @TEAM-SECURITY-OWNER @TEAM-CRYPTO-REVIEWER
+modules/pm-storage/                 @TEAM-SECURITY-OWNER @TEAM-BACKEND-REVIEWER
+modules/pm-approval/                @TEAM-SECURITY-OWNER @TEAM-BACKEND-REVIEWER
+modules/pm-sharing/                 @TEAM-SECURITY-OWNER @TEAM-NETWORK-REVIEWER
+modules/pm-browser/                 @TEAM-SECURITY-OWNER @TEAM-NETWORK-REVIEWER
+
+# Security documentation, rule packs, and CI
+docs/security/                      @TEAM-SECURITY-OWNER
+docs/adr/                           @TEAM-SECURITY-OWNER
+tools/cert-rules/                   @TEAM-SECURITY-OWNER
+.github/workflows/                  @TEAM-SECURITY-OWNER
+RULES.md                            @TEAM-SECURITY-OWNER

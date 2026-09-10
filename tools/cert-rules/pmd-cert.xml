@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<ruleset name="CERT Java (project mapping)"
+    xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+  <description>PMD rules mapped to SEI CERT Java rule IDs. See docs/security/cert-applicability.md.</description>
+
+  <!-- ERR family -->
+  <rule ref="category/java/errorprone.xml/EmptyCatchBlock"/>                     <!-- ERR00-J -->
+  <rule ref="category/java/errorprone.xml/AvoidCatchingNPE"/>                    <!-- ERR08-J -->
+  <rule ref="category/java/errorprone.xml/AvoidCatchingThrowable"/>              <!-- ERR08-J -->
+  <rule ref="category/java/design.xml/AvoidThrowingRawExceptionTypes"/>          <!-- ERR07-J -->
+  <rule ref="category/java/errorprone.xml/DoNotThrowExceptionInFinally"/>        <!-- ERR04-J/ERR05-J -->
+  <rule ref="category/java/errorprone.xml/ReturnFromFinallyBlock"/>              <!-- ERR04-J -->
+  <rule ref="category/java/errorprone.xml/DoNotTerminateVM"/>                    <!-- ERR09-J -->
+  <!-- MET / OBJ -->
+  <rule ref="category/java/errorprone.xml/ConstructorCallsOverridableMethod"/>   <!-- MET05-J -->
+  <rule ref="category/java/errorprone.xml/CloneMethodMustImplementCloneable"/>   <!-- MET06-J -->
+  <rule ref="category/java/errorprone.xml/OverrideBothEqualsAndHashcode"/>       <!-- MET09-J -->
+  <rule ref="category/java/errorprone.xml/AvoidFieldNameMatchingMethodName"/>
+  <rule ref="category/java/bestpractices.xml/AvoidReassigningParameters"/>       <!-- MET13-J -->
+  <rule ref="category/java/errorprone.xml/CompareObjectsWithEquals"/>            <!-- EXP03-J -->
+  <rule ref="category/java/errorprone.xml/UseEqualsToCompareStrings"/>
+  <rule ref="category/java/errorprone.xml/MethodWithSameNameAsEnclosingClass"/>
+  <rule ref="category/java/design.xml/ClassWithOnlyPrivateConstructorsShouldBeFinal"/>
+  <rule ref="category/java/bestpractices.xml/ArrayIsStoredDirectly"/>            <!-- OBJ06-J -->
+  <rule ref="category/java/bestpractices.xml/MethodReturnsInternalArray"/>       <!-- OBJ05-J -->
+  <rule ref="category/java/errorprone.xml/AssignmentToNonFinalStatic"/>          <!-- OBJ10-J -->
+  <rule ref="category/java/design.xml/MutableStaticState"/>                      <!-- OBJ10-J -->
+  <rule ref="category/java/errorprone.xml/ProperCloneImplementation"/>
+  <!-- MSC / NUM / STR -->
+  <rule ref="category/java/errorprone.xml/EmptyControlStatement"/>               <!-- MSC01-J -->
+  <rule ref="category/java/errorprone.xml/AvoidLiteralsInIfCondition"/>
+  <rule ref="category/java/bestpractices.xml/AvoidUsingHardCodedIP"/>            <!-- MSC03-J -->
+  <rule ref="category/java/errorprone.xml/AvoidDecimalLiteralsInBigDecimalConstructor"/> <!-- NUM10-J -->
+  <rule ref="category/java/errorprone.xml/BadComparison"/>                       <!-- NUM07-J -->
+  <rule ref="category/java/errorprone.xml/AvoidUsingOctalValues"/>
+  <rule ref="category/java/errorprone.xml/ImplicitSwitchFallThrough"/>
+  <rule ref="category/java/errorprone.xml/AvoidLosingExceptionInformation"/>
+  <rule ref="category/java/bestpractices.xml/UseTryWithResources"/>             <!-- FIO04-J -->
+  <rule ref="category/java/errorprone.xml/CloseResource"/>                       <!-- FIO04-J -->
+  <rule ref="category/java/errorprone.xml/AvoidCallingFinalize"/>                <!-- MET12-J -->
+  <rule ref="category/java/errorprone.xml/FinalizeDoesNotCallSuperFinalize"/>
+  <rule ref="category/java/errorprone.xml/FinalizeOverloaded"/>
+  <rule ref="category/java/errorprone.xml/FinalizeShouldBeProtected"/>
+  <rule ref="category/java/errorprone.xml/FinalizeOnlyCallsSuperFinalize"/>
+  <!-- Concurrency -->
+  <rule ref="category/java/multithreading.xml/AvoidSynchronizedAtMethodLevel"/>  <!-- LCK00-J -->
+  <rule ref="category/java/multithreading.xml/AvoidSynchronizedStatement"/>      <!-- prefer explicit private final locks -->
+  <rule ref="category/java/multithreading.xml/DontCallThreadRun"/>              <!-- THI00-J -->
+  <rule ref="category/java/multithreading.xml/DoNotUseThreads"/>                <!-- TPS00-J: use executors -->
+  <rule ref="category/java/multithreading.xml/DoubleCheckedLocking"/>           <!-- LCK10-J -->
+  <rule ref="category/java/multithreading.xml/NonThreadSafeSingleton"/>         <!-- MSC07-J -->
+  <rule ref="category/java/multithreading.xml/UnsynchronizedStaticFormatter"/>
+  <rule ref="category/java/multithreading.xml/AvoidThreadGroup"/>               <!-- THI01-J -->
+  <rule ref="category/java/multithreading.xml/UseNotifyAllInsteadOfNotify"/>    <!-- THI02-J -->
+  <!-- IDS / security -->
+  <rule ref="category/java/security.xml/HardCodedCryptoKey"/>                    <!-- MSC03-J -->
+  <rule ref="category/java/security.xml/InsecureCryptoIv"/>                      <!-- ADR 0005 -->
+</ruleset>

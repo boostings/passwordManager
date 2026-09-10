@@ -633,7 +633,7 @@ Security exit criteria:
   closed.
 - Listener lifetime test: no open port after share expiry.
 - Browser page passes a CSP audit and holds no data after expiry.
-- External review of the pairing PAKE construction.
+- External review of the pairing and short-authentication-string construction.
 
 ### M4: Health and SSH workflows
 

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Exclusions must reference a docs/security/cert-exceptions.md entry. Empty by design. -->
+<FindBugsFilter>
+</FindBugsFilter>
