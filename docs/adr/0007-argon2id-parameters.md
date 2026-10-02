@@ -1,6 +1,7 @@
 # ADR 0007: Argon2id floors and tuning
 
-- Status: Proposed
+- Status: Accepted
+- Ratified: 2026-10-02 by the team (M1 sprint Phase 0)
 - Date: 2026-09-10
 
 ## Decision

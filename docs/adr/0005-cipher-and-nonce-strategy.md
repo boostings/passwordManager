@@ -1,6 +1,7 @@
 # ADR 0005: AES-256-GCM with per-save derived keys
 
-- Status: Proposed
+- Status: Accepted
+- Ratified: 2026-10-02 by the team (M1 sprint Phase 0)
 - Date: 2026-09-10
 
 ## Decision
