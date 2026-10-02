@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Exclusions must reference a docs/security/cert-exceptions.md entry. Empty by design. -->
+<!-- Exclusions must reference a docs/security/cert-exceptions.md entry. Keep each match as narrow as possible. -->
 <FindBugsFilter>
+    <!-- CE-001: AES/KWP (RFC 5649) carries its own integrity check; FindSecBugs only whitelists GCM. -->
+    <Match>
+        <Class name="pm.crypto.KeyWrap"/>
+        <Method name="initCipher"/>
+        <Bug pattern="CIPHER_INTEGRITY"/>
+    </Match>
 </FindBugsFilter>
