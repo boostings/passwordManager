@@ -106,6 +106,14 @@ class KeyWrapTest {
         assertCode(CryptoException.Code.AUTH_FAILED, () -> KeyWrap.unwrap(sb(other), w));
     }
 
+    /** The package-private seam skips the public 32-byte check; a non-AES key length is INTERNAL. */
+    @Test
+    void initCipherWithNonAesKeyLengthIsInternal() {
+        try (SecretBytes badKek = sb(new byte[7])) {
+            assertCode(CryptoException.Code.INTERNAL, () -> KeyWrap.initCipher(Cipher.ENCRYPT_MODE, badKek));
+        }
+    }
+
     @Property(tries = 200)
     void flippingAnyWrappedBitFailsAuth(@ForAll @Size(32) byte[] kek, @ForAll @Size(min = 1, max = 64) byte[] k,
                                         @ForAll int bit) throws CryptoException {

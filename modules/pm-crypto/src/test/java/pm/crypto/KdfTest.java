@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -131,6 +132,25 @@ class KdfTest {
     @Test
     void tuneWithTinyTargetReturnsFloorAfterOneMeasurement() {
         assertEquals(Argon2Params.FLOOR, Kdf.tune(Duration.ofMillis(1)));
+    }
+
+    /**
+     * A target of twice the floor's cost makes tune grow memory (doubling: 128 MiB, at most 256 MiB)
+     * and stop before touching iterations. Kept to a few floor-equivalents of work.
+     */
+    @Test
+    void tuneAboveFloorCostGrowsMemoryFirst() {
+        long floorNanos = Math.max(timeTuneAtFloor(), timeTuneAtFloor());
+        Argon2Params tuned = Kdf.tune(Duration.ofNanos(2 * floorNanos));
+        assertTrue(tuned.memoryKiB() > Argon2Params.FLOOR.memoryKiB());
+        assertEquals(Argon2Params.FLOOR.iterations(), tuned.iterations());
+        assertEquals(Argon2Params.FLOOR.parallelism(), tuned.parallelism());
+    }
+
+    private static long timeTuneAtFloor() {
+        long start = System.nanoTime();
+        assertEquals(Argon2Params.FLOOR, Kdf.tune(Duration.ofMillis(1)));
+        return System.nanoTime() - start;
     }
 
     // ---- HKDF-SHA256 ----------------------------------------------------------------------

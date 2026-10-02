@@ -136,6 +136,18 @@ final class RecoveryKeyTest {
         }
     }
 
+    /** Characters just past each base32 range ('Z' and '7') are rejected too, not only those below. */
+    @Test
+    void charsAboveBase32RangesAreRejected() {
+        for (char bad : new char[] {'[', '{', '8', '9'}) {
+            try (SecretBytes key = fixedKey()) {
+                char[] shown = displayed(key);
+                shown[0] = bad;
+                assertBadInput(shown);
+            }
+        }
+    }
+
     @Test
     void formatRejectsWrongKeyLength() {
         try (SecretBytes shortKey = SecretBytes.copyOf(new byte[KEY_LEN - 1])) {
