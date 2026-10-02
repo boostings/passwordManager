@@ -48,14 +48,33 @@ class SecretBytesTest {
         }
     }
 
+    /** Object contract after close: no throw; a closed secret equals only itself. */
     @Test
-    void equalsAfterCloseThrows() {
+    void equalsAndHashCodeAfterCloseKeepObjectContract() {
         try (SecretBytes sb = SecretBytes.copyOf(SAMPLE);
-                SecretBytes open = SecretBytes.copyOf(SAMPLE)) {
+                SecretBytes open = SecretBytes.copyOf(SAMPLE);
+                SecretBytes otherClosed = SecretBytes.copyOf(SAMPLE)) {
+            int hashBefore = sb.hashCode();
             closeEarly(sb);
-            assertThrows(IllegalStateException.class, () -> assertTrue(sb.equals(open)));
-            assertThrows(IllegalStateException.class, () -> assertTrue(open.equals(sb)));
-            assertThrows(IllegalStateException.class, () -> assertTrue(sb.equals(sameReference(sb))));
+            closeEarly(otherClosed);
+            assertFalse(sb.equals(open));
+            assertFalse(open.equals(sb));
+            assertFalse(sb.equals(otherClosed));
+            assertTrue(sb.equals(sameReference(sb)));
+            assertEquals(hashBefore, sb.hashCode());
+        }
+    }
+
+    @Test
+    void applyRefusesToReturnTheInternalBuffer() {
+        try (SecretBytes sb = SecretBytes.copyOf(SAMPLE)) {
+            IllegalStateException e =
+                    assertThrows(IllegalStateException.class, () -> assertNotNull(sb.apply(b -> b)));
+            assertEquals("SECRET_ESCAPE", e.getMessage());
+            IllegalStateException e2 =
+                    assertThrows(IllegalStateException.class, () -> assertNotNull(sb.applyCrypto(b -> b)));
+            assertEquals("SECRET_ESCAPE", e2.getMessage());
+            assertArrayEquals(SAMPLE, TestBytes.copyOut(sb));
         }
     }
 

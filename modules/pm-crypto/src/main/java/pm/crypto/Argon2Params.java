@@ -26,4 +26,16 @@ public record Argon2Params(int memoryKiB, int iterations, int parallelism) {
             throw new IllegalArgumentException("ARGON2_PARAMS_OUT_OF_RANGE");
         }
     }
+
+    /**
+     * Builds parameters read from untrusted input (a vault header): out-of-range values become a
+     * checked {@link CryptoException.Code#BAD_PARAMS} instead of an unchecked exception.
+     */
+    public static Argon2Params checked(int memoryKiB, int iterations, int parallelism) throws CryptoException {
+        try {
+            return new Argon2Params(memoryKiB, iterations, parallelism);
+        } catch (IllegalArgumentException e) {
+            throw new CryptoException(CryptoException.Code.BAD_PARAMS);
+        }
+    }
 }

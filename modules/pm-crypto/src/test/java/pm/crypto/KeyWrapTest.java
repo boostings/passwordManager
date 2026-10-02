@@ -26,12 +26,18 @@ class KeyWrapTest {
     private static final String RFC5649_K7_HEX = "466f7250617369";
     private static final String RFC5649_W7_HEX = "afbeb0f07dfbf5419200f2ccb50bb24f";
 
+    // 256-bit KEK vectors from pyca/cryptography (see kwp256BitKekKnownAnswersThroughPublicApi).
+    private static final String KWP256_KEK_HEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    private static final String KWP256_K20_HEX = "404142434445464748494a4b4c4d4e4f50515253";
+    private static final String KWP256_W20_HEX = "7bfef0b87c224051560df29c7bb1da8293033222efb454d7adf63ba23d35e766";
+    private static final String KWP256_W7_HEX = "443b17837bb39348610d19202df8a1f9";
+
     private static SecretBytes sb(byte[] b) {
         return SecretBytes.copyOf(b);
     }
 
     private static byte[] raw(SecretBytes s) {
-        return s.apply(byte[]::clone);
+        return TestBytes.copyOut(s);
     }
 
     private static void assertCode(CryptoException.Code code, Executable call) {
@@ -104,6 +110,28 @@ class KeyWrapTest {
         int pos = Math.floorMod(bit, other.length * Byte.SIZE);
         other[pos / Byte.SIZE] ^= (byte) (1 << (pos % Byte.SIZE));
         assertCode(CryptoException.Code.AUTH_FAILED, () -> KeyWrap.unwrap(sb(other), w));
+    }
+
+    /**
+     * F10: 256-bit KEK known answer through the public API. Oracle: pyca/cryptography 46.0.5,
+     * {@code aes_key_wrap_with_padding(kek, key)} with kek = bytes(range(32)) and
+     * key = bytes(range(0x40, 0x54)) (20 bytes) or the RFC 5649 7-byte key.
+     */
+    @Test
+    void kwp256BitKekKnownAnswersThroughPublicApi() throws CryptoException {
+        assertKwp256(KWP256_W20_HEX, KWP256_K20_HEX);
+        assertKwp256(KWP256_W7_HEX, RFC5649_K7_HEX);
+    }
+
+    private static void assertKwp256(String wrappedHex, String keyHex) throws CryptoException {
+        try (SecretBytes kek = sb(HEX.parseHex(KWP256_KEK_HEX));
+                SecretBytes key = sb(HEX.parseHex(keyHex))) {
+            byte[] wrapped = KeyWrap.wrap(kek, key);
+            assertArrayEquals(HEX.parseHex(wrappedHex), wrapped);
+            try (SecretBytes back = KeyWrap.unwrap(kek, wrapped)) {
+                assertEquals(key, back);
+            }
+        }
     }
 
     /** The package-private seam skips the public 32-byte check; a non-AES key length is INTERNAL. */

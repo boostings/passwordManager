@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -30,6 +31,12 @@ class KdfTest {
     private static final String RFC9106_K_HEX = "03".repeat(8);
     private static final String RFC9106_X_HEX = "04".repeat(12);
     private static final String RFC9106_TAG_HEX = "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659";
+
+    // Independent oracle (argon2-cffi 25.1.0), salt 00..1f, t=3, m=65536 KiB, version 0x13, 32-byte tag.
+    // p=1, password "correct horse":
+    private static final String ORACLE_FLOOR_P1_HEX = "5ae5814e91d65faf404b210f2e803dfb6dc636ba6bd666d9d2012acee1bc54b9";
+    // p=4, empty password:
+    private static final String ORACLE_P4_EMPTY_HEX = "7d8aeb76f74eaba0f5b1708d66319b2bc5c12bc262df52536dd0ce62f93bc7b6";
 
     // RFC 5869 Appendix A, test cases 1-3 (SHA-256).
     private static final String TC1_IKM = "0b".repeat(22);
@@ -60,7 +67,7 @@ class KdfTest {
     }
 
     private static byte[] raw(SecretBytes s) {
-        return s.apply(byte[]::clone);
+        return TestBytes.copyOut(s);
     }
 
     private static byte[] bcArgon2id(byte[] pw, byte[] salt, Argon2Params p) {
@@ -109,6 +116,32 @@ class KdfTest {
         }
     }
 
+    /**
+     * F10: the RFC 9106 vector cannot run through {@link Kdf#argon2id}: it needs m = 32 KiB (below
+     * the 64 MiB floor), a secret K and associated data X, none of which the public API accepts.
+     * Instead these vectors come from an independent implementation, recorded so they can be
+     * regenerated: argon2-cffi 25.1.0, {@code argon2.low_level.hash_secret_raw(pw, salt, t, m, p,
+     * 32, Type.ID, 0x13)} with salt = bytes(range(32)).
+     */
+    @Test
+    void argon2idMatchesIndependentOracleAtFloor() throws CryptoException {
+        byte[] salt = HEX.parseHex(range(0x00, 0x20));
+        try (SecretBytes out = Kdf.argon2id(sb("correct horse".getBytes(StandardCharsets.UTF_8)), salt,
+                Argon2Params.FLOOR)) {
+            assertArrayEquals(HEX.parseHex(ORACLE_FLOOR_P1_HEX), raw(out));
+        }
+    }
+
+    /** Same oracle, four lanes and an empty password: checks the parallelism wiring. */
+    @Test
+    void argon2idMatchesIndependentOracleWithFourLanes() throws CryptoException {
+        byte[] salt = HEX.parseHex(range(0x00, 0x20));
+        Argon2Params fourLanes = new Argon2Params(Argon2Params.FLOOR.memoryKiB(), Argon2Params.FLOOR.iterations(), 4);
+        try (SecretBytes out = Kdf.argon2id(sb(new byte[0]), salt, fourLanes)) {
+            assertArrayEquals(HEX.parseHex(ORACLE_P4_EMPTY_HEX), raw(out));
+        }
+    }
+
     @Property(tries = 5)
     void argon2idSaltSeparatesOutputs(@ForAll @Size(min = 1, max = 32) byte[] pw,
                                       @ForAll @Size(32) byte[] salt) throws CryptoException {
@@ -140,6 +173,8 @@ class KdfTest {
     private static final long TARGET_NANOS = TARGET.toNanos();
     private static final int MID_MEMORY_KIB = 262_144;
     private static final int MID_ITERATIONS = 5;
+    private static final long MIB = 1024L * 1024L;
+    private static final long UNLIMITED_BUDGET = Long.MAX_VALUE;
 
     @Test
     void tuneReachingTargetImmediatelyMeasuresOnceAndReturnsFloor() {
@@ -147,37 +182,76 @@ class KdfTest {
         Argon2Params tuned = Kdf.tune(TARGET, p -> {
             calls.incrementAndGet();
             return TARGET_NANOS;
-        });
+        }, UNLIMITED_BUDGET);
         assertEquals(Argon2Params.FLOOR, tuned);
         assertEquals(1, calls.get());
     }
 
     @Test
     void tuneNeverReachingTargetClimbsToMaxMemoryThenMaxIterations() {
-        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L);
+        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L, UNLIMITED_BUDGET);
         assertEquals(new Argon2Params(Argon2Params.MAX_MEMORY_KIB, Argon2Params.MAX_ITERATIONS,
                 Argon2Params.FLOOR.parallelism()), tuned);
     }
 
     @Test
     void tuneReachingTargetMidMemoryStopsBeforeIterations() {
-        Argon2Params tuned = Kdf.tune(TARGET, p -> p.memoryKiB() >= MID_MEMORY_KIB ? TARGET_NANOS : 0L);
+        Argon2Params tuned = Kdf.tune(TARGET, p -> p.memoryKiB() >= MID_MEMORY_KIB ? TARGET_NANOS : 0L,
+                UNLIMITED_BUDGET);
         assertEquals(new Argon2Params(MID_MEMORY_KIB, Argon2Params.FLOOR.iterations(),
                 Argon2Params.FLOOR.parallelism()), tuned);
     }
 
     @Test
     void tuneReachingTargetMidIterationsStopsThere() {
-        Argon2Params tuned = Kdf.tune(TARGET, p -> p.iterations() >= MID_ITERATIONS ? TARGET_NANOS : 0L);
+        Argon2Params tuned = Kdf.tune(TARGET, p -> p.iterations() >= MID_ITERATIONS ? TARGET_NANOS : 0L,
+                UNLIMITED_BUDGET);
         assertEquals(new Argon2Params(Argon2Params.MAX_MEMORY_KIB, MID_ITERATIONS,
                 Argon2Params.FLOOR.parallelism()), tuned);
     }
 
+    /** F6: with a 300 MiB budget memory stops at 256 MiB (largest power of two within budget). */
+    @Test
+    void tuneCapsMemoryAtHeapBudgetRoundedDownToPowerOfTwo() {
+        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L, 300L * MIB);
+        assertEquals(new Argon2Params(MID_MEMORY_KIB, Argon2Params.MAX_ITERATIONS,
+                Argon2Params.FLOOR.parallelism()), tuned);
+    }
+
+    /** F6: a budget below the floor still yields the floor (never weaker than ADR 0007). */
+    @Test
+    void tuneNeverGoesBelowFloorMemoryOnATinyHeap() {
+        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L, MIB);
+        assertEquals(new Argon2Params(Argon2Params.FLOOR.memoryKiB(), Argon2Params.MAX_ITERATIONS,
+                Argon2Params.FLOOR.parallelism()), tuned);
+    }
+
+    @Test
+    void memoryCapIsMinOfOneGibAndBudgetAsPowerOfTwo() {
+        assertEquals(Argon2Params.MAX_MEMORY_KIB, Kdf.memoryCapKiB(UNLIMITED_BUDGET));
+        assertEquals(Argon2Params.MAX_MEMORY_KIB, Kdf.memoryCapKiB(1024L * MIB));
+        assertEquals(MID_MEMORY_KIB * 2, Kdf.memoryCapKiB(1023L * MIB));
+        assertEquals(Argon2Params.FLOOR.memoryKiB(), Kdf.memoryCapKiB(0L));
+        assertEquals(256L * MIB, Kdf.heapBudgetBytes(512L * MIB));
+        assertEquals(UNLIMITED_BUDGET, Kdf.heapBudgetBytes(-1L));
+        assertTrue(Kdf.heapBudgetBytes() > 0);
+    }
+
+    /** F6: parameters from a hostile header that exceed the heap budget fail before allocation. */
+    @Test
+    void argon2idRejectsMemoryAboveHeapBudget() {
+        long budget = Argon2Params.FLOOR.memoryKiB() * 1024L - 1;
+        CryptoException e = assertThrows(CryptoException.class,
+                () -> Kdf.argon2id(sb(new byte[1]), new byte[Kdf.SALT_LEN], Argon2Params.FLOOR, budget));
+        assertEquals(CryptoException.Code.BAD_PARAMS, e.code());
+    }
+
     // ---- HKDF-SHA256 ----------------------------------------------------------------------
 
+    /** RFC 5869 vectors 1 and 3 use a 22-byte IKM, below the public 32-byte floor, so they go through the core. */
     private static void assertHkdf(String ikm, byte[] salt, String info, String okm) throws CryptoException {
         byte[] expected = HEX.parseHex(okm);
-        try (SecretBytes out = Kdf.hkdfSha256(sb(HEX.parseHex(ikm)), salt, HEX.parseHex(info), expected.length)) {
+        try (SecretBytes out = Kdf.hkdfSha256AnyIkm(sb(HEX.parseHex(ikm)), salt, HEX.parseHex(info), expected.length)) {
             assertArrayEquals(expected, raw(out));
         }
     }
@@ -187,9 +261,24 @@ class KdfTest {
         assertHkdf(TC1_IKM, HEX.parseHex(TC1_SALT), TC1_INFO, TC1_OKM);
     }
 
+    /** Test case 2 has an 80-byte IKM, so it runs through the public method. */
     @Test
     void hkdfRfc5869TestCase2() throws CryptoException {
-        assertHkdf(TC2_IKM, HEX.parseHex(TC2_SALT), TC2_INFO, TC2_OKM);
+        byte[] expected = HEX.parseHex(TC2_OKM);
+        try (SecretBytes out = Kdf.hkdfSha256(sb(HEX.parseHex(TC2_IKM)), HEX.parseHex(TC2_SALT),
+                HEX.parseHex(TC2_INFO), expected.length)) {
+            assertArrayEquals(expected, raw(out));
+        }
+    }
+
+    /** F9b: IKM shorter than 32 bytes is a caller bug (BAD_INPUT), whatever the other arguments. */
+    @Test
+    void hkdfRejectsIkmShorterThan32Bytes() {
+        for (int len : new int[] {0, 1, 22, Kdf.HKDF_MIN_IKM - 1}) {
+            CryptoException e = assertThrows(CryptoException.class,
+                    () -> Kdf.hkdfSha256(sb(new byte[len]), null, new byte[0], Kdf.SALT_LEN));
+            assertEquals(CryptoException.Code.BAD_INPUT, e.code());
+        }
     }
 
     @Test
