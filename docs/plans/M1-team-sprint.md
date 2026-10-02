@@ -577,7 +577,7 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 - Tests: `DashboardTest` drives the UI with `DefaultVirtualTerminal` (headless), feeds key strokes, and asserts the table contents after a search.
 
 **Commit 2c: `M1.2 E: implement idle auto-lock`**
-- `IdleLock`: a single-thread `ScheduledExecutorService` with a named daemon `ThreadFactory`. `touch()` cancels the pending future and schedules a new one. `onLock` posts to Lanterna through `gui.getGUIThread().invokeLater(...)`, which closes the vault and returns to `UnlockWindow`. Guard shared state with `synchronized`. Error Prone `GuardedBy` is on.
+- `IdleLock`: a single-thread `ScheduledExecutorService` with a named daemon `ThreadFactory`. `touch()` cancels the pending future and schedules a new one. `onLock` posts to Lanterna through `gui.getGUIThread().invokeLater(...)`, which closes the vault and returns to `UnlockWindow`. Guard shared state with a `private final ReentrantLock` (PMD bans `synchronized`). Error Prone `GuardedBy` is on.
 - Tests: inject a manual `ScheduledExecutorService` or a deterministic fake. `touch` at t=4 min means no lock at 5 min; a lock fires at 9 min. After the lock, `vault.isLocked()` is true.
 
 ---
@@ -630,6 +630,12 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 - **Argon2 floor is slow** (64 MiB, t=3). Never put it in a loop in tests. Use `tries = 5` and the VK-layer seam.
 - **jacoco 100% branch coverage on Tier 1 is configured but not wired into `check`.** `./gradlew check --dry-run` shows no jacoco task. It won't fail the gate today. Run `./gradlew :modules:pm-crypto:jacocoTestCoverageVerification` yourself, and wiring it into `check` is the first post-sprint task.
 - **Default charset:** always pass `StandardCharsets.UTF_8` (Error Prone `DefaultCharset` is an error).
+- **Phase 1 stubs fail the gate as written.** Error Prone `DoNotCallSuggester` flags every method whose body is only `throw`. Put `@SuppressWarnings("DoNotCallSuggester") // M1 stub: removed when implemented (not a CERT suppression)` on each stub class, and delete it when you implement the class. Routing the throw through a helper method does not help (verified in Lane A).
+- **PMD `AvoidSynchronizedStatement` and `AvoidSynchronizedAtMethodLevel` are on.** `synchronized` is banned everywhere, so the §5 E advice ("guard with `synchronized`") is wrong. Use a `private final ReentrantLock` with `lock()` and `try/finally unlock()`.
+- **PMD `AvoidLiteralsInIfCondition`:** only `-1` and `0` may appear in an `if` condition. Write `if (n > MAX_BYTES)` with a named constant, not `if (n > 1024)`.
+- **Error Prone `ByteBufferBackingArray`:** don't call `.array()` on a buffer you didn't create with `allocate`/`wrap`. For example, `CharsetEncoder.encode(CharBuffer)` returns such a buffer. Encode into your own `ByteBuffer.allocate(...)` instead.
+- **Gradle can't find JDK 21 even though it's installed:** pass `-Dorg.gradle.java.installations.paths=<jdk21 home>`, or put it in `~/.gradle/gradle.properties`.
+- **jqwik writes a `.jqwik-database` file into each module.** It's git-ignored; don't commit it.
 
 ---
 
