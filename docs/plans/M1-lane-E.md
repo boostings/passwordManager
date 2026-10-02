@@ -12,5 +12,6 @@ E commits are to be re-authored to the Lane E teammate before push (name pending
 - [x] **E2a** CLI: Main/run(args, ConsoleIo), init/add-login/list/search, exit codes, Messages + MainArgsTest (done: 69 CLI tests incl. canary; FIO13 now honours @SecretBoundary like MSC03; gate green 0 findings)
 - [x] **E2b** TUI: unlock, dashboard + search, detail (masked), add-login dialog + DashboardTest (virtual terminal) (done: 21 DashboardTest on DefaultVirtualTerminal incl. canary-absent-from-every-frame; one @SecretBoundary (MaskedInput.drain); 242 tests total, 0 findings)
 - [x] **E2c** IdleLock (ReentrantLock, not synchronized) + IdleLockTest with deterministic scheduler (done: generation counter blocks stale expiry; 11 tests incl. real-executor smoke; gate green 0 findings)
-- [ ] **E-review** Adversarial review of all E changes; findings fixed or recorded
+- [x] **E-review** Adversarial review of all E changes; findings fixed or recorded
+  - Result: 11 defects (1 High, 3 Medium, 7 Low) all fixed in 7633b91/00e4a3d/9b14ea2; see M1-integration I3.
 - [~] **E3** EndToEndTest with canary passphrase (BLOCKED: needs real Lane C VaultService)
