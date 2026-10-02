@@ -7,4 +7,13 @@
         <Method name="initCipher"/>
         <Bug pattern="CIPHER_INTEGRITY"/>
     </Match>
+    <!-- CE-003: holder records intentionally hand the caller a live vault/session handle (ownership transfer). -->
+    <Match>
+        <Class name="pm.vault.CreatedVault"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="pm.tui.CreatedSession"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>
