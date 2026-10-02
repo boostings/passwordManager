@@ -53,32 +53,33 @@ public final class RecoveryKey {
         }
         MessageDigest sha = sha256();
         byte[] raw = new byte[RAW_LEN];
-        byte[] digest = null;
-        char[] encoded = null;
         char[] display = new char[DISPLAY_LEN];
         try {
             key.withBytes(b -> System.arraycopy(b, 0, raw, 0, KEY_LEN));
             sha.update(raw, 0, KEY_LEN);
-            digest = sha.digest();
-            System.arraycopy(digest, 0, raw, KEY_LEN, CHECKSUM_LEN);
-            encoded = encode(raw);
-            int o = 0;
-            for (int i = 0; i < ENCODED_LEN; i++) {
-                if (i > 0 && i % GROUP_LEN == 0) {
-                    display[o++] = SEPARATOR;
-                }
-                display[o++] = encoded[i];
+            // Nested try/finally: each buffer is wiped by the block that created it, so no null checks.
+            byte[] digest = sha.digest();
+            try {
+                System.arraycopy(digest, 0, raw, KEY_LEN, CHECKSUM_LEN);
+            } finally {
+                Arrays.fill(digest, (byte) 0);
             }
-            return SecretChars.takeOwnership(display);
+            char[] encoded = encode(raw);
+            try {
+                int o = 0;
+                for (int i = 0; i < ENCODED_LEN; i++) {
+                    if (i > 0 && i % GROUP_LEN == 0) {
+                        display[o++] = SEPARATOR;
+                    }
+                    display[o++] = encoded[i];
+                }
+                return SecretChars.takeOwnership(display);
+            } finally {
+                Arrays.fill(encoded, '\0');
+            }
         } finally {
             Arrays.fill(raw, (byte) 0);
             Arrays.fill(display, '\0');
-            if (digest != null) {
-                Arrays.fill(digest, (byte) 0);
-            }
-            if (encoded != null) {
-                Arrays.fill(encoded, '\0');
-            }
         }
     }
 

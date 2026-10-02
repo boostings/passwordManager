@@ -24,11 +24,8 @@ public final class KeyWrap {
             throw new CryptoException(CryptoException.Code.BAD_INPUT);
         }
         Cipher cipher = initCipher(Cipher.ENCRYPT_MODE, kek);
-        byte[] wrapped = key.apply(in -> doFinalOrEmpty(cipher, in));
-        if (wrapped.length == 0) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
-        return wrapped;
+        // Wrap-side provider failures map to INTERNAL inside applyCrypto (SR-501).
+        return key.applyCrypto(cipher::doFinal);
     }
 
     /** Unwraps; a wrong KEK or tampered input yields {@link CryptoException.Code#AUTH_FAILED}. */
@@ -53,40 +50,19 @@ public final class KeyWrap {
 
     /** RFC 5649 cipher keyed with {@code kek}; package-private so tests can run the RFC vectors (192-bit KEK). */
     static Cipher initCipher(int mode, SecretBytes kek) throws CryptoException {
-        Cipher cipher;
-        try {
-            cipher = Cipher.getInstance(TRANSFORMATION);
-        } catch (GeneralSecurityException e) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
-        boolean ok = kek.apply(kb -> initOrFalse(cipher, mode, kb));
-        if (!ok) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
+        return kek.applyCrypto(kb -> initCipher(mode, kb));
+    }
+
+    /** Named initCipher so the CE-001 SpotBugs exclusion (AES/KWP has its own integrity) still matches. */
+    private static Cipher initCipher(int mode, byte[] kekBytes) throws GeneralSecurityException {
+        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+        cipher.init(mode, new SecretKeySpec(kekBytes, AES));
         return cipher;
     }
 
     private static void requireKek(SecretBytes kek) throws CryptoException {
         if (kek.length() != KEK_LEN) {
             throw new CryptoException(CryptoException.Code.BAD_INPUT);
-        }
-    }
-
-    private static boolean initOrFalse(Cipher cipher, int mode, byte[] kekBytes) {
-        try {
-            SecretKeySpec spec = new SecretKeySpec(kekBytes, AES);
-            cipher.init(mode, spec);
-            return true;
-        } catch (GeneralSecurityException e) {
-            return false;
-        }
-    }
-
-    private static byte[] doFinalOrEmpty(Cipher cipher, byte[] in) {
-        try {
-            return cipher.doFinal(in);
-        } catch (GeneralSecurityException e) {
-            return new byte[0];
         }
     }
 }
