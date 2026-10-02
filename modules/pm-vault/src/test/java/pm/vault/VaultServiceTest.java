@@ -294,9 +294,11 @@ final class VaultServiceTest {
 
     @Test
     void rejectsParallelismTheHeaderCannotStore() {
-        Argon2Params tooWide = new Argon2Params(Argon2Params.FLOOR.memoryKiB(), Argon2Params.FLOOR.iterations(),
-                EnvelopeCodec.MAX_PARALLELISM + 1);
-        assertThrows(IllegalArgumentException.class, () -> new VaultService(store, Fixtures.CLOCK, tooWide));
+        // pm-crypto's Argon2Params already caps parallelism at the header limit (16), so the
+        // too-wide parameters are refused while being built, before VaultService sees them.
+        assertThrows(IllegalArgumentException.class, () -> new VaultService(store, Fixtures.CLOCK,
+                new Argon2Params(Argon2Params.FLOOR.memoryKiB(), Argon2Params.FLOOR.iterations(),
+                        EnvelopeCodec.MAX_PARALLELISM + 1)));
     }
 
     @Test
