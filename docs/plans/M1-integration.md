@@ -12,4 +12,5 @@ Gate: `./gradlew --rerun-tasks check certReport` (JDK 21 toolchain path) → BUI
   - Result: CLI 7633b91 (exit 6 recovery-key-not-shown, exit 5 internal, format/bidi sanitising, --vault/-- handling, tune only on init; pm-cli 127 tests) and TUI 00e4a3d (DisplaySafe, forms cleared on cancel/lock/quit, onLock never after close, put-failure zeroing; pm-tui 41 tests) merged; CE-002 corrected 9b14ea2. Open: Session.close throwing during TUI lock escapes run (CLI maps it to exit 5); symlinked --vault left to Lane B; `list --help` exits 0.
 - [x] **I4** A3b (wrong passphrase runs full Argon2) and E3 (end-to-end CLI) against real Lane C, or record exact Lane D blocker
   - Result: A3b done (ba49de6, slot-level proof, no early return in VaultService unlock). E3 BLOCKED: real FileVaultPort → VaultService.create fails at `pm.storage.VaultFileStore.open` (Lane B stub) and then `CborWriter.encode`/`RecordCodec` (Lane D stubs); same cause as the 66 failing pm-vault tests.
-- [ ] **I5** Re-author E commits to Jacob, final gate, push to origin/main (no force), verify remote == local
+- [x] **I5** Re-author E commits to Jacob, final gate, push to origin/main (no force), verify remote == local
+  - Result: pushed aaac981..9230701 fast-forward; 15 E commits authored by Jacob; gate green except 66 pm-vault tests on Lane B/D stubs (user accepted).
