@@ -3,6 +3,8 @@ package pm.arch;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -37,12 +39,23 @@ final class ModuleBoundaryTest {
                             "java\\.lang\\.SecurityManager|java\\.security\\.AccessController")
                     .because("ADR 0002: superseded by JPMS + these tests");
 
-    /** SR-100 / IDS07-J: only pm-approval and platform adapters spawn processes. */
+    /** Any {@code Runtime.exec(..)} overload. */
+    private static final DescribedPredicate<JavaMethodCall> RUNTIME_EXEC =
+            DescribedPredicate.describe("Runtime.exec(..)", call ->
+                    call.getTargetOwner().isEquivalentTo(Runtime.class) && "exec".equals(call.getName()));
+
+    /**
+     * SR-100 / IDS07-J: only pm-approval and platform adapters spawn or inspect processes. Targets
+     * the process APIs themselves ({@code Runtime.exec(..)}, {@code ProcessBuilder},
+     * {@code ProcessHandle}), not all of {@code java.lang.Runtime}: heap figures such as
+     * {@code Runtime.maxMemory()} spawn nothing.
+     */
     @ArchTest
     static final ArchRule onlyApprovalSpawnsProcesses =
             noClasses().that().resideOutsideOfPackages("pm.approval..", "pm.platform..")
-                    .should().dependOnClassesThat().haveNameMatching(
-                            "java\\.lang\\.(ProcessBuilder|Runtime)")
+                    .should().callMethodWhere(RUNTIME_EXEC)
+                    .orShould().dependOnClassesThat().haveNameMatching(
+                            "java\\.lang\\.(ProcessBuilder|ProcessHandle)(\\$.*)?")
                     .because("SR-100/SR-102: process spawning is the broker's job");
 
     /** Tier 1 modules never depend on TUI, CLI or platform modules. */

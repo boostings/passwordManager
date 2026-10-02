@@ -16,4 +16,10 @@
         <Class name="pm.tui.CreatedSession"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
+    <!-- CE-005: one explicit collection before refusing Argon2 for lack of heap, so garbage is not counted as in use. -->
+    <Match>
+        <Class name="pm.crypto.Kdf"/>
+        <Method name="collectGarbage"/>
+        <Bug pattern="DM_GC"/>
+    </Match>
 </FindBugsFilter>
