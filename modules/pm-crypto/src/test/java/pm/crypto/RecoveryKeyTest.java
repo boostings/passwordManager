@@ -23,6 +23,10 @@ final class RecoveryKeyTest {
     private static final int GROUP_LEN = 7;
     private static final char DASH = '-';
     private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    private static final int ENCODED_LEN = 56;
+    // Top five bits select the first base32 char: 01000 = 8 = 'I', 10010 = 18 = 'S'.
+    private static final byte FIRST_BYTE_FOR_I = (byte) 0x40;
+    private static final byte FIRST_BYTE_FOR_S = (byte) 0x90;
 
     @Property(tries = 50)
     void formatThenParseRoundTrips(@ForAll @Size(KEY_LEN) byte[] raw) throws CryptoException {
@@ -97,17 +101,43 @@ final class RecoveryKeyTest {
         }
     }
 
+    /** Substitutes one base32 character (never a dash), so only the checksum can catch it. */
     @Property(tries = 50)
     void randomSubstitutionIsRejected(
-            @ForAll @Size(KEY_LEN) byte[] raw, @ForAll @IntRange(min = 0, max = DISPLAY_LEN - 1) int pos) {
+            @ForAll @Size(KEY_LEN) byte[] raw, @ForAll @IntRange(min = 0, max = ENCODED_LEN - 1) int charIndex) {
         try (SecretBytes key = SecretBytes.copyOf(raw)) {
             char[] typo = displayed(key);
-            if (typo[pos] != DASH) {
-                typo[pos] = substitute(typo[pos]);
-            } else {
-                typo[pos] = 'A';
-            }
+            int pos = charIndex + charIndex / GROUP_LEN;
+            assertNotEquals(DASH, typo[pos]);
+            typo[pos] = substitute(typo[pos]);
             assertBadInput(typo);
+        }
+    }
+
+    /**
+     * F8: U+0131 (dotless i) and U+017F (long s) upper-case to 'I' and 'S' under
+     * {@link Character#toUpperCase}; they must not parse as those letters.
+     */
+    @Test
+    void nonAsciiLookalikesAreRejected() {
+        assertLookalikeRejected(FIRST_BYTE_FOR_I, 'I', 'ı');
+        assertLookalikeRejected(FIRST_BYTE_FOR_S, 'S', 'ſ');
+    }
+
+    private static void assertLookalikeRejected(byte firstByte, char expected, char lookalike) {
+        try (SecretBytes key = keyStartingWith(firstByte)) {
+            char[] shown = displayed(key);
+            assertEquals(expected, shown[0]);
+            shown[0] = lookalike;
+            assertBadInput(shown);
+        }
+    }
+
+    private static SecretBytes keyStartingWith(byte firstByte) {
+        try (SecretBytes base = fixedKey()) {
+            byte[] raw = TestBytes.copyOut(base);
+            raw[0] = firstByte;
+            return SecretBytes.takeOwnership(raw);
         }
     }
 

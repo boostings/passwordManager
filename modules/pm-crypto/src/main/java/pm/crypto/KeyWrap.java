@@ -5,7 +5,13 @@ import java.util.Objects;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
-/** AES-256 Key Wrap with Padding (RFC 5649) via the JDK; a wrong KEK fails integrity (ADR 0004). */
+/**
+ * AES-256 Key Wrap with Padding (RFC 5649) via the JDK; a wrong KEK fails integrity (ADR 0004).
+ *
+ * <p>Copies outside our control: {@code SecretKeySpec} clones the KEK and the JCA AES provider
+ * keeps an expanded key schedule inside the {@code Cipher}; neither can be zeroed from here
+ * (ADR 0008 residual risk).
+ */
 public final class KeyWrap {
     /** ADR 0004: KEKs are AES-256. */
     static final int KEK_LEN = 32;

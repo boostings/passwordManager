@@ -1,6 +1,7 @@
 package pm.crypto;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,19 @@ class Argon2ParamsTest {
     @Test
     void floorIsAdr0007Floor() {
         assertEquals(new Argon2Params(MIN_M, MIN_T, MIN_P), Argon2Params.FLOOR);
+    }
+
+    /** F9a: header-parser factory maps out-of-range values to a checked BAD_PARAMS. */
+    @Test
+    void checkedFactoryMapsOutOfRangeToBadParams() throws CryptoException {
+        assertEquals(Argon2Params.FLOOR, Argon2Params.checked(MIN_M, MIN_T, MIN_P));
+        int[][] bad = {{MIN_M - 1, MIN_T, MIN_P}, {MAX_M + 1, MIN_T, MIN_P}, {MIN_M, MIN_T - 1, MIN_P},
+            {MIN_M, MAX_T + 1, MIN_P}, {MIN_M, MIN_T, MIN_P - 1}, {MIN_M, MIN_T, MAX_P + 1}};
+        for (int[] v : bad) {
+            CryptoException e = assertThrows(CryptoException.class, () -> Argon2Params.checked(v[0], v[1], v[2]));
+            assertEquals(CryptoException.Code.BAD_PARAMS, e.code());
+            assertNull(e.getCause());
+        }
     }
 
     @Test

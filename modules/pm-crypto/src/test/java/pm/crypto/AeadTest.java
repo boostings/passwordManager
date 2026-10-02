@@ -2,8 +2,10 @@ package pm.crypto;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
@@ -28,7 +30,7 @@ class AeadTest {
     }
 
     private static byte[] raw(SecretBytes s) {
-        return s.apply(byte[]::clone);
+        return TestBytes.copyOut(s);
     }
 
     private static void assertCode(CryptoException.Code code, Executable call) {
@@ -71,6 +73,38 @@ class AeadTest {
         }
         sealed[0] ^= 1;
         assertCode(CryptoException.Code.AUTH_FAILED, () -> Aead.openWithFreshKey(sb(k), sealed, aad));
+    }
+
+    /** ADR 0005: seal consumes its key, so a second seal under the same key (nonce reuse) is impossible. */
+    @Test
+    void sealConsumesKeySoSecondSealThrows() throws CryptoException {
+        try (SecretBytes key = sb(new byte[Aead.KEY_LEN])) {
+            byte[] first = Aead.sealWithFreshKey(key, sb(new byte[1]), new byte[0]);
+            assertEquals(1 + TAG_LEN, first.length);
+            assertTrue(key.isClosed());
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> Aead.sealWithFreshKey(key, sb(new byte[1]), new byte[0]));
+            assertEquals("SECRET_CLOSED", e.getMessage());
+        }
+    }
+
+    @Test
+    void sealConsumesKeyEvenWhenItFails() {
+        try (SecretBytes shortKey = sb(new byte[Aead.KEY_LEN - 1])) {
+            assertCode(CryptoException.Code.BAD_INPUT, () -> Aead.sealWithFreshKey(shortKey, sb(new byte[1]), new byte[0]));
+            assertTrue(shortKey.isClosed());
+        }
+    }
+
+    @Test
+    void openDoesNotConsumeKey() throws CryptoException {
+        byte[] sealed = Aead.sealWithFreshKey(sb(new byte[Aead.KEY_LEN]), sb(new byte[1]), new byte[0]);
+        try (SecretBytes key = sb(new byte[Aead.KEY_LEN]);
+                SecretBytes a = Aead.openWithFreshKey(key, sealed, new byte[0]);
+                SecretBytes b = Aead.openWithFreshKey(key, sealed, new byte[0])) {
+            assertFalse(key.isClosed());
+            assertEquals(a, b);
+        }
     }
 
     @Test

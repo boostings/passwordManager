@@ -3,6 +3,7 @@ package pm.crypto;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -12,8 +13,9 @@ import java.util.function.Function;
  *
  * <p>Not {@code Serializable}, not {@code Cloneable} (OBJ07-J, SER03-J). No accessor returns the
  * internal array (OBJ05-J); callers get scoped access through {@link #withBytes} or {@link #apply}
- * and must not retain the array. Every method throws {@link IllegalStateException} after
- * {@link #close()} (OBJ14-J). Not thread-safe: confine an instance to one thread.
+ * and must not retain the array. Every method except {@link #isClosed}, {@link #close},
+ * {@link #equals}, {@link #hashCode} and {@link #toString} throws {@link IllegalStateException}
+ * after {@link #close()} (OBJ14-J). Not thread-safe: confine an instance to one thread.
  */
 @Sensitive
 public final class SecretBytes implements AutoCloseable {
@@ -52,23 +54,27 @@ public final class SecretBytes implements AutoCloseable {
         use.accept(buf);
     }
 
-    /** Applies {@code fn} to the internal buffer. {@code fn} must not retain or return it. */
+    /**
+     * Applies {@code fn} to the internal buffer. {@code fn} must not retain it.
+     *
+     * @throws IllegalStateException {@code SECRET_ESCAPE} if {@code fn} returns the buffer itself
+     */
     public <R> R apply(Function<byte[], R> fn) {
         Objects.requireNonNull(fn, "fn");
         ensureOpen();
-        return fn.apply(buf);
+        return refuseEscape(fn.apply(buf));
     }
 
     /**
      * Applies a JCA operation to the internal buffer. Any {@link GeneralSecurityException} becomes
      * {@link CryptoException.Code#INTERNAL} with no cause and no provider text (SR-501, ERR01-J).
-     * {@code fn} must not retain or return the buffer.
+     * {@code fn} must not retain the buffer; returning it throws {@code SECRET_ESCAPE}.
      */
     <R> R applyCrypto(CryptoFunction<byte[], R> fn) throws CryptoException {
         Objects.requireNonNull(fn, "fn");
         ensureOpen();
         try {
-            return fn.apply(buf);
+            return refuseEscape(fn.apply(buf));
         } catch (GeneralSecurityException e) {
             throw new CryptoException(CryptoException.Code.INTERNAL);
         }
@@ -86,22 +92,26 @@ public final class SecretBytes implements AutoCloseable {
         closed = true;
     }
 
-    /** Constant-time content comparison (SR-016). */
+    /**
+     * Constant-time content comparison (SR-016). Unlike the other methods this never throws after
+     * {@link #close()}, so the {@link Object#equals} contract holds: a closed secret is equal only
+     * to itself, and an open secret is never equal to a closed one.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) {
-            ensureOpen();
             return true;
         }
-        if (!(o instanceof SecretBytes other)) {
+        if (!(o instanceof SecretBytes other) || closed || other.closed) {
             return false;
         }
-        ensureOpen();
-        other.ensureOpen();
         return MessageDigest.isEqual(buf, other.buf);
     }
 
-    /** Constant: secrets must not be usable as hash keys or leak through hashing. */
+    /**
+     * Constant: secrets must not be usable as hash keys or leak through hashing. Like
+     * {@link #equals}, it does not throw after {@link #close()}.
+     */
     @Override
     public int hashCode() {
         return CONSTANT_HASH;
@@ -116,6 +126,21 @@ public final class SecretBytes implements AutoCloseable {
     @Override
     protected Object clone() throws CloneNotSupportedException {
         throw new CloneNotSupportedException();
+    }
+
+    /**
+     * Refuses a result that IS the internal buffer; a copy with the same content passes. Identity is
+     * tested with an {@link IdentityHashMap} because the static analysers (PMD
+     * CompareObjectsWithEquals, SpotBugs EC_*) reject {@code ==} and {@code equals} between a
+     * generic result and an array.
+     */
+    private <R> R refuseEscape(R result) {
+        IdentityHashMap<Object, Boolean> self = new IdentityHashMap<>(1);
+        self.put(buf, Boolean.TRUE);
+        if (self.containsKey(result)) {
+            throw new IllegalStateException("SECRET_ESCAPE");
+        }
+        return result;
     }
 
     private void ensureOpen() {

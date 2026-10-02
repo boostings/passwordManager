@@ -8,7 +8,12 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * AES-256-GCM with a zero nonce (ADR 0005). Safe ONLY because every key passed here is a fresh
- * per-save HKDF output that encrypts exactly one message.
+ * per-save HKDF output that encrypts exactly one message; {@link #sealWithFreshKey} enforces that
+ * by closing the key.
+ *
+ * <p>Copies outside our control: {@code SecretKeySpec} clones the key bytes and the JCA AES
+ * provider keeps an expanded key schedule inside the {@code Cipher}. Neither can be zeroed from
+ * here; both become garbage when the cipher goes out of scope (ADR 0008 residual risk).
  */
 public final class Aead {
     /** ADR 0005: AES-256 keys only. */
@@ -23,15 +28,28 @@ public final class Aead {
     private Aead() {
     }
 
-    /** Encrypts {@code plaintext}; returns ciphertext followed by the 16-byte tag. */
+    /**
+     * Encrypts {@code plaintext}; returns ciphertext followed by the 16-byte tag.
+     *
+     * <p>CONSUMES {@code freshKey}: it is closed when this method returns or throws, so the same
+     * key can never seal a second message. That is the structural guarantee behind the zero nonce
+     * (ADR 0005); reusing the key throws {@link IllegalStateException} {@code SECRET_CLOSED}.
+     */
     public static byte[] sealWithFreshKey(SecretBytes freshKey, SecretBytes plaintext, byte[] aad) throws CryptoException {
-        Objects.requireNonNull(aad, "aad");
-        Cipher cipher = initCipher(Cipher.ENCRYPT_MODE, freshKey, aad);
-        // Encrypt-side provider failures map to INTERNAL inside applyCrypto (SR-501).
-        return plaintext.applyCrypto(cipher::doFinal);
+        try (SecretBytes consumed = freshKey) {
+            Objects.requireNonNull(aad, "aad");
+            Cipher cipher = initCipher(Cipher.ENCRYPT_MODE, consumed, aad);
+            // Encrypt-side provider failures map to INTERNAL inside applyCrypto (SR-501).
+            return plaintext.applyCrypto(cipher::doFinal);
+        }
     }
 
-    /** Decrypts and verifies; any tampering yields {@link CryptoException.Code#AUTH_FAILED}. */
+    /**
+     * Decrypts and verifies; any tampering yields {@link CryptoException.Code#AUTH_FAILED}.
+     *
+     * <p>Does NOT consume {@code key}: decrypting is safe to repeat, and the caller may need the key
+     * to retry or re-derive. The caller still owns and must close it.
+     */
     public static SecretBytes openWithFreshKey(SecretBytes key, byte[] ciphertextAndTag, byte[] aad) throws CryptoException {
         Objects.requireNonNull(ciphertextAndTag, "ciphertextAndTag");
         Objects.requireNonNull(aad, "aad");
