@@ -55,7 +55,7 @@ public final class VaultFileStore implements AutoCloseable {
     private VaultFileStore(Path file, long byteLimit, FileChannel channel,
             FileLock fileLock, CrashHook hook) {
         this.file = file;
-        directory = file.getParent();
+        directory = parentOf(file);
         this.byteLimit = byteLimit;
         lockChannel = channel;
         this.fileLock = fileLock;
@@ -85,10 +85,12 @@ public final class VaultFileStore implements AutoCloseable {
         try {
             Path absolute = vaultFile.toAbsolutePath();
             Path name = absolute.getFileName();
-            if (name == null || name.toString().equals(".") || name.toString().equals("..")) {
+            Path requestedParent = absolute.getParent();
+            if (name == null || requestedParent == null
+                    || name.toString().equals(".") || name.toString().equals("..")) {
                 throw new StorageException(StorageException.Code.IO, null);
             }
-            Path parent = prepareDirectory(absolute.getParent());
+            Path parent = prepareDirectory(requestedParent);
             Path canonical = parent.resolve(name);
             checkRegularFile(canonical, true);
             if (!OPEN_PATHS.add(canonical)) {
@@ -117,7 +119,7 @@ public final class VaultFileStore implements AutoCloseable {
             channel = FileChannel.open(lockPath,
                     Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
                             LinkOption.NOFOLLOW_LINKS),
-                    OwnerOnly.creationAttributes(canonical.getParent(), false));
+                    OwnerOnly.creationAttributes(parentOf(canonical), false));
         } catch (FileAlreadyExistsException ex) {
             checkRegularFile(lockPath, false);
             channel = FileChannel.open(lockPath, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
@@ -143,21 +145,26 @@ public final class VaultFileStore implements AutoCloseable {
     }
 
     /**
-     * Checks whether a safe vault file exists without treating inspection errors as absence.
+     * Checks whether a safe vault file exists. I/O errors are not treated as absence, but a
+     * path holding anything other than a safe regular file reports false: {@link #readAll},
+     * {@link #backup} and {@link #writeAtomically} then refuse it with a {@link StorageException}.
      * @return whether a safe regular vault file currently exists
      * @throws IllegalStateException with a safe code if closed or inspection fails
      */
     public boolean exists() {
-        operationLock.lock();
         try {
-            ensureOpen();
-            checkDirectory();
-            return checkRegularFile(file, true);
-        } catch (IOException | StorageException | UnsupportedOperationException | SecurityException ex) {
-            StorageException safe = ex instanceof StorageException storage ? storage : translated(ex);
-            throw new IllegalStateException(safe.code().name(), safe);
-        } finally {
-            operationLock.unlock();
+            return locked(() -> {
+                checkDirectory();
+                try {
+                    return checkRegularFile(file, true);
+                } catch (StorageException unsafe) {
+                    // Something other than a safe regular file (a directory, link, or shared
+                    // file) is not a vault. Every read and write re-checks and fails closed.
+                    return false;
+                }
+            });
+        } catch (StorageException ex) {
+            throw new IllegalStateException(ex.code().name(), ex);
         }
     }
 
@@ -167,16 +174,10 @@ public final class VaultFileStore implements AutoCloseable {
      * @throws StorageException if missing, unsafe, oversized, or unreadable
      */
     public byte[] readAll() throws StorageException {
-        operationLock.lock();
-        try {
-            ensureOpen();
+        return locked(() -> {
             checkDirectory();
             return readFile(file);
-        } catch (IOException | UnsupportedOperationException | SecurityException ex) {
-            throw translated(ex);
-        } finally {
-            operationLock.unlock();
-        }
+        });
     }
 
     private byte[] readFile(Path source) throws IOException, StorageException {
@@ -216,19 +217,14 @@ public final class VaultFileStore implements AutoCloseable {
      */
     public void writeAtomically(byte[] data) throws StorageException {
         Objects.requireNonNull(data, "DATA");
-        operationLock.lock();
-        try {
-            ensureOpen();
+        locked(() -> {
             if (data.length > byteLimit) {
                 throw new StorageException(StorageException.Code.TOO_LARGE, null);
             }
             checkDirectory();
             writeFile(file, data.clone());
-        } catch (IOException | UnsupportedOperationException | SecurityException ex) {
-            throw translated(ex);
-        } finally {
-            operationLock.unlock();
-        }
+            return null;
+        });
     }
 
     private void writeFile(Path target, byte[] data) throws IOException, StorageException {
@@ -270,12 +266,10 @@ public final class VaultFileStore implements AutoCloseable {
      * @throws StorageException if reading, validating, rotating, or writing backups fails
      */
     public void backup() throws StorageException {
-        operationLock.lock();
-        try {
-            ensureOpen();
+        locked(() -> {
             checkDirectory();
             if (!checkRegularFile(file, true)) {
-                return;
+                return null;
             }
             byte[] contents = readFile(file);
             for (int index = 1; index <= BACKUP_COUNT; index++) {
@@ -291,11 +285,31 @@ public final class VaultFileStore implements AutoCloseable {
                 }
             }
             writeFile(backupPath(1), contents);
+            return null;
+        });
+    }
+
+    /**
+     * Runs {@code action} on an open store under {@link #operationLock}, translating I/O
+     * failures to code-only {@link StorageException}s (SR-501). The only place the lock is
+     * taken besides {@link #close} (LCK08-J).
+     */
+    private <T> T locked(StoreAction<T> action) throws StorageException {
+        operationLock.lock();
+        try {
+            ensureOpen();
+            return action.run();
         } catch (IOException | UnsupportedOperationException | SecurityException ex) {
             throw translated(ex);
         } finally {
             operationLock.unlock();
         }
+    }
+
+    /** Body of a locked store operation. */
+    @FunctionalInterface
+    private interface StoreAction<T> {
+        T run() throws IOException, StorageException;
     }
 
     private Path backupPath(int index) {
@@ -345,11 +359,12 @@ public final class VaultFileStore implements AutoCloseable {
         Deque<Path> missing = new ArrayDeque<>();
         Path existing = requested;
         while (!Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-            missing.push(existing.getFileName());
+            Path missingName = existing.getFileName();
             existing = existing.getParent();
-            if (existing == null) {
+            if (missingName == null || existing == null) {
                 throw new StorageException(StorageException.Code.IO, null);
             }
+            missing.push(missingName);
         }
         Path resolved = existing.toRealPath();
         while (!missing.isEmpty()) {
@@ -388,7 +403,7 @@ public final class VaultFileStore implements AutoCloseable {
             }
             if (!OwnerOnly.isOwnerOnly(path)
                     || !Files.getOwner(path, LinkOption.NOFOLLOW_LINKS)
-                            .equals(Files.getOwner(path.getParent(), LinkOption.NOFOLLOW_LINKS))) {
+                            .equals(Files.getOwner(parentOf(path), LinkOption.NOFOLLOW_LINKS))) {
                 throw new StorageException(StorageException.Code.PERMISSIONS, null);
             }
             return true;
@@ -413,7 +428,12 @@ public final class VaultFileStore implements AutoCloseable {
     }
 
     private static Path sibling(Path path, String suffix) {
-        return path.resolveSibling(path.getFileName().toString() + suffix);
+        return path.resolveSibling(Objects.requireNonNull(path.getFileName(), "NAME") + suffix);
+    }
+
+    /** Parent of an absolute vault-related path; never null for paths built by {@link #open}. */
+    private static Path parentOf(Path path) {
+        return Objects.requireNonNull(path.getParent(), "PARENT");
     }
 
     private static StorageException translated(Throwable error) {
@@ -431,7 +451,7 @@ public final class VaultFileStore implements AutoCloseable {
     private record TemporaryPath(Path path) implements AutoCloseable {
         @Override
         public void close() throws IOException {
-            boolean unused = Files.deleteIfExists(path);
+            Files.deleteIfExists(path);
         }
     }
 }

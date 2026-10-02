@@ -91,14 +91,14 @@ final class SymlinkRefusedTest {
             throws IOException {
         assumeTrue(root.getFileSystem().supportedFileAttributeViews().contains("posix"));
         Path directory = Files.createDirectory(root.resolve("shared"));
-        Path changed = Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxr-xr-x"));
+        Path changed = Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxr-x---"));
         assertEquals(StorageException.Code.PERMISSIONS,
                 assertThrows(StorageException.class, () -> {
                     try (VaultFileStore store = VaultFileStore.open(changed.resolve("vault.pmv"))) {
                         assertFalse(store.exists());
                     }
                 }).code());
-        assertEquals(PosixFilePermissions.fromString("rwxr-xr-x"), Files.getPosixFilePermissions(directory));
+        assertEquals(PosixFilePermissions.fromString("rwxr-x---"), Files.getPosixFilePermissions(directory));
     }
 
     private static void makeLink(Path link, Path target) throws IOException {
