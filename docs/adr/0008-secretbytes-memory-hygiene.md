@@ -20,13 +20,22 @@ All secret material in project code is held in `pm.crypto.SecretBytes`:
   no getter returns the internal array (OBJ05-J, FIO05-J).
 - `SecretChars` is the `char[]` twin for passphrase entry and converts to
   `SecretBytes` via UTF-8 with explicit charset, zeroing the char array.
-- Project logger (`SafeLog`) is allowlist-only: it logs `String`, `Boolean`,
-  `Character`, `UUID`, `Duration`, enum names, and JDK `Number`,
-  `TemporalAccessor` and `Path` values, and refuses everything else, including
-  `SecretBytes`, `SecretChars`, `byte[]`, `char[]`, and any class annotated
-  `@Sensitive` (which is `@Inherited`). Event codes must match
-  `[A-Z][A-Z0-9_]{0,63}`. The Semgrep rule `cert.FIO13-J.log-secret` backs it
-  statically.
+- `equals` and `hashCode` never throw, even after `close()` (amended
+  2026-10-02 after review): a closed secret equals only itself, and `hashCode`
+  stays the constant. So a closed secret left in a collection cannot make
+  `remove`/`contains` throw.
+- Project logger (`SafeLog`) is allowlist-only (amended 2026-10-02 after
+  review). It accepts exactly: `null`, `String`, `Boolean`, `Character`,
+  `UUID`, `Duration`, any `Enum` (logged by `name()`, never `toString()`),
+  `Integer`, `Long`, `Short`, `Byte`, `Float`, `Double`, and `java.base`
+  implementations of `TemporalAccessor` and `Path`. Everything else throws
+  `IllegalArgumentException`: `SECRET_ARG` for `SecretBytes`, `SecretChars`,
+  `byte[]`, `char[]` and `@Sensitive` types, and `UNLOGGABLE_ARG` for any other
+  type, **including `Throwable`** (a stack trace or message can carry a path or
+  a secret; log the exception's code enum instead). The event code must match
+  `[A-Z][A-Z0-9_]{0,63}`, else `BAD_EVENT_CODE`, so free text such as
+  `log.info("vault unlocked")` is refused. The Semgrep rule
+  `cert.FIO13-J.log-secret` backs it statically.
 - JVM launch flags in release: `-XX:-HeapDumpOnOutOfMemoryError`,
   `-XX:+DisableAttachMechanism`, no JMX, no JDWP (ENV05-J, ENV06-J).
 - Documented limitation: the JVM may copy arrays during GC; zeroing is
@@ -59,6 +68,34 @@ the library objects are still on the heap. These copies are accepted for M1.
 The JVM-level mitigation (no swap, for example by locking memory, and no core
 dumps) is deferred to a later milestone; until then the release launch flags
 above (no heap dump on OOM, no attach, no JMX, no JDWP) are the only control.
+
+## Residual risks in the API (amended 2026-10-02 after review)
+Two gaps remain by design. Code review must catch them; no gate does today.
+
+1. **`SafeLog` still accepts `String` and `Path`.** Either can carry a secret: a
+   passphrase already turned into a `String`, a recovery key put into a file
+   name, a TOTP seed inside a URL. `SafeLog` cannot tell such a value from a
+   harmless one. Keeping secrets out of `String` is MSC03-J's job
+   (`cert.MSC03-J.secret-in-string` and `@SecretBoundary`), and FIO13-J's
+   Semgrep rule flags secret-named arguments. Neither sees a secret held in a
+   variable with an innocent name. Residual: Possible / Medium.
+2. **`SecretBytes.apply` and `withBytes` trust the caller.** The callback gets
+   the live internal buffer. The `SECRET_ESCAPE` guard only catches a callback
+   that returns that exact array (an identity check). It does **not** catch:
+   - a wrapper around the buffer: `ByteBuffer.wrap(b)`, `List.of(b)`, a record
+     or lambda holding `b`;
+   - stashing `b` in a field, a collection, or a captured variable, including
+     from `withBytes`, which returns nothing and so has no guard at all;
+   - returning a **copy** (`b.clone()`, `Arrays.copyOf`, `new String(b, ...)`,
+     a hex string). The copy is a plain array or object that `close()` never
+     zeroes, so it stays on the heap until collected.
+
+   A wrapper or a stashed reference sees zeros after `close()`, but until then
+   it is a second live handle on the secret. Reviewers check every `apply` and
+   `withBytes` callback: the callback hands `b` only to a JCA/BC call that
+   consumes it, and returns a result that is not the secret, or wraps it at once
+   in `SecretBytes.takeOwnership`. Residual: Possible / Medium (same class as
+   R-003).
 
 ## Alternatives considered
 - `javax.security.auth.Destroyable` alone: no ownership semantics, no

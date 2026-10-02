@@ -12,7 +12,7 @@ rules:
     languages: [java]
     severity: ERROR
     message: "SR-017: only pm-crypto may construct SecureRandom."
-    paths: { exclude: ["modules/pm-crypto/**"] }
+    paths: { exclude: ["/modules/pm-crypto/**"] }
     pattern-either:
       - pattern: new SecureRandom(...)
       - pattern: SecureRandom.getInstanceStrong()
@@ -39,13 +39,13 @@ rules:
     languages: [java]
     severity: ERROR
     message: "SR-100/SR-102: only pm-approval may spawn processes."
-    paths: { exclude: ["modules/pm-approval/**", "modules/pm-platform-*/**"] }
+    paths: { exclude: ["/modules/pm-approval/**", "/modules/pm-platform-*/**"] }
     pattern: new ProcessBuilder(...)
   - id: cert.ERR09-J.system-exit
     languages: [java]
     severity: ERROR
     message: "ERR09-J: System.exit only in pm-cli Main."
-    paths: { exclude: ["modules/pm-cli/src/main/java/pm/cli/Main.java"] }
+    paths: { exclude: ["/modules/pm-cli/src/main/java/pm/cli/Main.java"] }
     pattern-either:
       - pattern: System.exit(...)
       - pattern: Runtime.getRuntime().halt(...)
@@ -82,7 +82,7 @@ rules:
   - id: cert.CT-compare.non-constant-time
     languages: [java]
     severity: ERROR
-    message: "SR-016: compare tags/keys/codes with MessageDigest.isEqual, not Arrays.equals/equals."
+    message: "SR-016: compare tags/keys/codes in constant time: pm.crypto.ConstantTime.equals outside pm.crypto (ArchUnit bans java.security there), MessageDigest.isEqual inside pm.crypto; never Arrays.equals/equals."
     pattern-either:
       - pattern: Arrays.equals($A, $B)
       - pattern: java.util.Arrays.equals($A, $B)
@@ -119,7 +119,11 @@ rules:
           - pattern: final String $V = ...;
       - metavariable-regex:
           metavariable: $V
-          regex: (?i)^(password|passphrase|secret|privatekey|private_key|apikey|api_key|token|vaultkey|recoverykey|masterkey|kek|dk)$
+          # The same secret words as FIO13-J below (keep the two lists in step), matched as the
+          # WHOLE variable name. The word-in-identifier form FIO13-J uses was tried here and
+          # rejected: it flags message and fixture constants (Messages.SECRET_MASK,
+          # Messages.EMPTY_CREDENTIAL, RFC5649_KEK_HEX) that hold no secret.
+          regex: (?i)^(password|passphrase|passwd|pass|pwd|pw|secret|privatekey|private_key|apikey|api_key|token|vaultkey|recoverykey|masterkey|keybytes|credentials?|seed|kek|dk|vk|rk)$
       - pattern-not-inside: |
           @SecretBoundary
           $RET $M(...) { ... }
@@ -145,13 +149,21 @@ rules:
               $LOG.$LEVEL(..., $M, ...);
       - metavariable-regex:
           metavariable: $S
-          # Skip an argument made only of string literals ("password", "a" + "b"): it is a
-          # message, not a secret value. Otherwise flag any of the MSC03-J secret words as a
-          # word inside an identifier: lower or Capitalized form not glued to more lowercase
-          # letters (password, userPass, MASTER_KEY, masterKey, pwdHash), so "passed",
+          # Flag a secret word that appears OUTSIDE string and char literals: the prefix consumes
+          # either non-quote characters or whole literals, so "password" and "pw=" + "x" are
+          # messages, not secret values, while "pw=" + password is flagged. A word must stand as a
+          # word inside an identifier: lower or Capitalized form not glued to more lowercase letters
+          # (password, userPass, MASTER_KEY, masterKey, pwdHash, newPw, vkB64), so "passed",
           # "bypass", "compass", "tokenizer" and "sdk" do not match. A plural "s" is allowed.
+          # Words are the contract names of ADR 0008 and team plan sections 2 and 5: password,
+          # passphrase, passwd, pass, pwd, pw, secret, privateKey, apiKey, token, vaultKey, recoveryKey,
+          # masterKey (masterkey, Masterkey, MASTER_KEY), keyBytes, credential(s), seed, kek, dk, vk, rk.
+          # Not included, because they are not false-positive free (checked against the repo and a
+          # scratch probe on 2026-10-02): key (publicKey, KeyType, KeyStroke, KEY_LEN, keyHex),
+          # kb (kilobytes: withMemoryAsKB, memoryKb), pin (Spin, SpinLock). Name a key variable
+          # with one of the listed words (dk, vk, kek, keyBytes) instead.
           regex: >-
-            ^(?!\s*"(?:[^"\\]|\\.)*"(?:\s*\+\s*"(?:[^"\\]|\\.)*")*\s*$)[\s\S]*?(?:(?:(?<![a-z])(?:password|passphrase|pass|pwd|secret|private_?[kK]ey|api_?[kK]ey|token|vault_?[kK]ey|recovery_?[kK]ey|master_?[kK]ey|kek|dk)|(?:Password|Passphrase|Pass|Pwd|Secret|Private_?Key|Api_?Key|Token|Vault_?Key|Recovery_?Key|Master_?Key|Kek|Dk))s?(?![a-z])|(?<![A-Z])(?:PASSWORD|PASSPHRASE|PASS|PWD|SECRET|PRIVATE_?KEY|API_?KEY|TOKEN|VAULT_?KEY|RECOVERY_?KEY|MASTER_?KEY|KEK|DK)S?(?![A-Z]))
+            ^(?:[^"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)')*?(?:(?:(?<![a-z])(?:password|passphrase|passwd|pass|pwd|pw|secret|private_?[kK]ey|api_?[kK]ey|token|vault_?[kK]ey|recovery_?[kK]ey|master_?[kK]ey|key_?[bB]ytes|credential|seed|kek|dk|vk|rk)|(?:Password|Passphrase|Passwd|Pass|Pwd|Pw|Secret|Private_?Key|Api_?Key|Token|Vault_?Key|Recovery_?Key|Master_?[kK]ey|Key_?Bytes|Credential|Seed|Kek|Dk|Vk|Rk))s?(?![a-z])|(?<![A-Z])(?:PASSWORD|PASSPHRASE|PASSWD|PASS|PWD|PW|SECRET|PRIVATE_?KEY|API_?KEY|TOKEN|VAULT_?KEY|RECOVERY_?KEY|MASTER_?KEY|KEY_?BYTES|CREDENTIAL|SEED|KEK|DK|VK|RK)S?(?![A-Z]))
       # Only logging/printing/writing calls; without this, every qualified call (assertEquals,
       # Kdf.argon2id(password, ...)) matched.
       - metavariable-regex:
@@ -166,7 +178,7 @@ rules:
     languages: [java]
     severity: ERROR
     message: "ENV02-J: read env through the validating accessor in pm-domain."
-    paths: { exclude: ["modules/pm-domain/src/main/java/pm/domain/env/**", "modules/pm-approval/**"] }
+    paths: { exclude: ["/modules/pm-domain/src/main/java/pm/domain/env/**", "/modules/pm-approval/**"] }
     pattern: System.getenv(...)
   - id: cert.ENV04-J.verify-none
     languages: [generic]

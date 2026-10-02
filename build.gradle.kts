@@ -113,8 +113,12 @@ val semgrepCert = tasks.register<Exec>("semgrepCert") {
     // Semgrep scans every non-git-ignored file under modules/ (tracked or not; verified with an
     // untracked probe file), so the Java file tree plus the ignore files fully determine the scan
     // set and `git ls-files` is not needed. The tree is a superset (it also contains git-ignored
-    // files), which can only cause an extra run, never a stale one.
-    inputs.files(fileTree("modules") { include("**/*.java"); exclude("**/build/**") })
+    // files), which can only cause an extra run, never a stale one. The single exclude is each
+    // module's own output dir (modules/<module>/build/), the same anchored path that .gitignore
+    // and .semgrepignore skip. An unanchored `**/build/**` would also drop a source package named
+    // `build` (src/main/java/pm/crypto/build/), which Semgrep does scan, and the report would go
+    // stale; keep all three anchored the same way.
+    inputs.files(fileTree("modules") { include("**/*.java"); exclude("*/build/**") })
         .withPropertyName("javaSources").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir("tools/cert-rules/semgrep")
         .withPropertyName("rules").withPathSensitivity(PathSensitivity.RELATIVE)

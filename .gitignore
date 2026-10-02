@@ -1,8 +1,15 @@
-# Java and Gradle build output
+# Java and Gradle build output. Output dirs are anchored to the repo root and to each module
+# (modules/<module>/) so a source package named `build`, `out` or `target`
+# (e.g. src/main/java/pm/crypto/build/) is never ignored. Keep in step with .semgrepignore and
+# the semgrepCert inputs in build.gradle.kts.
 .gradle/
-build/
-out/
-target/
+/build/
+/modules/build/
+/modules/*/build/
+/out/
+/modules/*/out/
+/target/
+/modules/*/target/
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
