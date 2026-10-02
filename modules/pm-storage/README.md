@@ -118,8 +118,8 @@ The full storage `check` also includes SpotBugs and is still blocked.
 ## Team work still pending
 
 - Lane E's GitHub username is still needed for the CLI/TUI CODEOWNERS entries.
-- Lane C has not implemented `VaultService` yet. Once it is available, coordinate
-  the sprint's `VaultPermissionsTest` in `pm-vault` with C before adding it.
+- Lane C's `VaultService` is now included from `main`. Coordinate the sprint's
+  `VaultPermissionsTest` in `pm-vault` with C before adding it.
 - Run storage tests on the existing Linux, macOS, and Windows CI matrix before
   signing off cross-platform permissions. A local Mac run cannot certify Windows.
 - Extend failure-path and platform coverage to meet the Tier 1 branch-coverage
