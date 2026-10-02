@@ -1,0 +1,31 @@
+#!/bin/sh
+# Builds (incrementally) and runs the pm CLI from its JPMS module path.
+#
+#   scripts/pm [--vault <path>] init | add-login | list | search <query> | tui
+#
+# PM_JAVA_HOME  JDK 21 home (default /opt/homebrew/opt/openjdk@21, else $JAVA_HOME)
+# PM_JAVA_OPTS  extra JVM options, e.g. -Xmx1200m for 1 GiB Argon2 vaults (ADR 0007)
+# PM_SKIP_BUILD=1 skips the Gradle step and runs the last built jars
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+jdk=${PM_JAVA_HOME:-/opt/homebrew/opt/openjdk@21}
+if [ ! -x "$jdk/bin/java" ]; then
+    jdk=${JAVA_HOME:-}
+fi
+if [ -z "$jdk" ] || [ ! -x "$jdk/bin/java" ]; then
+    echo "scripts/pm: no JDK 21 found; set PM_JAVA_HOME" >&2
+    exit 2
+fi
+
+if [ "${PM_SKIP_BUILD:-0}" != 1 ]; then
+    # stdin from /dev/null so the Gradle client cannot swallow terminal input meant for pm.
+    JAVA_HOME="$jdk" "$root/gradlew" -q -p "$root" \
+        "-Dorg.gradle.java.installations.paths=$jdk" \
+        :modules:pm-cli:installModules </dev/null >&2
+fi
+
+# shellcheck disable=SC2086 # PM_JAVA_OPTS is intentionally word-split
+exec "$jdk/bin/java" ${PM_JAVA_OPTS:-} \
+    -p "$root/modules/pm-cli/build/modules" -m pm.cli/pm.cli.Main "$@"
