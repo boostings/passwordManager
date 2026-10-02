@@ -1,20 +1,24 @@
-# Review routing. Replace placeholder handles with real team members before M1.
+# Review routing. Lane E's GitHub handle remains to be supplied before M1.
 # Tier 1 (security-critical) paths require two approving reviews (branch protection).
 
 # Security owner: signs off milestone security exit criteria and CERT exceptions.
-*                                   @TEAM-SECURITY-OWNER
+*                                   @boostings
 
 # Tier 1 modules
-modules/pm-crypto/                  @TEAM-SECURITY-OWNER @TEAM-CRYPTO-REVIEWER
-modules/pm-vault/                   @TEAM-SECURITY-OWNER @TEAM-CRYPTO-REVIEWER
-modules/pm-storage/                 @TEAM-SECURITY-OWNER @TEAM-BACKEND-REVIEWER
-modules/pm-approval/                @TEAM-SECURITY-OWNER @TEAM-BACKEND-REVIEWER
-modules/pm-sharing/                 @TEAM-SECURITY-OWNER @TEAM-NETWORK-REVIEWER
-modules/pm-browser/                 @TEAM-SECURITY-OWNER @TEAM-NETWORK-REVIEWER
+modules/pm-crypto/                  @boostings @bzgoering
+modules/pm-vault/                   @boostings @bzgoering
+modules/pm-storage/                 @boostings @Ra1ny1
+modules/pm-approval/                @boostings @Ra1ny1
+modules/pm-sharing/                 @boostings @M0hayan
+modules/pm-browser/                 @boostings @M0hayan
+
+# Add Lane E to these two paths when their GitHub handle is confirmed.
+modules/pm-tui/                     @boostings
+modules/pm-cli/                     @boostings
 
 # Security documentation, rule packs, and CI
-docs/security/                      @TEAM-SECURITY-OWNER
-docs/adr/                           @TEAM-SECURITY-OWNER
-tools/cert-rules/                   @TEAM-SECURITY-OWNER
-.github/workflows/                  @TEAM-SECURITY-OWNER
-RULES.md                            @TEAM-SECURITY-OWNER
+docs/security/                      @boostings
+docs/adr/                           @boostings
+tools/cert-rules/                   @boostings
+.github/workflows/                  @boostings
+RULES.md                            @boostings
