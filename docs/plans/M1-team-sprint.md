@@ -98,7 +98,7 @@ pm.cli      requires pm.tui;                              (exports nothing)
 
 Module-graph notes (amended 2026-10-02 after review):
 - `pm.tui` declares `requires transitive com.googlecode.lanterna`, not a plain `requires`. `TuiApp.run(Terminal)` is public API that takes a Lanterna type, and `javac -Xlint:exports` under `-Werror` fails the build unless the module passes Lanterna on to its readers. So `pm.cli` reads Lanterna through `pm.tui` and needs no `requires` of its own. Lane E has done this in code.
-- `pm.crypto` also `requires java.management`. `Kdf` reads the max and used heap through `MemoryMXBean` for the Argon2id heap budget, because the ArchUnit process rule bans `java.lang.Runtime`.
+- `pm.crypto` needs no `java.management`. `Kdf` reads the max and used heap from `Runtime` for the Argon2id heap budget; the ArchUnit process rule bans only `Runtime.exec`, `ProcessBuilder` and `ProcessHandle` outside pm-approval (amended 2026-10-02 after review).
 
 Gradle wiring: in `pm-vault`, `api(project(":modules:pm-crypto"))` and `api(project(":modules:pm-storage"))`. In `pm-tui`, `api(project(":modules:pm-vault"))`. In `pm-cli`, `implementation(project(":modules:pm-tui"))`. In `pm-fuzz`, `testImplementation(project(":modules:pm-vault"))`. Each owner adds their own module's project dependencies in Phase 1.
 
