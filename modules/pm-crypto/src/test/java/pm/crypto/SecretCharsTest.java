@@ -50,7 +50,7 @@ class SecretCharsTest {
 
     @Test
     void emojiSurrogatePairRoundTrip() {
-        String text = "a" + new String(Character.toChars(GRINNING_FACE)) + "b";
+        String text = "a" + Character.toString(GRINNING_FACE) + "b";
         assertEquals(4, text.length());
         assertUtf8RoundTrip(text);
         byte[] expected = {'a', (byte) 0xF0, (byte) 0x9F, (byte) 0x98, (byte) 0x80, 'b'};

@@ -53,10 +53,9 @@ class SecretBytesTest {
         try (SecretBytes sb = SecretBytes.copyOf(SAMPLE);
                 SecretBytes open = SecretBytes.copyOf(SAMPLE)) {
             closeEarly(sb);
-            Object closedAlias = sb;
             assertThrows(IllegalStateException.class, () -> assertTrue(sb.equals(open)));
             assertThrows(IllegalStateException.class, () -> assertTrue(open.equals(sb)));
-            assertThrows(IllegalStateException.class, () -> assertTrue(sb.equals(closedAlias)));
+            assertThrows(IllegalStateException.class, () -> assertTrue(sb.equals(sameReference(sb))));
         }
     }
 
@@ -153,8 +152,7 @@ class SecretBytesTest {
     @Test
     void sameInstanceIsEqualWhileOpen() {
         try (SecretBytes sb = SecretBytes.copyOf(SAMPLE)) {
-            Object alias = sb;
-            assertTrue(sb.equals(alias));
+            assertTrue(sb.equals(sameReference(sb)));
         }
     }
 
@@ -184,5 +182,10 @@ class SecretBytesTest {
             assertFalse(a.equals(plainArray));
             assertFalse(a.equals(text));
         }
+    }
+
+    /** Returns its argument as Object so self-equality can be tested without an Error Prone SelfEquals hit. */
+    private static Object sameReference(SecretBytes sb) {
+        return sb;
     }
 }
