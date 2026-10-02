@@ -7,6 +7,12 @@
         <Method name="initCipher"/>
         <Bug pattern="CIPHER_INTEGRITY"/>
     </Match>
+    <!-- CE-004: refuseEscape must compare the generic result to the buffer by reference. -->
+    <Match>
+        <Class name="pm.crypto.SecretBytes"/>
+        <Method name="refuseEscape"/>
+        <Bug pattern="EC_UNRELATED_TYPES_USING_POINTER_EQUALITY"/>
+    </Match>
     <!-- CE-003: holder records intentionally hand the caller a live vault/session handle (ownership transfer). -->
     <Match>
         <Class name="pm.vault.CreatedVault"/>
