@@ -1,5 +1,6 @@
 package pm.crypto;
 
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Objects;
@@ -56,6 +57,21 @@ public final class SecretBytes implements AutoCloseable {
         Objects.requireNonNull(fn, "fn");
         ensureOpen();
         return fn.apply(buf);
+    }
+
+    /**
+     * Applies a JCA operation to the internal buffer. Any {@link GeneralSecurityException} becomes
+     * {@link CryptoException.Code#INTERNAL} with no cause and no provider text (SR-501, ERR01-J).
+     * {@code fn} must not retain or return the buffer.
+     */
+    <R> R applyCrypto(CryptoFunction<byte[], R> fn) throws CryptoException {
+        Objects.requireNonNull(fn, "fn");
+        ensureOpen();
+        try {
+            return fn.apply(buf);
+        } catch (GeneralSecurityException e) {
+            throw new CryptoException(CryptoException.Code.INTERNAL);
+        }
     }
 
     /** Whether {@link #close()} has run. */

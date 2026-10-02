@@ -1,8 +1,8 @@
 package pm.crypto;
 
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.ToLongFunction;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
@@ -41,17 +41,22 @@ public final class Kdf {
      * (ADR 0007): double memory up to 1 GiB first, then raise iterations up to 10.
      */
     public static Argon2Params tune(Duration target) {
+        return tune(target, Kdf::timeOnce);
+    }
+
+    /** {@link #tune(Duration)} with an injectable timer (nanoseconds per run) so tests need not run Argon2. */
+    static Argon2Params tune(Duration target, ToLongFunction<Argon2Params> timer) {
         long targetNanos = target.toNanos();
         Argon2Params p = Argon2Params.FLOOR;
-        long elapsed = timeOnce(p);
+        long elapsed = timer.applyAsLong(p);
         while (elapsed < targetNanos && p.memoryKiB() < Argon2Params.MAX_MEMORY_KIB) {
             int memory = Math.min(p.memoryKiB() * TUNE_MEMORY_FACTOR, Argon2Params.MAX_MEMORY_KIB);
             p = new Argon2Params(memory, p.iterations(), p.parallelism());
-            elapsed = timeOnce(p);
+            elapsed = timer.applyAsLong(p);
         }
         while (elapsed < targetNanos && p.iterations() < Argon2Params.MAX_ITERATIONS) {
             p = new Argon2Params(p.memoryKiB(), p.iterations() + 1, p.parallelism());
-            elapsed = timeOnce(p);
+            elapsed = timer.applyAsLong(p);
         }
         return p;
     }
@@ -65,11 +70,9 @@ public final class Kdf {
         // HKDFParameters keeps its own copy of the IKM; that copy is unreachable once gen goes out of scope.
         ikm.withBytes(in -> gen.init(new HKDFParameters(in, salt, info)));
         byte[] out = new byte[outLen];
-        int written = gen.generateBytes(out, 0, outLen);
-        if (written != outLen) {
-            Arrays.fill(out, (byte) 0);
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
+        // Bouncy Castle's HKDFBytesGenerator.generateBytes returns exactly outLen or throws
+        // DataLengthException past 255 * HashLen; outLen is bounded above, so no length check is needed.
+        gen.generateBytes(out, 0, outLen);
         return SecretBytes.takeOwnership(out);
     }
 

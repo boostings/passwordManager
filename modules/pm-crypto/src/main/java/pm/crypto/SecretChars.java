@@ -53,10 +53,12 @@ public final class SecretChars implements AutoCloseable {
         ByteBuffer encoded = ByteBuffer.allocate(Math.multiplyExact(buf.length, MAX_UTF8_BYTES_PER_CHAR));
         try {
             CoderResult result = encoder.encode(CharBuffer.wrap(buf), encoded, true);
-            if (!result.isUnderflow()) {
-                result.throwException();
+            // UTF-8 is stateless and the buffer is sized for the worst case, so flush always
+            // underflows. Its result still flows into the single check below rather than a
+            // second, never-taken branch; malformed input skips the flush and fails here.
+            if (result.isUnderflow()) {
+                result = encoder.flush(encoded);
             }
-            result = encoder.flush(encoded);
             if (!result.isUnderflow()) {
                 result.throwException();
             }

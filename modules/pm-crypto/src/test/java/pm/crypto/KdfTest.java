@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
@@ -131,6 +132,45 @@ class KdfTest {
     @Test
     void tuneWithTinyTargetReturnsFloorAfterOneMeasurement() {
         assertEquals(Argon2Params.FLOOR, Kdf.tune(Duration.ofMillis(1)));
+    }
+
+    // ---- tune with a fake timer: exercises both loops without running Argon2 -----------------
+
+    private static final Duration TARGET = Duration.ofSeconds(1);
+    private static final long TARGET_NANOS = TARGET.toNanos();
+    private static final int MID_MEMORY_KIB = 262_144;
+    private static final int MID_ITERATIONS = 5;
+
+    @Test
+    void tuneReachingTargetImmediatelyMeasuresOnceAndReturnsFloor() {
+        AtomicInteger calls = new AtomicInteger();
+        Argon2Params tuned = Kdf.tune(TARGET, p -> {
+            calls.incrementAndGet();
+            return TARGET_NANOS;
+        });
+        assertEquals(Argon2Params.FLOOR, tuned);
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void tuneNeverReachingTargetClimbsToMaxMemoryThenMaxIterations() {
+        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L);
+        assertEquals(new Argon2Params(Argon2Params.MAX_MEMORY_KIB, Argon2Params.MAX_ITERATIONS,
+                Argon2Params.FLOOR.parallelism()), tuned);
+    }
+
+    @Test
+    void tuneReachingTargetMidMemoryStopsBeforeIterations() {
+        Argon2Params tuned = Kdf.tune(TARGET, p -> p.memoryKiB() >= MID_MEMORY_KIB ? TARGET_NANOS : 0L);
+        assertEquals(new Argon2Params(MID_MEMORY_KIB, Argon2Params.FLOOR.iterations(),
+                Argon2Params.FLOOR.parallelism()), tuned);
+    }
+
+    @Test
+    void tuneReachingTargetMidIterationsStopsThere() {
+        Argon2Params tuned = Kdf.tune(TARGET, p -> p.iterations() >= MID_ITERATIONS ? TARGET_NANOS : 0L);
+        assertEquals(new Argon2Params(Argon2Params.MAX_MEMORY_KIB, MID_ITERATIONS,
+                Argon2Params.FLOOR.parallelism()), tuned);
     }
 
     // ---- HKDF-SHA256 ----------------------------------------------------------------------

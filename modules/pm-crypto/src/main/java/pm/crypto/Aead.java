@@ -27,11 +27,8 @@ public final class Aead {
     public static byte[] sealWithFreshKey(SecretBytes freshKey, SecretBytes plaintext, byte[] aad) throws CryptoException {
         Objects.requireNonNull(aad, "aad");
         Cipher cipher = initCipher(Cipher.ENCRYPT_MODE, freshKey, aad);
-        byte[] sealed = plaintext.apply(in -> doFinalOrEmpty(cipher, in));
-        if (sealed.length == 0) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
-        return sealed;
+        // Encrypt-side provider failures map to INTERNAL inside applyCrypto (SR-501).
+        return plaintext.applyCrypto(cipher::doFinal);
     }
 
     /** Decrypts and verifies; any tampering yields {@link CryptoException.Code#AUTH_FAILED}. */
@@ -54,35 +51,12 @@ public final class Aead {
         if (key.length() != KEY_LEN) {
             throw new CryptoException(CryptoException.Code.BAD_INPUT);
         }
-        Cipher cipher;
-        try {
-            cipher = Cipher.getInstance(TRANSFORMATION);
-        } catch (GeneralSecurityException e) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
-        boolean ok = key.apply(kb -> initOrFalse(cipher, mode, kb));
-        if (!ok) {
-            throw new CryptoException(CryptoException.Code.INTERNAL);
-        }
+        Cipher cipher = key.applyCrypto(kb -> {
+            Cipher c = Cipher.getInstance(TRANSFORMATION);
+            c.init(mode, new SecretKeySpec(kb, AES), new GCMParameterSpec(TAG_BITS, new byte[NONCE_LEN]));
+            return c;
+        });
         cipher.updateAAD(aad);
         return cipher;
-    }
-
-    private static boolean initOrFalse(Cipher cipher, int mode, byte[] keyBytes) {
-        try {
-            SecretKeySpec spec = new SecretKeySpec(keyBytes, AES);
-            cipher.init(mode, spec, new GCMParameterSpec(TAG_BITS, new byte[NONCE_LEN]));
-            return true;
-        } catch (GeneralSecurityException e) {
-            return false;
-        }
-    }
-
-    private static byte[] doFinalOrEmpty(Cipher cipher, byte[] in) {
-        try {
-            return cipher.doFinal(in);
-        } catch (GeneralSecurityException e) {
-            return new byte[0];
-        }
     }
 }
