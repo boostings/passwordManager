@@ -134,7 +134,13 @@ rules:
           - pattern: System.err.println($S)
       - metavariable-regex:
           metavariable: $S
-          regex: (?i).*(password|passphrase|secret|privatekey|vaultkey|recoverykey).*
+          # A bare string literal is a message, not a secret value.
+          regex: (?i)^(?!"[^"]*"$).*(password|passphrase|secret|privatekey|vaultkey|recoverykey).*
+      # Only logging/printing calls; without this, every qualified call (assertEquals,
+      # Kdf.argon2id(password, ...)) matched.
+      - metavariable-regex:
+          metavariable: $LEVEL
+          regex: ^(trace|debug|info|warn|warning|error|fatal|severe|config|fine|finer|finest|log|print|println|printf|format)$
   - id: cert.ENV02-J.getenv-outside-accessor
     languages: [java]
     severity: ERROR

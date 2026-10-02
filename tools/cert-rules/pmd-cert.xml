@@ -29,14 +29,14 @@
   <rule ref="category/java/design.xml/MutableStaticState"/>                      <!-- OBJ10-J -->
   <rule ref="category/java/errorprone.xml/ProperCloneImplementation"/>
   <!-- MSC / NUM / STR -->
-  <rule ref="category/java/errorprone.xml/EmptyControlStatement"/>               <!-- MSC01-J -->
+  <rule ref="category/java/codestyle.xml/EmptyControlStatement"/>                <!-- MSC01-J -->
   <rule ref="category/java/errorprone.xml/AvoidLiteralsInIfCondition"/>
   <rule ref="category/java/bestpractices.xml/AvoidUsingHardCodedIP"/>            <!-- MSC03-J -->
   <rule ref="category/java/errorprone.xml/AvoidDecimalLiteralsInBigDecimalConstructor"/> <!-- NUM10-J -->
-  <rule ref="category/java/errorprone.xml/BadComparison"/>                       <!-- NUM07-J -->
+  <rule ref="category/java/errorprone.xml/ComparisonWithNaN"/>                   <!-- NUM07-J -->
   <rule ref="category/java/errorprone.xml/AvoidUsingOctalValues"/>
   <rule ref="category/java/errorprone.xml/ImplicitSwitchFallThrough"/>
-  <rule ref="category/java/errorprone.xml/AvoidLosingExceptionInformation"/>
+  <rule ref="category/java/errorprone.xml/UselessPureMethodCall"/>          <!-- replaces AvoidLosingExceptionInformation (deprecated in PMD 7.17) -->
   <rule ref="category/java/bestpractices.xml/UseTryWithResources"/>             <!-- FIO04-J -->
   <rule ref="category/java/errorprone.xml/CloseResource"/>                       <!-- FIO04-J -->
   <rule ref="category/java/errorprone.xml/AvoidCallingFinalize"/>                <!-- MET12-J -->

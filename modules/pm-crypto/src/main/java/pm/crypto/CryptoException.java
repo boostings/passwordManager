@@ -16,16 +16,16 @@ public final class CryptoException extends Exception {
         INTERNAL
     }
 
-    private final Code code;
+    private final Code errorCode;
 
     /** Creates an exception whose message is {@code code.name()}. */
     public CryptoException(Code code) {
         super(code.name());
-        this.code = code;
+        this.errorCode = code;
     }
 
     /** The error code. */
     public Code code() {
-        return code;
+        return errorCode;
     }
 }
