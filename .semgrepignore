@@ -1,5 +1,9 @@
 # Replaces Semgrep's default ignore list, which skips test directories. RULES.md applies to
 # production, test, and build code alike (CONTRIBUTING.md), so tests are scanned.
-build/
-.gradle/
-.claude/
+# Every entry is anchored to the repo root: an unanchored `build/` would also skip a source
+# package named `build` (e.g. src/main/java/pm/crypto/build/). There is no buildSrc/ today;
+# add `/buildSrc/build/` if one is introduced.
+/build/
+/modules/*/build/
+/.gradle/
+/.claude/
