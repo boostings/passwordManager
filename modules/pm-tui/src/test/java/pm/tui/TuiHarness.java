@@ -1,0 +1,198 @@
+package pm.tui;
+
+import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.gui2.MultiWindowTextGUI;
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
+import com.googlecode.lanterna.screen.TerminalScreen;
+import com.googlecode.lanterna.terminal.virtual.DefaultVirtualTerminal;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Headless TUI driver: a {@link DefaultVirtualTerminal} under a real {@link TerminalScreen} and
+ * {@link MultiWindowTextGUI}, pumped explicitly on the test thread (the GUI uses
+ * {@code SameTextGUIThread}, so the thread that builds it is the GUI thread). Time is a manual
+ * clock and the idle timer is a {@link FakeTimers}, so nothing sleeps.
+ */
+final class TuiHarness implements AutoCloseable {
+    static final Duration TIMEOUT = Duration.ofMinutes(5);
+    private static final int COLUMNS = 110;
+    private static final int ROWS = 32;
+    private static final int MAX_PUMPS = 100;
+
+    final DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(COLUMNS, ROWS));
+    final FakeVaultPort port;
+    final FakeTimers timers = new FakeTimers();
+    final ManualClock clock = new ManualClock(FakeVaultPort.T0);
+    final TuiController controller;
+    private final TerminalScreen screen;
+    private final MultiWindowTextGUI gui;
+    private final List<String> frames = new ArrayList<>();
+
+    TuiHarness(FakeVaultPort port) throws IOException {
+        this.port = port;
+        screen = new TerminalScreen(terminal);
+        screen.startScreen();
+        gui = new MultiWindowTextGUI(screen);
+        controller = new TuiController(gui, port, TIMEOUT, timers, clock);
+        controller.start();
+        pump();
+    }
+
+    /** Processes all queued input and GUI tasks, then records the rendered frame. */
+    void pump() {
+        try {
+            int rounds = 0;
+            while (gui.getGUIThread().processEventsAndUpdate() && rounds < MAX_PUMPS) {
+                rounds++;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        frames.add(screenText());
+    }
+
+    /** Types {@code text} one character at a time, then pumps. */
+    void type(String text) {
+        text.chars().forEach(c -> terminal.addInput(new KeyStroke((char) c, false, false)));
+        pump();
+    }
+
+    /** Presses each key in order, then pumps. */
+    void press(KeyType... keys) {
+        for (KeyType k : keys) {
+            terminal.addInput(new KeyStroke(k));
+        }
+        pump();
+    }
+
+    /** Runs the controller's status tick, then pumps. */
+    void tick() {
+        controller.tick();
+        pump();
+    }
+
+    /** Unlocks with {@code credential} through the passphrase button (Enter moves to it). */
+    void unlockWith(String credential) {
+        type(credential);
+        press(KeyType.Enter, KeyType.Enter);
+    }
+
+    /** The visible screen, one line per row. */
+    String screenText() {
+        StringBuilder sb = new StringBuilder();
+        TerminalSize size = terminal.getTerminalSize();
+        for (int row = 0; row < size.getRows(); row++) {
+            for (int col = 0; col < size.getColumns(); col++) {
+                sb.append(terminal.getCharacter(col, row).getCharacterString());
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** Every line in the terminal's current buffer, including scrollback. */
+    String bufferText() {
+        StringBuilder sb = new StringBuilder();
+        int columns = terminal.getTerminalSize().getColumns();
+        terminal.forEachLine(0, terminal.getBufferLineCount() - 1, (row, line) -> {
+            for (int col = 0; col < columns; col++) {
+                sb.append(line.getCharacterAt(col).getCharacterString());
+            }
+            sb.append('\n');
+        });
+        return sb.toString();
+    }
+
+    /** Every frame rendered since the harness started. */
+    List<String> renderedFrames() {
+        return frames;
+    }
+
+    @Override
+    public void close() throws IOException {
+        controller.quit();
+        screen.stopScreen();
+    }
+
+    /** {@link TuiController.IdleTimerFactory} whose expiry is fired by hand. */
+    static final class FakeTimers implements TuiController.IdleTimerFactory {
+        private final List<Runnable> onLocks = new ArrayList<>();
+        private int touchCount;
+        private int closeCount;
+
+        @Override
+        public TuiController.IdleTimer start(Duration timeout, Runnable onLock) {
+            onLocks.add(onLock);
+            return new TuiController.IdleTimer() {
+                @Override
+                public void touch() {
+                    touchCount++;
+                }
+
+                @Override
+                public void close() {
+                    closeCount++;
+                }
+            };
+        }
+
+        /** Simulates the expiry of the most recently started timer (as IdleLock would). */
+        void fireLatest() {
+            onLocks.get(onLocks.size() - 1).run();
+        }
+
+        /** Simulates the expiry of the {@code index}-th started timer. */
+        void fire(int index) {
+            onLocks.get(index).run();
+        }
+
+        int started() {
+            return onLocks.size();
+        }
+
+        int touches() {
+            return touchCount;
+        }
+
+        int closes() {
+            return closeCount;
+        }
+    }
+
+    /** Clock advanced by hand. */
+    static final class ManualClock extends Clock {
+        private Instant now;
+
+        ManualClock(Instant start) {
+            now = start;
+        }
+
+        void advance(Duration d) {
+            now = now.plus(d);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+}
