@@ -4,84 +4,124 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * RFC 8949 §4.2.1 deterministic encoder for the CBOR subset of the ADR 0006 amendment:
+ * shortest argument encoding, definite lengths only, map keys sorted by the bytewise
+ * lexicographic order of their encoded form.
+ */
 public final class CborWriter {
+    static final int MAJOR_UINT = 0;
+    static final int MAJOR_BYTES = 2;
+    static final int MAJOR_TEXT = 3;
+    static final int MAJOR_ARRAY = 4;
+    static final int MAJOR_MAP = 5;
+    static final int MAJOR_SHIFT = 5;
+    /** Largest argument stored directly in the initial byte. */
+    static final int MAX_INLINE = 23;
+    static final int ARG_1_BYTE = 24;
+    static final int ARG_2_BYTES = 25;
+    static final int ARG_4_BYTES = 26;
+    static final int ARG_8_BYTES = 27;
+    static final long MAX_1_BYTE = 0xFFL;
+    static final long MAX_2_BYTES = 0xFFFFL;
+    static final long MAX_4_BYTES = 0xFFFF_FFFFL;
+    static final int FALSE_BYTE = 0xF4;
+    static final int TRUE_BYTE = 0xF5;
+    private static final int BYTE_BITS = 8;
+    private static final int BYTE_MASK = 0xFF;
+
     private CborWriter() {}
 
+    /**
+     * Encodes a value deterministically.
+     *
+     * @param value the value tree, never null
+     * @return the canonical encoding
+     */
     public static byte[] encode(CborValue value) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeValue(out, value);
         return out.toByteArray();
     }
 
+    /**
+     * Bytewise unsigned lexicographic comparison of two encoded map keys (RFC 8949 §4.2.1).
+     * Keys are not secret, so this short-circuits by design; it is not {@code Arrays.compare}
+     * only because SR-016 bans that call on byte arrays outside pm-crypto.
+     */
+    static int compareKeys(byte[] left, byte[] right) {
+        int common = Math.min(left.length, right.length);
+        for (int i = 0; i < common; i++) {
+            int diff = (left[i] & BYTE_MASK) - (right[i] & BYTE_MASK);
+            if (diff != 0) {
+                return diff;
+            }
+        }
+        return left.length - right.length;
+    }
+
     private static void writeValue(ByteArrayOutputStream out, CborValue value) {
-        if (value instanceof CborValue.UInt u) {
-            writeUnsigned(out, 0, u.value());
-        } else if (value instanceof CborValue.Bytes b) {
-            writeByteString(out, b.value());
-        } else if (value instanceof CborValue.Text t) {
-            byte[] textBytes = t.value().getBytes(StandardCharsets.UTF_8);
-            writeUnsigned(out, 3, textBytes.length);
-            out.writeBytes(textBytes);
-        } else if (value instanceof CborValue.Array a) {
-            writeUnsigned(out, 4, a.items().size());
-            for (CborValue item : a.items()) {
-                writeValue(out, item);
+        switch (value) {
+            case CborValue.UInt u -> writeUnsigned(out, MAJOR_UINT, u.value());
+            case CborValue.Bytes b -> {
+                byte[] copy = b.value();
+                writeUnsigned(out, MAJOR_BYTES, copy.length);
+                out.writeBytes(copy);
+                Arrays.fill(copy, (byte) 0); // best-effort wipe of a possible secret (R-003)
             }
-        } else if (value instanceof CborValue.MapV m) {
-            List<Map.Entry<String, CborValue>> entries = new ArrayList<>(m.entries().entrySet());
-            entries.sort(Comparator.comparing(
-                entry -> CborWriter.encode(new CborValue.Text(entry.getKey())),
-                (left, right) -> Arrays.compareUnsigned(left, right)
-            ));
-            writeUnsigned(out, 5, entries.size());
-            for (Map.Entry<String, CborValue> entry : entries) {
-                writeValue(out, new CborValue.Text(entry.getKey()));
-                writeValue(out, entry.getValue());
+            case CborValue.Text t -> {
+                byte[] textBytes = t.value().getBytes(StandardCharsets.UTF_8);
+                writeUnsigned(out, MAJOR_TEXT, textBytes.length);
+                out.writeBytes(textBytes);
             }
-        } else if (value instanceof CborValue.Bool b) {
-            out.write(b.value() ? 0xF5 : 0xF4);
-        } else {
-            throw new IllegalArgumentException("Unsupported CBOR value: " + value);
+            case CborValue.Array a -> {
+                writeUnsigned(out, MAJOR_ARRAY, a.items().size());
+                for (CborValue item : a.items()) {
+                    writeValue(out, item);
+                }
+            }
+            case CborValue.MapV m -> writeMap(out, m);
+            case CborValue.Bool b -> out.write(b.value() ? TRUE_BYTE : FALSE_BYTE);
         }
     }
 
-    private static void writeByteString(ByteArrayOutputStream out, byte[] value) {
-        writeUnsigned(out, 2, value.length);
-        out.writeBytes(value);
+    private static void writeMap(ByteArrayOutputStream out, CborValue.MapV m) {
+        List<Map.Entry<byte[], CborValue>> entries = new ArrayList<>(m.entries().size());
+        for (Map.Entry<String, CborValue> entry : m.entries().entrySet()) {
+            entries.add(Map.entry(encode(new CborValue.Text(entry.getKey())), entry.getValue()));
+        }
+        entries.sort((left, right) -> compareKeys(left.getKey(), right.getKey()));
+        writeUnsigned(out, MAJOR_MAP, entries.size());
+        for (Map.Entry<byte[], CborValue> entry : entries) {
+            out.writeBytes(entry.getKey());
+            writeValue(out, entry.getValue());
+        }
     }
 
     private static void writeUnsigned(ByteArrayOutputStream out, int majorType, long value) {
-        long encoded = value;
-        if (encoded < 24) {
-            out.write((majorType << 5) | (int) encoded);
+        int major = majorType << MAJOR_SHIFT;
+        int argBytes;
+        if (value <= MAX_INLINE) {
+            out.write(major | (int) value);
             return;
+        } else if (value <= MAX_1_BYTE) {
+            out.write(major | ARG_1_BYTE);
+            argBytes = Byte.BYTES;
+        } else if (value <= MAX_2_BYTES) {
+            out.write(major | ARG_2_BYTES);
+            argBytes = Short.BYTES;
+        } else if (value <= MAX_4_BYTES) {
+            out.write(major | ARG_4_BYTES);
+            argBytes = Integer.BYTES;
+        } else {
+            out.write(major | ARG_8_BYTES);
+            argBytes = Long.BYTES;
         }
-        if (encoded < 1 << 8) {
-            out.write((majorType << 5) | 24);
-            out.write((int) encoded);
-            return;
-        }
-        if (encoded < 1 << 16) {
-            out.write((majorType << 5) | 25);
-            out.write((int) (encoded >>> 8));
-            out.write((int) encoded);
-            return;
-        }
-        if (encoded < (1L << 32)) {
-            out.write((majorType << 5) | 26);
-            out.write((int) (encoded >>> 24));
-            out.write((int) (encoded >>> 16));
-            out.write((int) (encoded >>> 8));
-            out.write((int) encoded);
-            return;
-        }
-        out.write((majorType << 5) | 27);
-        for (int shift = 56; shift >= 0; shift -= 8) {
-            out.write((int) ((encoded >>> shift) & 0xFF));
+        for (int shift = (argBytes - 1) * BYTE_BITS; shift >= 0; shift -= BYTE_BITS) {
+            out.write((int) ((value >>> shift) & BYTE_MASK));
         }
     }
 }

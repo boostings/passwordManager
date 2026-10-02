@@ -1,23 +1,52 @@
 package pm.vault.cbor;
 
-public class CborException extends Exception {
+import java.util.Objects;
+
+/**
+ * CBOR decode failure (ADR 0006 amendment). The message is the code name only, never input
+ * content (SR-501, ERR01-J).
+ */
+public final class CborException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    public enum Code { MALFORMED, LIMIT, NON_CANONICAL }
-
-    private final Code code;
-
-    public CborException(Code code, String message) {
-        super(message);
-        this.code = code;
+    /** Failure classes. */
+    public enum Code {
+        /** Input is not well-formed CBOR of the accepted subset. */
+        MALFORMED,
+        /** A {@link CborLimits} bound was exceeded. */
+        LIMIT,
+        /** Input is well-formed but not in deterministic form (RFC 8949 §4.2.1). */
+        NON_CANONICAL
     }
 
-    public CborException(Code code, String message, Throwable cause) {
-        super(message, cause);
-        this.code = code;
+    private final Code failure;
+
+    /**
+     * Creates an exception whose message is {@code code.name()}.
+     *
+     * @param code failure class, never null
+     */
+    public CborException(Code code) {
+        this(code, null);
     }
 
+    /**
+     * Creates an exception whose message is {@code code.name()}.
+     *
+     * @param code  failure class, never null
+     * @param cause underlying failure, may be null
+     */
+    public CborException(Code code, Throwable cause) {
+        super(Objects.requireNonNull(code, "code").name(), cause);
+        this.failure = code;
+    }
+
+    /**
+     * Returns the failure class.
+     *
+     * @return the code
+     */
     public Code code() {
-        return code;
+        return failure;
     }
 }

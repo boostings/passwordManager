@@ -1,5 +1,7 @@
 package pm.vault.cbor;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
@@ -10,187 +12,209 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Strict recursive-descent decoder for the deterministic CBOR subset (ADR 0006 amendment,
+ * MSC05-J). Rejects indefinite lengths, tags, floats, negative ints, non-shortest arguments,
+ * duplicate or unsorted map keys, invalid UTF-8, trailing bytes, and any exceeded
+ * {@link CborLimits} bound. Every length is checked before allocation.
+ */
 public final class CborReader {
+    private static final int MAJOR_NEGATIVE = 1;
+    private static final int MAJOR_SIMPLE = 7;
+    private static final int MAJOR_MASK = 0x07;
+    private static final int ADDITIONAL_MASK = 0x1F;
+    private static final int INDEFINITE = 31;
+    private static final int SIMPLE_FALSE = 20;
+    private static final int SIMPLE_TRUE = 21;
+    private static final int BYTE_MASK = 0xFF;
+    private static final int BYTE_BITS = 8;
+
     private CborReader() {}
 
+    /**
+     * Decodes exactly one value occupying all of {@code in}.
+     *
+     * @param in  the encoded bytes; not modified
+     * @param lim resource limits
+     * @return the decoded value tree
+     * @throws CborException {@code MALFORMED}, {@code LIMIT} or {@code NON_CANONICAL}
+     */
     public static CborValue decode(byte[] in, CborLimits lim) throws CborException {
         Objects.requireNonNull(in, "in");
         Objects.requireNonNull(lim, "lim");
         if (in.length > lim.maxTotalBytes()) {
-            throw new CborException(CborException.Code.LIMIT, "input exceeds configured total bytes");
+            throw new CborException(CborException.Code.LIMIT);
         }
         ReaderState state = new ReaderState(in, lim);
         CborValue value = readValue(state, 0);
         if (state.pos != in.length) {
-            throw new CborException(CborException.Code.MALFORMED, "trailing bytes after value");
+            throw new CborException(CborException.Code.MALFORMED); // trailing bytes
         }
         return value;
     }
 
     private static CborValue readValue(ReaderState state, int depth) throws CborException {
         if (depth > state.limits.maxDepth()) {
-            throw new CborException(CborException.Code.LIMIT, "depth exceeds limit");
+            throw new CborException(CborException.Code.LIMIT);
         }
-        if (state.pos >= state.data.length) {
-            throw new CborException(CborException.Code.MALFORMED, "unexpected end of input");
+        state.countItem();
+        ensureAvailable(state, 1);
+        int initial = state.data[state.pos++] & BYTE_MASK;
+        int major = (initial >>> CborWriter.MAJOR_SHIFT) & MAJOR_MASK;
+        int additional = initial & ADDITIONAL_MASK;
+        if (additional == INDEFINITE) {
+            throw new CborException(CborException.Code.MALFORMED); // indefinite length
         }
-        int initial = state.data[state.pos++] & 0xFF;
-        int major = (initial & 0xE0) >>> 5;
-        int additional = initial & 0x1F;
-
-        if (additional == 31) {
-            throw new CborException(CborException.Code.MALFORMED, "indefinite lengths are not supported");
+        if (major == MAJOR_SIMPLE) {
+            return readSimple(additional);
         }
-
         long length = readLength(state, additional);
-        switch (major) {
-            case 0 -> {
-                if (!isCanonicalUnsigned(length, additional)) {
-                    throw new CborException(CborException.Code.NON_CANONICAL, "non-shortest integer encoding");
-                }
-                return new CborValue.UInt(length);
-            }
-            case 1 -> throw new CborException(CborException.Code.MALFORMED, "negative integers are not supported");
-            case 2 -> {
-                if (length > state.limits.maxStringBytes()) {
-                    throw new CborException(CborException.Code.LIMIT, "byte string exceeds limit");
-                }
-                byte[] bytes = readBytes(state, length);
-                return new CborValue.Bytes(bytes);
-            }
-            case 3 -> {
-                if (length > state.limits.maxStringBytes()) {
-                    throw new CborException(CborException.Code.LIMIT, "text string exceeds limit");
-                }
-                byte[] bytes = readBytes(state, length);
-                CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
-                decoder.onMalformedInput(CodingErrorAction.REPORT);
-                decoder.onUnmappableCharacter(CodingErrorAction.REPORT);
-                try {
-                    return new CborValue.Text(decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString());
-                } catch (Exception ex) {
-                    throw new CborException(CborException.Code.MALFORMED, "invalid UTF-8", ex);
-                }
-            }
-            case 4 -> {
-                if (length > state.limits.maxItems()) {
-                    throw new CborException(CborException.Code.LIMIT, "array exceeds item limit");
-                }
-                List<CborValue> items = new ArrayList<>((int) Math.min(length, Integer.MAX_VALUE));
-                for (long i = 0; i < length; i++) {
-                    items.add(readValue(state, depth + 1));
-                }
-                return new CborValue.Array(items);
-            }
-            case 5 -> {
-                if (length > state.limits.maxItems()) {
-                    throw new CborException(CborException.Code.LIMIT, "map exceeds item limit");
-                }
-                LinkedHashMap<String, CborValue> entries = new LinkedHashMap<>();
-                for (long i = 0; i < length; i++) {
-                    CborValue keyValue = readValue(state, depth + 1);
-                    if (!(keyValue instanceof CborValue.Text keyText)) {
-                        throw new CborException(CborException.Code.MALFORMED, "map keys must be text");
-                    }
-                    CborValue value = readValue(state, depth + 1);
-                    if (entries.containsKey(keyText.value())) {
-                        throw new CborException(CborException.Code.NON_CANONICAL, "duplicate map key");
-                    }
-                    entries.put(keyText.value(), value);
-                }
-                return new CborValue.MapV(Map.copyOf(entries));
-            }
-            case 7 -> {
-                if (additional == 20) {
-                    return new CborValue.Bool(false);
-                }
-                if (additional == 21) {
-                    return new CborValue.Bool(true);
-                }
-                throw new CborException(CborException.Code.MALFORMED, "unsupported simple value");
-            }
-            default -> throw new CborException(CborException.Code.MALFORMED, "unsupported major type: " + major);
+        return switch (major) {
+            case CborWriter.MAJOR_UINT -> new CborValue.UInt(requireUInt(length));
+            case CborWriter.MAJOR_BYTES -> new CborValue.Bytes(readString(state, length));
+            case CborWriter.MAJOR_TEXT -> new CborValue.Text(decodeUtf8(readString(state, length)));
+            case CborWriter.MAJOR_ARRAY -> readArray(state, length, depth);
+            case CborWriter.MAJOR_MAP -> readMap(state, length, depth);
+            case MAJOR_NEGATIVE -> throw new CborException(CborException.Code.MALFORMED);
+            default -> throw new CborException(CborException.Code.MALFORMED); // tags
+        };
+    }
+
+    private static CborValue readSimple(int additional) throws CborException {
+        if (additional == SIMPLE_FALSE) {
+            return new CborValue.Bool(false);
         }
+        if (additional == SIMPLE_TRUE) {
+            return new CborValue.Bool(true);
+        }
+        throw new CborException(CborException.Code.MALFORMED); // floats, null, other simples
+    }
+
+    private static long requireUInt(long value) throws CborException {
+        if (value < 0) {
+            throw new CborException(CborException.Code.LIMIT); // above Long.MAX_VALUE
+        }
+        return value;
+    }
+
+    private static CborValue readArray(ReaderState state, long length, int depth)
+            throws CborException {
+        state.checkCount(length);
+        List<CborValue> items = new ArrayList<>((int) length);
+        for (long i = 0; i < length; i++) {
+            items.add(readValue(state, depth + 1));
+        }
+        return new CborValue.Array(items);
+    }
+
+    private static CborValue readMap(ReaderState state, long length, int depth)
+            throws CborException {
+        state.checkCount(length);
+        Map<String, CborValue> entries = new LinkedHashMap<>();
+        byte[] previousKey = null;
+        for (long i = 0; i < length; i++) {
+            int keyStart = state.pos;
+            CborValue keyValue = readValue(state, depth + 1);
+            if (!(keyValue instanceof CborValue.Text keyText)) {
+                throw new CborException(CborException.Code.MALFORMED); // non-text key
+            }
+            byte[] encodedKey = Arrays.copyOfRange(state.data, keyStart, state.pos);
+            if (previousKey != null && CborWriter.compareKeys(previousKey, encodedKey) >= 0) {
+                throw new CborException(CborException.Code.NON_CANONICAL); // unsorted or duplicate
+            }
+            previousKey = encodedKey;
+            entries.put(keyText.value(), readValue(state, depth + 1));
+        }
+        return new CborValue.MapV(entries);
     }
 
     private static long readLength(ReaderState state, int additional) throws CborException {
-        if (additional < 24) {
+        int argBytes;
+        long floor;
+        if (additional <= CborWriter.MAX_INLINE) {
             return additional;
+        } else if (additional == CborWriter.ARG_1_BYTE) {
+            argBytes = Byte.BYTES;
+            floor = CborWriter.MAX_INLINE;
+        } else if (additional == CborWriter.ARG_2_BYTES) {
+            argBytes = Short.BYTES;
+            floor = CborWriter.MAX_1_BYTE;
+        } else if (additional == CborWriter.ARG_4_BYTES) {
+            argBytes = Integer.BYTES;
+            floor = CborWriter.MAX_2_BYTES;
+        } else if (additional == CborWriter.ARG_8_BYTES) {
+            argBytes = Long.BYTES;
+            floor = CborWriter.MAX_4_BYTES;
+        } else {
+            throw new CborException(CborException.Code.MALFORMED); // reserved 28..30
         }
-        if (additional == 24) {
-            ensureAvailable(state, 1);
-            int value = state.data[state.pos++] & 0xFF;
-            return value;
+        ensureAvailable(state, argBytes);
+        long value = 0;
+        for (int i = 0; i < argBytes; i++) {
+            value = (value << BYTE_BITS) | (state.data[state.pos++] & BYTE_MASK);
         }
-        if (additional == 25) {
-            ensureAvailable(state, 2);
-            int hi = (state.data[state.pos++] & 0xFF) << 8;
-            int lo = state.data[state.pos++] & 0xFF;
-            return (hi | lo) & 0xFFFFL;
+        // Unsigned comparison: an 8-byte argument above Long.MAX_VALUE is negative here.
+        if (Long.compareUnsigned(value, floor) <= 0) {
+            throw new CborException(CborException.Code.NON_CANONICAL); // not shortest form
         }
-        if (additional == 26) {
-            ensureAvailable(state, 4);
-            long value = 0;
-            for (int i = 0; i < 4; i++) {
-                value = (value << 8) | (state.data[state.pos++] & 0xFFL);
-            }
-            return value;
-        }
-        if (additional == 27) {
-            ensureAvailable(state, 8);
-            long value = 0;
-            for (int i = 0; i < 8; i++) {
-                value = (value << 8) | (state.data[state.pos++] & 0xFFL);
-            }
-            return value;
-        }
-        throw new CborException(CborException.Code.MALFORMED, "invalid length encoding");
+        return value;
     }
 
-    private static boolean isCanonicalUnsigned(long value, int additional) {
-        if (additional < 24) {
-            return true;
+    private static byte[] readString(ReaderState state, long length) throws CborException {
+        if (length < 0 || length > state.limits.maxStringBytes()) {
+            throw new CborException(CborException.Code.LIMIT);
         }
-        if (additional == 24 && value < 24) {
-            return false;
-        }
-        if (additional == 25 && value < (1 << 8)) {
-            return false;
-        }
-        if (additional == 26 && value < (1 << 16)) {
-            return false;
-        }
-        if (additional == 27 && value < (1L << 32)) {
-            return false;
-        }
-        return true;
-    }
-
-    private static byte[] readBytes(ReaderState state, long length) throws CborException {
-        if (length < 0 || length > Integer.MAX_VALUE) {
-            throw new CborException(CborException.Code.LIMIT, "length out of supported range");
-        }
-        int lengthInt = (int) length;
-        ensureAvailable(state, lengthInt);
-        byte[] copy = Arrays.copyOfRange(state.data, state.pos, state.pos + lengthInt);
-        state.pos += lengthInt;
+        int count = (int) length;
+        ensureAvailable(state, count);
+        byte[] copy = Arrays.copyOfRange(state.data, state.pos, state.pos + count);
+        state.pos += count;
         return copy;
     }
 
-    private static void ensureAvailable(ReaderState state, int count) throws CborException {
-        if (state.pos + count > state.data.length) {
-            throw new CborException(CborException.Code.MALFORMED, "unexpected end of input");
+    private static String decodeUtf8(byte[] bytes) throws CborException {
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            return decoder.decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException ex) {
+            throw new CborException(CborException.Code.MALFORMED, ex);
         }
     }
 
+    private static void ensureAvailable(ReaderState state, int count) throws CborException {
+        if (count > state.data.length - state.pos) {
+            throw new CborException(CborException.Code.MALFORMED); // truncated
+        }
+    }
+
+    /** Cursor plus the running item counter for the whole document. */
     private static final class ReaderState {
         private final byte[] data;
         private final CborLimits limits;
         private int pos;
+        private long items;
 
         private ReaderState(byte[] data, CborLimits limits) {
             this.data = data;
             this.limits = limits;
+        }
+
+        private void countItem() throws CborException {
+            items++;
+            if (items > limits.maxItems()) {
+                throw new CborException(CborException.Code.LIMIT);
+            }
+        }
+
+        /** Rejects a container count above the item limit or the bytes left, before allocating. */
+        private void checkCount(long count) throws CborException {
+            if (count < 0 || count > limits.maxItems() - items) {
+                throw new CborException(CborException.Code.LIMIT);
+            }
+            if (count > data.length - pos) {
+                throw new CborException(CborException.Code.MALFORMED); // each item needs a byte
+            }
         }
     }
 }
