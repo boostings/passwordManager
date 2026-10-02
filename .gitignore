@@ -55,3 +55,6 @@ Thumbs.db
 vaults/
 backups/
 recovery/
+
+# jqwik example database (per-machine)
+.jqwik-database
