@@ -1,12 +1,31 @@
 package pm.vault;
 
+import java.util.Objects;
 import pm.crypto.SecretChars;
 
 /**
- * SCAFFOLDING by Lane E for §2 contract; Lane C/D replace this file.
+ * Result of {@link VaultService#create}: the unlocked vault plus the recovery key
+ * (ADR 0004). The caller shows the recovery key once and then closes it. Closing this
+ * record closes both.
  *
- * <p>Result of {@link VaultService#create}: the unlocked vault and its recovery key (ADR 0004). The
- * recovery key is shown once, then closed by the caller.
+ * @param vault       the new, unlocked vault
+ * @param recoveryKey formatted recovery key, 8 groups of 7 base32 characters
  */
-public record CreatedVault(Vault vault, SecretChars recoveryKey) {
+public record CreatedVault(Vault vault, SecretChars recoveryKey) implements AutoCloseable {
+
+    /** Rejects null components (EXP01-J). */
+    public CreatedVault {
+        Objects.requireNonNull(vault, "vault");
+        if (recoveryKey == null) {
+            throw new NullPointerException("rk");
+        }
+    }
+
+    /** Zeroes the recovery key and locks the vault. */
+    @Override
+    public void close() {
+        try (vault) {
+            recoveryKey.close();
+        }
+    }
 }

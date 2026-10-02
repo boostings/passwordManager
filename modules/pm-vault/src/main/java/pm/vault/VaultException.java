@@ -1,40 +1,45 @@
 package pm.vault;
 
+import java.util.Objects;
+
 /**
- * SCAFFOLDING by Lane E for §2 contract; Lane C/D replace this file.
- *
- * <p>Checked vault failure carrying only an error code; the message is the code name (SR-501,
- * ERR01-J).
+ * Every failure a vault operation reports. The message is the code name only, never a
+ * path, a key, or text from the underlying cause (SR-501, ERR01-J).
  */
 public final class VaultException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    /** Fixed error catalogue. */
+    /** Failure classes the CLI and TUI map to exit codes and fixed messages. */
     public enum Code {
-        /** Passphrase or recovery key did not unwrap any slot. */
+        /** The passphrase or recovery key does not open any slot. */
         WRONG_CREDENTIAL,
-        /** The vault file failed to parse or authenticate. */
+        /** The file is malformed or failed authentication. */
         CORRUPT,
-        /** The vault format version is not supported. */
+        /** The file was written by a newer format version. */
         UNSUPPORTED_VERSION,
-        /** {@code create} found an existing vault file. */
+        /** {@code create} was called but a vault file already exists. */
         ALREADY_EXISTS,
-        /** The vault is locked or held by another process. */
+        /** The vault was used after it was locked. */
         LOCKED,
-        /** Underlying storage failure. */
+        /** The storage layer failed; the cause carries the storage code. */
         STORAGE
     }
 
-    private final Code errorCode;
+    private final Code failure;
 
-    /** Creates an exception whose message is {@code code.name()}. */
+    /**
+     * Creates an exception for {@code code}.
+     *
+     * @param code  failure class, never null
+     * @param cause underlying exception, or null
+     */
     public VaultException(Code code, Throwable cause) {
-        super(code.name(), cause);
-        this.errorCode = code;
+        super(Objects.requireNonNull(code, "code").name(), cause);
+        this.failure = code;
     }
 
-    /** The error code. */
+    /** Returns the failure class. */
     public Code code() {
-        return errorCode;
+        return failure;
     }
 }
