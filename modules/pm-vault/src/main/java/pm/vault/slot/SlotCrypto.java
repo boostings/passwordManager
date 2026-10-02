@@ -32,6 +32,15 @@ public final class SlotCrypto {
     }
 
     /**
+     * Argon2id step of {@link #kekFromPassphrase(SecretChars, KdfHeader, UUID)}. Package-private
+     * seam so tests can count calls and check their parameters (A3b, SR-051).
+     */
+    @FunctionalInterface
+    interface Stretcher {
+        SecretBytes argon2id(SecretBytes password, byte[] salt32, Argon2Params params) throws CryptoException;
+    }
+
+    /**
      * Derives the passphrase slot KEK. Always runs Argon2id to completion before returning
      * or failing, so timing does not depend on whether the passphrase is right.
      *
@@ -42,9 +51,16 @@ public final class SlotCrypto {
      * @throws CryptoException {@code BAD_PARAMS} if the header parameters are out of range
      */
     public static SecretBytes kekFromPassphrase(SecretChars pw, KdfHeader k, UUID slot) throws CryptoException {
+        return kekFromPassphrase(pw, k, slot, Kdf::argon2id);
+    }
+
+    /** {@link #kekFromPassphrase(SecretChars, KdfHeader, UUID)} with an injectable Argon2id step. */
+    static SecretBytes kekFromPassphrase(SecretChars pw, KdfHeader k, UUID slot, Stretcher argon2)
+            throws CryptoException {
         Objects.requireNonNull(pw, "pw");
         Objects.requireNonNull(k, "k");
         Objects.requireNonNull(slot, "slot");
+        Objects.requireNonNull(argon2, "argon2");
         Argon2Params params;
         try {
             params = new Argon2Params(k.m(), k.t(), k.p());
@@ -52,7 +68,7 @@ public final class SlotCrypto {
             throw new CryptoException(CryptoException.Code.BAD_PARAMS);
         }
         try (SecretBytes utf8 = pw.toUtf8();
-             SecretBytes stretched = Kdf.argon2id(utf8, k.salt(), params)) {
+             SecretBytes stretched = argon2.argon2id(utf8, k.salt(), params)) {
             return Kdf.hkdfSha256(stretched, null, info(slot), KEK_LENGTH);
         }
     }

@@ -92,13 +92,19 @@ pm.crypto   requires org.bouncycastle.provider;           exports pm.crypto, pm.
 pm.storage  (no project deps)                             exports pm.storage
 pm.vault    requires transitive pm.crypto; requires transitive pm.storage;
             exports pm.vault, pm.vault.record             (cbor, envelope, slot: NOT exported)
-pm.tui      requires transitive pm.vault; requires com.googlecode.lanterna;   exports pm.tui
+pm.tui      requires transitive pm.vault; requires transitive com.googlecode.lanterna;   exports pm.tui
 pm.cli      requires pm.tui;                              (exports nothing)
 ```
+
+Module-graph notes (amended 2026-10-02 after review):
+- `pm.tui` declares `requires transitive com.googlecode.lanterna`, not a plain `requires`. `TuiApp.run(Terminal)` is public API that takes a Lanterna type, and `javac -Xlint:exports` under `-Werror` fails the build unless the module passes Lanterna on to its readers. So `pm.cli` reads Lanterna through `pm.tui` and needs no `requires` of its own. Lane E has done this in code.
+- `pm.crypto` needs no `java.management`. `Kdf` reads the max and used heap from `Runtime` for the Argon2id heap budget; the ArchUnit process rule bans only `Runtime.exec`, `ProcessBuilder` and `ProcessHandle` outside pm-approval (amended 2026-10-02 after review).
 
 Gradle wiring: in `pm-vault`, `api(project(":modules:pm-crypto"))` and `api(project(":modules:pm-storage"))`. In `pm-tui`, `api(project(":modules:pm-vault"))`. In `pm-cli`, `implementation(project(":modules:pm-tui"))`. In `pm-fuzz`, `testImplementation(project(":modules:pm-vault"))`. Each owner adds their own module's project dependencies in Phase 1.
 
 ### A: `pm.crypto` (module pm-crypto)
+
+Contract amendments (amended 2026-10-02 after review), each marked inline below: Argon2id heap budget and `tune` cap (ADR 0007), `SafeLog` allowlist-only, `Aead.sealWithFreshKey` consumes its key, `Argon2Params.checked`, `hkdfSha256` IKM ≥ 32 bytes, new `ConstantTime.equals`, `SecretBytes.equals`/`hashCode` safe after close. pm-crypto's `check` also enforces 100% **branch** coverage (§8).
 
 ```java
 package pm.crypto;
@@ -110,10 +116,13 @@ public final class SecretBytes implements AutoCloseable {
     public int length();
     public void withBytes(java.util.function.Consumer<byte[]> use);           // scoped access only
     public <R> R apply(java.util.function.Function<byte[], R> fn);            // fn must not retain the array
+        // (amended 2026-10-02 after review) returning the buffer itself throws SECRET_ESCAPE. Wrappers,
+        // stashing and returned copies are NOT caught (ADR 0008 residual risk 2): review every callback.
     public boolean isClosed();
     @Override public void close();                           // zero-fill, mark closed; idempotent
     @Override public boolean equals(Object o);               // MessageDigest.isEqual
-    @Override public int hashCode();                         // constant 0x5EC2E7
+        // (amended 2026-10-02 after review) never throws after close; a closed secret equals only itself
+    @Override public int hashCode();                         // constant 0x5EC2E7; never throws after close
     @Override public String toString();                      // "SecretBytes[redacted]"
     @Override protected Object clone() throws CloneNotSupportedException;  // always throws
 }
@@ -139,12 +148,19 @@ public final class Csprng {
 public record Argon2Params(int memoryKiB, int iterations, int parallelism) {
     public static final Argon2Params FLOOR = new Argon2Params(65_536, 3, 1);
     public Argon2Params { /* reject below FLOOR, memoryKiB > 1_048_576, iterations > 10 */ }
+    // (amended 2026-10-02 after review) for values read from a vault header (untrusted input):
+    // out of range => CryptoException(BAD_PARAMS) instead of IllegalArgumentException
+    public static Argon2Params checked(int m, int t, int p) throws CryptoException;
 }
 
 public final class Kdf {
     public static SecretBytes argon2id(SecretBytes password, byte[] salt32, Argon2Params p) throws CryptoException;
+        // (amended 2026-10-02 after review) BAD_PARAMS, before allocating, when
+        // memoryKiB*1024*1.1 > max heap - used heap (1 GiB cap if the JVM reports no max). ADR 0007.
     public static Argon2Params tune(java.time.Duration target);          // m first (cap 1 GiB), then t (cap 10)
+        // (amended 2026-10-02 after review) m is also capped at half the max heap
     public static SecretBytes hkdfSha256(SecretBytes ikm, byte[] salt, byte[] info, int outLen) throws CryptoException;
+        // (amended 2026-10-02 after review) IKM shorter than 32 bytes => BAD_INPUT
 }
 
 /** RFC 5649 via JDK "AES/KWP/NoPadding". Wrong KEK => CryptoException(AUTH_FAILED). */
@@ -156,7 +172,17 @@ public final class KeyWrap {
 /** ADR 0005. Zero nonce is safe ONLY because every key is a fresh per-save HKDF output. */
 public final class Aead {
     public static byte[] sealWithFreshKey(SecretBytes freshKey, SecretBytes plaintext, byte[] aad) throws CryptoException;
+        // (amended 2026-10-02 after review) CONSUMES (closes) freshKey, also on throw; sealing again
+        // with it throws SECRET_CLOSED. That only stops an in-process double seal with the same object.
+        // The zero-nonce guarantee rests on C: a fresh Csprng dataSalt and a new DK on EVERY save (ADR 0005).
     public static SecretBytes openWithFreshKey(SecretBytes key, byte[] ciphertextAndTag, byte[] aad) throws CryptoException;
+        // does NOT consume key; the caller still closes it
+}
+
+/** (amended 2026-10-02 after review) SR-016 constant-time compare for modules outside pm.crypto.
+ *  ArchUnit bans java.security there, so they cannot call MessageDigest.isEqual themselves. */
+public final class ConstantTime {
+    public static boolean equals(byte[] a, byte[] b);        // delegates to MessageDigest.isEqual
 }
 
 /** ADR 0004: 32 random bytes + 3-byte SHA-256 checksum = 35 B = 56 base32 chars = 8 groups of 7. */
@@ -186,8 +212,16 @@ public @interface Sensitive {}
 ```java
 package pm.crypto.log;
 
-/** SR-500. Wraps System.Logger. Throws IllegalArgumentException if any arg is SecretBytes,
- *  SecretChars, a byte[]/char[], or a type annotated @Sensitive. */
+/** SR-500. Wraps System.Logger. (amended 2026-10-02 after review) ALLOWLIST-ONLY:
+ *  - eventCode must match [A-Z][A-Z0-9_]{0,63}, else IllegalArgumentException("BAD_EVENT_CODE").
+ *    So log.info("vault unlocked") is refused; write log.info("VAULT_UNLOCKED").
+ *  - Allowed args: null, String, Boolean, Character, UUID, Duration, Enum (logged by name()),
+ *    Integer, Long, Short, Byte, Float, Double, and java.base TemporalAccessor and Path.
+ *  - SecretBytes, SecretChars, byte[], char[] and @Sensitive types => IllegalArgumentException("SECRET_ARG").
+ *  - Anything else, INCLUDING a Throwable, => IllegalArgumentException("UNLOGGABLE_ARG"). Log the
+ *    exception's code enum instead (log.warn("UNLOCK_FAILED", e.code())).
+ *  String and Path can still carry a secret: keeping secrets out of them is MSC03-J's job
+ *  (ADR 0008, residual risk 1). */
 public final class SafeLog {
     public static SafeLog of(Class<?> owner);
     public void info(String eventCode, Object... args);
@@ -441,7 +475,7 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 - `Kdf.argon2id`: BC `Argon2BytesGenerator` with `Argon2Parameters.Builder(ARGON2_id).withVersion(ARGON2_VERSION_13).withSalt(salt).withMemoryAsKB(m).withIterations(t).withParallelism(p)`. Hand the password to BC inside `password.withBytes(...)`. Write output into a `byte[32]`, then `SecretBytes.takeOwnership`. Reject salt length ≠ 32.
 - `Kdf.hkdfSha256`: BC `HKDFBytesGenerator(new SHA256Digest())` with `HKDFParameters`. Bound `outLen` to 1..255*32.
 - `KeyWrap`: `Cipher.getInstance("AES/KWP/NoPadding")`, `init(ENCRYPT_MODE/DECRYPT_MODE, new SecretKeySpec(kekBytes, "AES"))`. Map `GeneralSecurityException` to `CryptoException(AUTH_FAILED)` on unwrap. Never put exception text or the cause message in the result.
-- `Aead`: create a **new** `Cipher.getInstance("AES/GCM/NoPadding")` per call. Use `GCMParameterSpec(128, new byte[12])` and `updateAAD(aad)`. Map `AEADBadTagException` to `AUTH_FAILED`. Require a 32-byte key.
+- `Aead`: create a **new** `Cipher.getInstance("AES/GCM/NoPadding")` per call. Use `GCMParameterSpec(128, new byte[12])` and `updateAAD(aad)`. Map `AEADBadTagException` to `AUTH_FAILED`. Require a 32-byte key. (amended 2026-10-02 after review) `sealWithFreshKey` closes its key in a try-with-resources, so it is consumed even on throw; `openWithFreshKey` leaves its key open.
 - Known-answer tests, written into test files as hex constants: RFC 9106 §5.3 Argon2id; RFC 5869 test cases 1–3 (HKDF-SHA256); RFC 5649 §6 (KWP, both vectors); one NIST GCM vector with a 96-bit zero IV, or a round trip plus tamper test if no zero-IV vector is handy.
 - jqwik properties: `open(seal(k,p,aad)) == p`. Flipping any single bit of the ciphertext or AAD gives `AUTH_FAILED`. Unwrapping with the wrong KEK gives `AUTH_FAILED`.
 - **Keep the suite fast.** Argon2 at FLOOR takes about 0.3–0.5 s, so cap `@Property(tries = 5)` on anything that calls `argon2id`.
@@ -449,8 +483,8 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 **Commit 2c: `M1.2 A: implement RecoveryKey, Kdf.tune, SafeLog`**
 - `RecoveryKey`: checksum = first 3 bytes of `SHA-256(key)`. Encode with RFC 4648 base32, no padding, hand-rolled over `char[]`. 35 bytes give exactly 56 chars, split into 8 groups of 7 joined by `-`. `parse` strips spaces and dashes, uppercases with `Character.toUpperCase` per char, decodes, and verifies the checksum with `MessageDigest.isEqual`.
 - `Kdf.tune`: starting at FLOOR, double `m` until a single hash takes at least `target` or `m` hits 1 GiB, then raise `t`. Use `System.nanoTime`. Never return below FLOOR.
-- `SafeLog`: use `System.getLogger(owner.getName())`. Check each arg with `instanceof SecretBytes || instanceof SecretChars || instanceof byte[] || instanceof char[] || arg.getClass().isAnnotationPresent(Sensitive.class)`; if any match, throw `IllegalArgumentException("SECRET_ARG")`.
-- Tests: format/parse round trip (property). A single-char typo is rejected. `SafeLogTest` asserts it throws for each refused type.
+- `SafeLog` (amended 2026-10-02 after review: allowlist-only, replacing the original denylist): use `System.getLogger(owner.getName())`. Reject an event code that doesn't match `[A-Z][A-Z0-9_]{0,63}` with `IllegalArgumentException("BAD_EVENT_CODE")`. For each arg: `SecretBytes`, `SecretChars`, `byte[]`, `char[]` or an `@Sensitive` type throws `SECRET_ARG`. Then allow only `null`, `String`, `Boolean`, `Character`, `UUID`, `Duration`, `Enum` (logged by `name()`), `Integer`/`Long`/`Short`/`Byte`/`Float`/`Double`, and `java.base` `TemporalAccessor` and `Path`. Anything else, including any `Throwable`, throws `UNLOGGABLE_ARG`. Callers therefore can't write `log.info("vault unlocked")` (free text is not an event code) or pass an exception (pass its code enum).
+- Tests: format/parse round trip (property). A single-char typo is rejected. `SafeLogTest` asserts it throws for each refused type (including a `Throwable`, a `BigInteger` and a non-`java.base` `Path`), for a bad event code such as `"vault unlocked"`, and that each allowed type logs.
 
 ### B: Storage (3 commits)
 
@@ -490,7 +524,7 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 - Header to CBOR: build a `CborValue.MapV` with keys `schema_version, kdf{alg,m,t,p,salt}, slots[{id,type,wrapped_key}], created, saved, save_seq`, then `CborWriter.encode`. Until D merges, stub this with a test fake that returns fixed bytes.
 - `decode` checks, in this order, and fails at the first problem:
   1. `file.length >= 8+2+4+32+16`, else CORRUPT.
-  2. Magic matches using `MessageDigest.isEqual`, which is fine here. Else CORRUPT.
+  2. Magic matches using `pm.crypto.ConstantTime.equals`. Else CORRUPT. (amended 2026-10-02 after review: not `MessageDigest.isEqual` directly, because ArchUnit bans `java.security` outside `pm.crypto`. The same goes for every other tag, checksum or key compare in C.)
   3. `version == 1`. If it's greater, UNSUPPORTED_VERSION; if it's less, CORRUPT.
   4. `0 < headerLen <= MAX_HEADER` and `14 + headerLen + 32 + 16 <= file.length`. Do the arithmetic with `Math.addExact`/`long` (NUM00-J).
   5. `CborReader.decode(header, CborLimits.HEADER)`, then validate fields: alg is "argon2id", salt is 32 bytes, at least 1 slot, slot types are known, wrapped_key is 40 bytes.
@@ -512,12 +546,15 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
   5. `Aead.openWithFreshKey(DK, ciphertext, aad)`. Failure means CORRUPT.
   6. **Only after the tag verifies**, call `RecordCodec.decodePayload`.
 - `save()`: new `dataSalt = Csprng.bytes(32)`, new DK, `saved = clock`, `save_seq + 1`. Encode the header first, compute AAD, then seal. Call `store.backup()`, then `store.writeAtomically`.
+  - (amended 2026-10-02 after review) **The zero-nonce guarantee (ADR 0005) rests on this step.** Every save draws a FRESH 32-byte `dataSalt` from `Csprng` and derives a NEW DK from it. Never reuse the `dataSalt` read at unlock, and never keep the unlock-time DK on the `Vault` to seal with later: close it right after `openWithFreshKey`. `Aead.sealWithFreshKey` consumes its key, but that only stops a second seal with the same `SecretBytes` object in one process; it can't detect a DK derived again from a reused salt.
+  - (amended 2026-10-02 after review) `pm.crypto` errors: `AUTH_FAILED` on the slot unwrap becomes `WRONG_CREDENTIAL`. `BAD_PARAMS` from `Argon2Params.checked` while decoding the header becomes `CORRUPT`. `BAD_PARAMS` from `Kdf.argon2id` means the heap can't hold 1.1 × m (ADR 0007): map it to a distinct `VaultException` code (for example `INSUFFICIENT_MEMORY`) with its own user-visible message (restart with a larger `-Xmx`), never `CORRUPT`.
 - `Vault.close()`: zero VK and close every record. After that, any method throws `VaultException(LOCKED)` or `IllegalStateException`. Pick one and document it.
 - Tests use `Argon2Params.FLOOR`:
   - create, then unlock with the passphrase, then unlock with the recovery key.
   - Wrong passphrase gives WRONG_CREDENTIAL.
   - Wrong recovery key: a typo gives BAD_INPUT from `parse`; a valid but different key gives WRONG_CREDENTIAL.
   - `save_seq` increases on each save.
+  - (amended 2026-10-02 after review) **Required:** `VaultServiceTest.saveUsesFreshDataSaltEachTime`. Save the same records twice from one unlocked vault. Decode both files: the two `dataSalt` values differ, and the two ciphertexts differ.
 
 **Commit 2c: `M1.2 C: implement Vault record ops and search`**
 - `put`/`remove`/`records`/`search` work on a `LinkedHashMap<UUID, VaultRecord>`. `records()` returns `List.copyOf`. Search delegates to `RecordSearch.matches`.
@@ -577,7 +614,7 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 - Tests: `DashboardTest` drives the UI with `DefaultVirtualTerminal` (headless), feeds key strokes, and asserts the table contents after a search.
 
 **Commit 2c: `M1.2 E: implement idle auto-lock`**
-- `IdleLock`: a single-thread `ScheduledExecutorService` with a named daemon `ThreadFactory`. `touch()` cancels the pending future and schedules a new one. `onLock` posts to Lanterna through `gui.getGUIThread().invokeLater(...)`, which closes the vault and returns to `UnlockWindow`. Guard shared state with `synchronized`. Error Prone `GuardedBy` is on.
+- `IdleLock`: a single-thread `ScheduledExecutorService` with a named daemon `ThreadFactory`. `touch()` cancels the pending future and schedules a new one. `onLock` posts to Lanterna through `gui.getGUIThread().invokeLater(...)`, which closes the vault and returns to `UnlockWindow`. Guard shared state with a `private final ReentrantLock` (PMD bans `synchronized`). Error Prone `GuardedBy` is on.
 - Tests: inject a manual `ScheduledExecutorService` or a deterministic fake. `touch` at t=4 min means no lock at 5 min; a lock fires at 9 min. After the lock, `vault.isLocked()` is true.
 
 ---
@@ -625,11 +662,17 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
   - A try-with-resources variable that isn't used in the block triggers the `try` lint. Use it, or don't put it in try.
   - Constructors that call overridable methods trigger `this-escape`. Make classes `final`.
 - **Error Prone `CheckReturnValue`:** don't ignore return values. Write `boolean unused = list.remove(x);` if you must.
-- **Banned by Semgrep** (enforced on tests too): `Files.createTempFile`/`createTempDirectory` (use `@TempDir`), `new SecureRandom` outside pm-crypto, `new ProcessBuilder` outside pm-approval/pm-platform, `System.exit` outside `pm/cli/Main.java`, `Arrays.equals` on secrets, `String password = …` and similar names.
-- **Banned by ArchUnit:** `javax.crypto`/`java.security` imports outside `pm.crypto`. C and D must go through `pm.crypto` APIs, even for SHA-256. Ask A to add a helper rather than importing `MessageDigest`.
+- **Banned by Semgrep** (enforced on tests too): `Files.createTempFile`/`createTempDirectory` (use `@TempDir`), `new SecureRandom` outside pm-crypto, `new ProcessBuilder` outside pm-approval/pm-platform, `System.exit` outside `pm/cli/Main.java`, `Arrays.equals` on secrets, `String password = …` and similar names. (amended 2026-10-02 after review) The secret names now also include `pw`, `passwd`, `vk`, `rk`, `credential(s)`, `seed` and `keyBytes`, so `log.info("x" + vk)` and `String pw = …` fail too.
+- **Banned by ArchUnit:** `javax.crypto`/`java.security` imports outside `pm.crypto`. C and D must go through `pm.crypto` APIs, even for SHA-256. Ask A to add a helper rather than importing `MessageDigest`. (amended 2026-10-02 after review) For constant-time byte compares, use `pm.crypto.ConstantTime.equals`.
 - **Argon2 floor is slow** (64 MiB, t=3). Never put it in a loop in tests. Use `tries = 5` and the VK-layer seam.
-- **jacoco 100% branch coverage on Tier 1 is configured but not wired into `check`.** `./gradlew check --dry-run` shows no jacoco task. It won't fail the gate today. Run `./gradlew :modules:pm-crypto:jacocoTestCoverageVerification` yourself, and wiring it into `check` is the first post-sprint task.
+- **jacoco 100% coverage on Tier 1** (amended 2026-10-02 after review). For **pm-crypto** it is now enforced: `:modules:pm-crypto:check` depends on `jacocoTestCoverageVerification`, and the rule is 100% of **branches** (the BRANCH counter only; line coverage is not checked). A pm-crypto change with an untested branch fails the gate. The other Tier 1 modules have the same rule configured but are **not wired into `check` yet**, so for them it won't fail the gate. Run `./gradlew :modules:<module>:jacocoTestCoverageVerification` yourself; wiring the rest is a post-sprint task.
 - **Default charset:** always pass `StandardCharsets.UTF_8` (Error Prone `DefaultCharset` is an error).
+- **Phase 1 stubs fail the gate as written.** Error Prone `DoNotCallSuggester` flags every method whose body is only `throw`. Put `@SuppressWarnings("DoNotCallSuggester") // M1 stub: removed when implemented (not a CERT suppression)` on each stub class, and delete it when you implement the class. Routing the throw through a helper method does not help (verified in Lane A).
+- **PMD `AvoidSynchronizedStatement` and `AvoidSynchronizedAtMethodLevel` are on.** `synchronized` is banned everywhere, so the §5 E advice ("guard with `synchronized`") is wrong. Use a `private final ReentrantLock` with `lock()` and `try/finally unlock()`.
+- **PMD `AvoidLiteralsInIfCondition`:** only `-1` and `0` may appear in an `if` condition. Write `if (n > MAX_BYTES)` with a named constant, not `if (n > 1024)`.
+- **Error Prone `ByteBufferBackingArray`:** don't call `.array()` on a buffer you didn't create with `allocate`/`wrap`. For example, `CharsetEncoder.encode(CharBuffer)` returns such a buffer. Encode into your own `ByteBuffer.allocate(...)` instead.
+- **Gradle can't find JDK 21 even though it's installed:** pass `-Dorg.gradle.java.installations.paths=<jdk21 home>`, or put it in `~/.gradle/gradle.properties`.
+- **jqwik writes a `.jqwik-database` file into each module.** It's git-ignored; don't commit it.
 
 ---
 
@@ -644,4 +687,4 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 ## 10. Explicitly out of scope for this sprint (do not start)
 
 Keychain or FIDO2 unlock slots, clipboard copy and reveal, password health, auto-lock on OS sleep,
-`env` commands (M2), LAN (M3), jacoco wiring, a real-process kill test (M7), and the 24 CPU-hour fuzz run.
+`env` commands (M2), LAN (M3), jacoco wiring for Tier 1 modules other than pm-crypto (amended 2026-10-02 after review: pm-crypto is wired, §8), a real-process kill test (M7), and the 24 CPU-hour fuzz run.

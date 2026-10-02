@@ -77,8 +77,9 @@ gitleaks git --redact --no-banner --config tools/cert-rules/gitleaks.toml .
 
 The exact working-tree Java sources were tested on macOS with Temurin JDK 21.
 The Gradle test and PMD tasks ran in a temporary project copy with independently
-verified missing dependency metadata and the two corrected PMD references below.
-No shared build configuration in the working tree was changed.
+verified missing dependency metadata and corrected PMD rule references.
+No shared build configuration was changed by Lane B. The subsequent merge from
+`main` includes the team's PMD corrections.
 
 | Check | Actual result |
 | --- | --- |
@@ -95,6 +96,11 @@ The tested Gradle task selection was `:modules:pm-storage:test`,
 `:modules:pm-storage:pmdMain`, `:modules:pm-storage:pmdTest`, and
 `:modules:pm-storage:jacocoTestReport`. It completed with `BUILD SUCCESSFUL`.
 The full storage `check` also includes SpotBugs and is still blocked.
+
+After merging the updated `main`, the two storage-stub conflicts were resolved
+by retaining Lane B's complete implementations. The full `check certReport`
+was rerun; dependency verification still blocks it (including Apache, SLF4J,
+FindSecBugs, and jqwik artifacts). This merge does not claim a passing full gate.
 
 ## Review limits
 
@@ -130,11 +136,6 @@ The full storage `check` also includes SpotBugs and is still blocked.
   dependency metadata introduces signing keys not in the trust list. Those
   require independent review by the build/security owners; verification has not
   been disabled. Build verification belongs to E.
-- The shared PMD configuration references two rules absent from pinned PMD
-  7.17.0. The equivalent references used for the local analysis are
-  `category/java/codestyle.xml/EmptyControlStatement` and
-  `category/java/errorprone.xml/ComparisonWithNaN`. Ask the security owner to
-  review these replacements in `tools/cert-rules/pmd-cert.xml`.
 
 The JetBrains public-key fingerprint already trusted in the repository is
 `2E3A1AFFE42B5F53AF19F780BCF4173966770193`. The independently checked Guava parent
