@@ -41,13 +41,15 @@ class MainArgsTest {
     private final Map<String, String> props = new HashMap<>(Map.of(
             VaultPaths.OS_NAME, "Linux", VaultPaths.USER_HOME, HOME));
     private final List<Path> opened = new ArrayList<>();
+    private final List<Boolean> creating = new ArrayList<>();
     private final List<VaultPort> launched = new ArrayList<>();
     private TuiLauncher launcher = launched::add;
 
     private int run(FakeConsoleIo io, FakeVaultPort port, String... args) {
         Cli cli = new Cli(props::get, Clock.fixed(NOW, ZoneOffset.UTC), p -> launcher.launch(p));
-        return cli.run(args, io, path -> {
+        return cli.run(args, io, (path, forCreate) -> {
             opened.add(path);
+            creating.add(forCreate);
             return port;
         });
     }
@@ -367,7 +369,7 @@ class MainArgsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"vault\u0000.pmv", "va\nult.pmv", "/"})
+    @ValueSource(strings = {"vault\u0000.pmv", "va\nult.pmv", "va\u202Eult.pmv"})
     void invalidVaultPathIsUsage(String value) {
         FakeConsoleIo io = new FakeConsoleIo();
         assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort(), "--vault", value, "list"));

@@ -1,7 +1,9 @@
 package pm.cli;
 
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.io.Writer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -12,7 +14,7 @@ final class FakeConsoleIo implements ConsoleIo {
     private final Deque<char[]> secrets = new ArrayDeque<>();
     private final Deque<String> lines = new ArrayDeque<>();
     private final List<char[]> handedOut = new ArrayList<>();
-    private final StringWriter outBuffer = new StringWriter();
+    private final CapturingWriter outBuffer = new CapturingWriter();
     private final StringWriter errBuffer = new StringWriter();
     private final PrintWriter outWriter = new PrintWriter(outBuffer);
     private final PrintWriter errWriter = new PrintWriter(errBuffer);
@@ -24,6 +26,15 @@ final class FakeConsoleIo implements ConsoleIo {
 
     FakeConsoleIo line(String typed) {
         lines.addLast(typed);
+        return this;
+    }
+
+    /**
+     * From now on every write to stdout fails like a closed pipe (EPIPE). The text is still captured
+     * first, so canary checks see everything the CLI tried to print.
+     */
+    FakeConsoleIo failingOut() {
+        outBuffer.failing = true;
         return this;
     }
 
@@ -55,7 +66,7 @@ final class FakeConsoleIo implements ConsoleIo {
 
     String outText() {
         outWriter.flush();
-        return outBuffer.toString();
+        return outBuffer.text.toString();
     }
 
     String errText() {
@@ -77,5 +88,31 @@ final class FakeConsoleIo implements ConsoleIo {
 
     int secretsRead() {
         return handedOut.size();
+    }
+
+    /** Records everything written; in failing mode it then throws, as a broken pipe would. */
+    private static final class CapturingWriter extends Writer {
+        private final StringBuilder text = new StringBuilder();
+        private boolean failing;
+
+        @Override
+        public void write(char[] cbuf, int off, int len) throws IOException {
+            text.append(cbuf, off, len);
+            if (failing) {
+                throw new IOException("EPIPE");
+            }
+        }
+
+        @Override
+        public void flush() throws IOException {
+            if (failing) {
+                throw new IOException("EPIPE");
+            }
+        }
+
+        @Override
+        public void close() {
+            // nothing to release: the buffer stays readable for assertions
+        }
     }
 }

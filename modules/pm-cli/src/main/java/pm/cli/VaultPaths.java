@@ -1,5 +1,7 @@
 package pm.cli;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -20,6 +22,10 @@ final class VaultPaths {
     private static final String WINDOWS_PREFIX = "windows";
     private static final String APP_DIR = "pm";
     private static final String VAULT_FILE = "vault.pmv";
+    private static final String HOME_SHORTHAND = "~";
+    private static final String CURRENT_DIR = ".";
+    private static final String PARENT_DIR = "..";
+    private static final String SEPARATOR = "/";
 
     private VaultPaths() {
     }
@@ -50,18 +56,41 @@ final class VaultPaths {
 
     /**
      * Validates a {@code --vault} value and returns its canonical form: absolute, with {@code .} and
-     * {@code ..} removed (IDS01-J). The result must still name a file.
+     * {@code ..} removed (IDS01-J). The value must name a file: a trailing separator, a last element
+     * of {@code .} or {@code ..}, or an existing directory is refused.
+     *
+     * <p>A leading {@code ~} is refused rather than expanded. The shell expands {@code ~} only when
+     * it is unquoted, so a {@code ~} that reaches us was quoted or came from a script; expanding
+     * only {@code ~/} would be a partial imitation of the shell ({@code ~user} has no portable
+     * meaning in Java), and resolving it relative to the working directory, as before, silently
+     * creates a directory literally named {@code ~}. A file whose name starts with {@code ~} can
+     * still be named as {@code ./~name}.
      */
     static Path fromArgument(String raw) throws UsageException {
         if (raw.isBlank()) {
             throw new UsageException(Messages.EMPTY_VAULT_PATH);
         }
-        if (Cli.hasControlChars(raw)) {
+        if (Cli.hasUnsafeChars(raw)) {
             throw new UsageException(Messages.INVALID_VAULT_PATH);
         }
-        Path path = toPath(raw, Messages.INVALID_VAULT_PATH).toAbsolutePath().normalize();
-        if (path.getFileName() == null) {
+        if (raw.startsWith(HOME_SHORTHAND)) {
+            throw new UsageException(Messages.VAULT_PATH_TILDE);
+        }
+        if (raw.endsWith(SEPARATOR) || raw.endsWith(File.separator)) {
+            throw new UsageException(Messages.VAULT_PATH_NOT_FILE);
+        }
+        Path given = toPath(raw, Messages.INVALID_VAULT_PATH);
+        Path lastElement = given.getFileName();
+        if (lastElement == null) {
             throw new UsageException(Messages.INVALID_VAULT_PATH);
+        }
+        String last = lastElement.toString();
+        if (CURRENT_DIR.equals(last) || PARENT_DIR.equals(last)) {
+            throw new UsageException(Messages.VAULT_PATH_NOT_FILE);
+        }
+        Path path = given.toAbsolutePath().normalize();
+        if (path.getFileName() == null || Files.isDirectory(path)) {
+            throw new UsageException(Messages.VAULT_PATH_NOT_FILE);
         }
         return path;
     }

@@ -22,6 +22,9 @@ final class FakeVaultPort implements VaultPort {
     final List<VaultRecord> stored = new ArrayList<>();
     private SecretBytes passphraseUtf8;
     private VaultException.Code failure;
+    private boolean bug;
+    private boolean refusePut;
+    final List<VaultRecord> refused = new ArrayList<>();
     int saves;
     int creates;
     private FakeSession lastSession;
@@ -36,6 +39,18 @@ final class FakeVaultPort implements VaultPort {
     /** Every create/unlock fails with {@code code}. */
     FakeVaultPort failing(VaultException.Code code) {
         failure = code;
+        return this;
+    }
+
+    /** Every create/unlock throws an unexpected {@link IllegalStateException}, as a bug would. */
+    FakeVaultPort buggy() {
+        bug = true;
+        return this;
+    }
+
+    /** {@link Session#put} throws {@link IllegalStateException}; the offered record is kept in {@link #refused}. */
+    FakeVaultPort refusingPut() {
+        refusePut = true;
         return this;
     }
 
@@ -85,6 +100,9 @@ final class FakeVaultPort implements VaultPort {
     }
 
     private void failIfConfigured() throws VaultException {
+        if (bug) {
+            throw new IllegalStateException("internal detail " + MainArgsTest.CANARY);
+        }
         if (failure != null) {
             throw new VaultException(failure, null);
         }
@@ -107,6 +125,10 @@ final class FakeVaultPort implements VaultPort {
 
         @Override
         public void put(VaultRecord r) {
+            if (refusePut) {
+                refused.add(r);
+                throw new IllegalStateException("vault is locked");
+            }
             stored.add(r);
         }
 
