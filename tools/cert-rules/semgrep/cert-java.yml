@@ -157,6 +157,11 @@ rules:
       - metavariable-regex:
           metavariable: $LEVEL
           regex: ^(trace|debug|info|warn|warning|error|fatal|severe|config|fine|finer|finest|log|logp|logrb|tracef|debugf|infof|warnf|errorf|fatalf|print|println|printf|format|append|write|addArgument|addKeyValue)$
+      # The one reviewed place a secret may reach a terminal (e.g. showing the recovery key once)
+      # is a method marked @SecretBoundary(reason = ...), same escape hatch as MSC03-J above.
+      - pattern-not-inside: |
+          @SecretBoundary(...)
+          $RET $M(...) { ... }
   - id: cert.ENV02-J.getenv-outside-accessor
     languages: [java]
     severity: ERROR
