@@ -132,15 +132,31 @@ rules:
           - pattern: $LOG.$LEVEL(..., $S, ...)
           - pattern: System.out.println($S)
           - pattern: System.err.println($S)
+          # SLF4J 2 fluent API: log.atInfo().addArgument(secret).log(...).
+          - pattern: $X.addArgument($S)
+          # One hop of data flow: String m = "pw " + password; log.info(m);
+          - pattern: |
+              $T $M = $S;
+              ...
+              $LOG.$LEVEL(..., $M, ...);
+          - pattern: |
+              $M = $S;
+              ...
+              $LOG.$LEVEL(..., $M, ...);
       - metavariable-regex:
           metavariable: $S
-          # A bare string literal is a message, not a secret value.
-          regex: (?i)^(?!"[^"]*"$).*(password|passphrase|secret|privatekey|vaultkey|recoverykey).*
-      # Only logging/printing calls; without this, every qualified call (assertEquals,
+          # Skip an argument made only of string literals ("password", "a" + "b"): it is a
+          # message, not a secret value. Otherwise flag any of the MSC03-J secret words as a
+          # word inside an identifier: lower or Capitalized form not glued to more lowercase
+          # letters (password, userPass, MASTER_KEY, masterKey, pwdHash), so "passed",
+          # "bypass", "compass", "tokenizer" and "sdk" do not match. A plural "s" is allowed.
+          regex: >-
+            ^(?!\s*"(?:[^"\\]|\\.)*"(?:\s*\+\s*"(?:[^"\\]|\\.)*")*\s*$)[\s\S]*?(?:(?:(?<![a-z])(?:password|passphrase|pass|pwd|secret|private_?[kK]ey|api_?[kK]ey|token|vault_?[kK]ey|recovery_?[kK]ey|master_?[kK]ey|kek|dk)|(?:Password|Passphrase|Pass|Pwd|Secret|Private_?Key|Api_?Key|Token|Vault_?Key|Recovery_?Key|Master_?Key|Kek|Dk))s?(?![a-z])|(?<![A-Z])(?:PASSWORD|PASSPHRASE|PASS|PWD|SECRET|PRIVATE_?KEY|API_?KEY|TOKEN|VAULT_?KEY|RECOVERY_?KEY|MASTER_?KEY|KEK|DK)S?(?![A-Z]))
+      # Only logging/printing/writing calls; without this, every qualified call (assertEquals,
       # Kdf.argon2id(password, ...)) matched.
       - metavariable-regex:
           metavariable: $LEVEL
-          regex: ^(trace|debug|info|warn|warning|error|fatal|severe|config|fine|finer|finest|log|print|println|printf|format)$
+          regex: ^(trace|debug|info|warn|warning|error|fatal|severe|config|fine|finer|finest|log|logp|logrb|tracef|debugf|infof|warnf|errorf|fatalf|print|println|printf|format|append|write|addArgument|addKeyValue)$
   - id: cert.ENV02-J.getenv-outside-accessor
     languages: [java]
     severity: ERROR
