@@ -1,0 +1,44 @@
+; Vault envelope header (ADR 0003), M1 profile.
+;
+; Encoded with deterministic CBOR (RFC 8949 §4.2.1, ADR 0006 Amendment 1) and
+; covered in full by the AES-256-GCM AAD:
+;   AAD = magic ‖ version ‖ header_len ‖ header ‖ data_salt
+;
+; Readers ignore unknown keys (ADR 0006 forward compatibility), but every key
+; listed here is required. The header is authenticated, not encrypted: it must
+; never contain a Sensitive or Secret field (data-classification.md).
+;
+; Decoder bounds (EnvelopeCodec, CborLimits.HEADER): header_len <= 65536,
+; depth <= 16, items <= 1024, any single string <= 4096 bytes.
+
+vault-header = {
+  "schema_version" => 1,               ; mandatory in every top-level map (ADR 0006)
+  "kdf"            => kdf-params,
+  "slots"          => [1*16 slot],     ; at most 16 slots in M1
+  "created"        => epoch-seconds,
+  "saved"          => epoch-seconds,
+  "save_seq"       => save-seq,
+}
+
+; ADR 0007. The floor is enforced on read; the caps bound attacker-chosen work.
+kdf-params = {
+  "alg"  => "argon2id",
+  "m"    => 65536..1048576,            ; memory in KiB (64 MiB floor, 1 GiB cap)
+  "t"    => 3..10,                     ; iterations
+  "p"    => 1..16,                     ; lanes
+  "salt" => bstr .size 32,
+}
+
+; ADR 0004. M1 knows only these two slot types; "keychain" and "fido2" arrive
+; later and are rejected as CORRUPT until then. M1 vaults carry exactly one
+; passphrase slot and at most one recovery slot.
+slot = {
+  "id"          => uuid,
+  "type"        => slot-type,
+  "wrapped_key" => bstr .size 40,      ; RFC 5649 AES-KWP of the 32-byte VK
+}
+
+slot-type     = "passphrase" / "recovery"
+uuid          = bstr .size 16          ; RFC 9562 byte order (msb first)
+epoch-seconds = uint                   ; seconds since 1970-01-01T00:00:00Z
+save-seq      = uint .ge 1             ; monotonic per save (rollback detection)
