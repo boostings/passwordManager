@@ -2,3 +2,13 @@
 dependencies {
     implementation(project(":modules:pm-tui"))
 }
+
+// No application plugin: this copies the pm-cli jar and every runtime module jar into one
+// directory, used as the JPMS module path by scripts/pm (java -p build/modules -m pm.cli/pm.cli.Main).
+tasks.register<Sync>("installModules") {
+    group = "distribution"
+    description = "Copy pm-cli and its runtime module jars into build/modules (used by scripts/pm)."
+    from(tasks.named("jar"))
+    from(configurations.named("runtimeClasspath"))
+    into(layout.buildDirectory.dir("modules"))
+}
