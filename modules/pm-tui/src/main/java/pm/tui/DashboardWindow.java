@@ -24,7 +24,8 @@ import pm.vault.record.WifiRecord;
 /**
  * Dashboard: record table (Type | Title | Username/SSID | Updated) filtered live by a search box
  * through {@link Session#search(String)}, and a "Locked in m:ss" status bar (SR-504). Only
- * non-secret fields ever reach the table (SR-503, ADR 0008).
+ * non-secret fields ever reach the table (SR-503, ADR 0008), and each cell passes through
+ * {@link DisplaySafe#text(String)} first (SR-501).
  */
 final class DashboardWindow {
     static final String TITLE = "Vault";
@@ -53,6 +54,7 @@ final class DashboardWindow {
         search.addComponent(new Label("Search:"));
         search.addComponent(searchBox);
         searchBox.setTextChangeListener((text, byUser) -> refresh(text));
+        searchBox.setInputFilter(DisplaySafe.rejectUnsafe(() -> { })); // SR-501: dropped silently
         table.setSelectAction(this::openSelected);
 
         Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL));
@@ -94,9 +96,10 @@ final class DashboardWindow {
         table.setTableModel(model);
     }
 
-    /** Non-secret table cells for {@code r}. */
+    /** Non-secret table cells for {@code r}, made terminal-safe (SR-501, SR-503). */
     static List<String> row(VaultRecord r) {
-        return List.of(typeName(r), r.title(), account(r), UPDATED_FORMAT.format(r.updated()));
+        return List.of(typeName(r), DisplaySafe.text(r.title()), DisplaySafe.text(account(r)),
+                UPDATED_FORMAT.format(r.updated()));
     }
 
     /** Display name of the record type. */
@@ -129,7 +132,7 @@ final class DashboardWindow {
     }
 
     private void openAddLogin() {
-        controller.show(new AddLoginDialog(session, controller.clock(),
-                () -> refresh(searchBox.getText())).window());
+        controller.showForm(new AddLoginDialog(session, controller.clock(),
+                () -> refresh(searchBox.getText())));
     }
 }

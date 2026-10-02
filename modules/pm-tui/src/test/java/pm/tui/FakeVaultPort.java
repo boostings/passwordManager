@@ -27,6 +27,7 @@ final class FakeVaultPort implements VaultPort {
     private final char[] expectedRecovery;
     private final List<FakeSession> opened = new ArrayList<>();
     private int attempts;
+    private boolean searchesFail;
 
     FakeVaultPort(String expectedPassphrase, String expectedRecovery) {
         this.expectedPassphrase = expectedPassphrase.toCharArray();
@@ -56,6 +57,9 @@ final class FakeVaultPort implements VaultPort {
             throw new VaultException(VaultException.Code.WRONG_CREDENTIAL, null);
         }
         FakeSession s = new FakeSession();
+        if (searchesFail) {
+            s.failSearches();
+        }
         opened.add(s);
         return s;
     }
@@ -67,6 +71,11 @@ final class FakeVaultPort implements VaultPort {
             diff |= given[i] ^ expected[i];
         }
         return diff == 0;
+    }
+
+    /** Makes {@link Session#search} throw in every session opened from now on. */
+    void failSearches() {
+        searchesFail = true;
     }
 
     /** Number of unlock attempts, successful or not. */
@@ -91,6 +100,9 @@ final class FakeVaultPort implements VaultPort {
         private int saves;
         private boolean locked;
         private VaultException.Code failSaveWith;
+        private boolean putsFail;
+        private boolean searchesFail;
+        private VaultRecord rejected;
 
         FakeSession() {
             add(new LoginRecord(UUID.randomUUID(), "GitHub", "octocat", secret(LOGIN_SECRET),
@@ -116,6 +128,9 @@ final class FakeVaultPort implements VaultPort {
 
         @Override
         public List<VaultRecord> search(String query) {
+            if (searchesFail) {
+                throw new IllegalStateException("search failed");
+            }
             queries.add(query);
             String q = query.toLowerCase(Locale.ROOT);
             return byId.values().stream().filter(r -> matches(r, q)).toList();
@@ -128,6 +143,10 @@ final class FakeVaultPort implements VaultPort {
 
         @Override
         public void put(VaultRecord r) {
+            if (putsFail) {
+                rejected = r;
+                throw new IllegalStateException("put failed");
+            }
             add(r);
         }
 
@@ -157,6 +176,21 @@ final class FakeVaultPort implements VaultPort {
         /** Makes every later {@link #save()} fail with {@code code}. */
         void failSaves(VaultException.Code code) {
             failSaveWith = code;
+        }
+
+        /** Makes every later {@link #put} throw, remembering the rejected record. */
+        void failPuts() {
+            putsFail = true;
+        }
+
+        /** Makes every later {@link #search} throw. */
+        void failSearches() {
+            searchesFail = true;
+        }
+
+        /** The record passed to the last failing {@link #put}, or {@code null}. */
+        VaultRecord rejectedPut() {
+            return rejected;
         }
 
         int saveCount() {

@@ -12,14 +12,23 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-/** SR-504 idle auto-lock: deterministic timing on a manual clock, plus one real-executor smoke test. */
+/**
+ * SR-504 idle auto-lock: deterministic timing on a manual clock, plus a real-executor smoke test and
+ * a close()-versus-expiry stress test.
+ */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: exercises executors and an uncaught-exception handler
 class IdleLockTest {
     private static final Duration FIVE_MIN = Duration.ofMinutes(5);
     private static final Duration ONE_MIN = Duration.ofMinutes(1);
+    private static final int RACE_ITERATIONS = 50_000;
+    private static final int DELAY_STEPS = 50;
+    private static final int SPIN_STEPS = 60;
+    private static final long STEP_NANOS = 1_000;
 
     private final IdleLockFakeScheduler clock = new IdleLockFakeScheduler();
     private final AtomicInteger locks = new AtomicInteger();
@@ -147,6 +156,72 @@ class IdleLockTest {
         } finally {
             current.setUncaughtExceptionHandler(saved);
         }
+    }
+
+    @Test
+    void onLockMayTouchAndCloseItsOwnTimer() {
+        AtomicReference<IdleLock> self = new AtomicReference<>();
+        Runnable touchThenClose =
+                () -> {
+                    locks.incrementAndGet();
+                    self.get().touch(); // the lock is reentrant: no self-deadlock
+                    self.get().close(); // nor when onLock closes its own timer
+                };
+        try (IdleLock idle = new IdleLock(FIVE_MIN, touchThenClose, clock)) {
+            self.set(idle);
+            clock.advance(FIVE_MIN);
+            assertEquals(1, locks.get());
+            assertEquals(0, clock.liveTasks());
+            clock.advance(Duration.ofHours(1));
+            assertEquals(1, locks.get());
+        }
+    }
+
+    /**
+     * Close guarantee (SR-504): once {@code close()} returns, {@code onLock} is neither running nor
+     * ever started again. Races close() against expiries on the real scheduler thread; the
+     * reviewer's probe saw 14 to 44 violations in 200k runs before close() waited for onLock.
+     */
+    @Test
+    void onLockNeverRunsAfterCloseReturns() throws InterruptedException {
+        var ses = IdleLock.newDaemonScheduler();
+        AtomicInteger fired = new AtomicInteger();
+        AtomicInteger afterClose = new AtomicInteger();
+        try {
+            for (int i = 0; i < RACE_ITERATIONS; i++) {
+                AtomicBoolean closeReturned = new AtomicBoolean();
+                Runnable onLock =
+                        () -> {
+                            fired.incrementAndGet();
+                            boolean early = closeReturned.get();
+                            spin(STEP_NANOS);
+                            if (early || closeReturned.get()) {
+                                afterClose.incrementAndGet();
+                            }
+                        };
+                Duration timeout = Duration.ofNanos(1 + (i % DELAY_STEPS) * STEP_NANOS);
+                try (IdleLock idle = new IdleLock(timeout, onLock, ses)) {
+                    idle.touch(); // re-arm as a key press would, then race close() against expiry
+                    spin((i % SPIN_STEPS) * STEP_NANOS);
+                }
+                closeReturned.set(true);
+            }
+        } finally {
+            ses.shutdown();
+            assertTrue(ses.awaitTermination(10, TimeUnit.SECONDS));
+        }
+        assertEquals(0, afterClose.get(), "onLock ran after close() returned");
+        assertTrue(fired.get() > 0, "the race was never exercised: no expiry fired");
+    }
+
+    /** Busy-waits about {@code nanos}; returns the loop count so the loop is not dead code. */
+    private static long spin(long nanos) {
+        long until = System.nanoTime() + nanos;
+        long rounds = 0;
+        while (System.nanoTime() < until) {
+            rounds++;
+        }
+        return rounds;
     }
 
     @Test

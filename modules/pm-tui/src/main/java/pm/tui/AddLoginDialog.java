@@ -24,9 +24,11 @@ import pm.vault.record.LoginRecord;
  * Add-login dialog: title, username, masked password, comma-separated URLs and tags. OK runs
  * {@link Session#put} then {@link Session#save}; the password goes {@code char[]} to
  * {@link SecretChars} to {@link SecretBytes} without a {@code String} (ADR 0008). Failures show a
- * catalogue message only (SR-501).
+ * catalogue message only (SR-501). The visible fields refuse control and formatting characters as
+ * they are typed (SR-501), and every box, masked or not, is emptied on OK, Cancel, lock and quit
+ * (ADR 0008, SR-504).
  */
-final class AddLoginDialog {
+final class AddLoginDialog implements InputForm {
     static final String TITLE = "Add login";
     static final String OK = "OK";
     static final String CANCEL = "Cancel";
@@ -63,10 +65,14 @@ final class AddLoginDialog {
         grid.addComponent(urlsBox);
         grid.addComponent(new Label(TAGS_LABEL));
         grid.addComponent(tagsBox);
+        for (TextBox visible : List.of(titleBox, usernameBox, urlsBox, tagsBox)) {
+            visible.setInputFilter(DisplaySafe.rejectUnsafe(
+                    () -> errorLabel.setText(Messages.UNSAFE_CHARACTER)));
+        }
 
         Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL));
         buttons.addComponent(new Button(OK, this::submit));
-        buttons.addComponent(new Button(CANCEL, basicWindow::close));
+        buttons.addComponent(new Button(CANCEL, this::dismiss));
 
         Panel content = new Panel(new LinearLayout(Direction.VERTICAL));
         content.addComponent(grid);
@@ -79,12 +85,31 @@ final class AddLoginDialog {
     }
 
     /** The Lanterna window. */
-    Window window() {
+    @Override
+    public Window window() {
         return basicWindow;
+    }
+
+    /**
+     * Empties every field, including the masked password box (ADR 0008). Lanterna keeps text as
+     * immutable {@code String}s, so this drops the dialog's reference; it cannot zero the String.
+     */
+    @Override
+    public void clearInputs() {
+        for (TextBox box : List.of(titleBox, usernameBox, passwordBox, urlsBox, tagsBox)) {
+            box.setText("");
+        }
+        errorLabel.setText("");
     }
 
     private static TextBox textBox() {
         return new TextBox(new TerminalSize(FIELD_COLUMNS, 1));
+    }
+
+    /** Cancel: wipes the fields, then closes (ADR 0008). */
+    private void dismiss() {
+        clearInputs();
+        basicWindow.close();
     }
 
     private void submit() {
@@ -112,9 +137,18 @@ final class AddLoginDialog {
         }
     }
 
-    /** Puts then saves {@code added}; on a save failure the record is taken back out. */
+    /**
+     * Puts then saves {@code added}. If {@code put} throws, the record's password is zeroed and
+     * an {@link IllegalStateException} wrapping the failure propagates; on a save failure the record is taken back out and zeroed (ADR
+     * 0008, SR-501).
+     */
     private void store(LoginRecord added) {
-        session.put(added);
+        try {
+            session.put(added);
+        } catch (RuntimeException e) {
+            added.close();
+            throw new IllegalStateException("session put failed", e); // fixed text only (SR-501)
+        }
         try {
             session.save();
         } catch (VaultException e) {
@@ -123,6 +157,7 @@ final class AddLoginDialog {
             showError(Messages.of(e.code()), passwordBox);
             return;
         }
+        clearInputs();
         basicWindow.close();
         onSaved.run();
     }

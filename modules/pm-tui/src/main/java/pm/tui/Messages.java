@@ -15,6 +15,7 @@ final class Messages {
     static final String EMPTY_CREDENTIAL = "Enter a passphrase or recovery key.";
     static final String TITLE_REQUIRED = "A title is required.";
     static final String INVALID_INPUT = "The entry could not be saved: a field is invalid.";
+    static final String UNSAFE_CHARACTER = "Control and formatting characters are not allowed.";
 
     private static final long SECONDS_PER_MINUTE = 60;
 

@@ -2,17 +2,22 @@ package pm.tui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.gui2.Window;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.terminal.virtual.DefaultVirtualTerminal;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import pm.crypto.SecretBytes;
 import pm.vault.VaultException;
 import pm.vault.record.LoginRecord;
 import pm.vault.record.VaultRecord;
@@ -20,13 +25,18 @@ import pm.vault.record.VaultRecord;
 /**
  * M1 exit criterion "TUI dashboard and search" (plan.md §13 M1): drives the real Lanterna windows
  * on a {@link DefaultVirtualTerminal} with an in-memory vault, and reads the rendered screen.
- * Also covers masked secrets (SR-503), catalogue errors (SR-501), the canary (SR-500) and the
- * idle-lock wiring (SR-504).
+ * Also covers masked secrets (SR-503), catalogue errors (SR-501), terminal-safe rendering of
+ * record text (SR-501), the canary (SR-500), wiping typed input on cancel, lock and quit (ADR 0008)
+ * and the idle-lock wiring (SR-504).
  */
 class DashboardTest {
     private static final String CANARY =
             Objects.requireNonNull(System.getProperty("pm.canary.secret"), "pm.canary.secret");
     private static final String RECOVERY = "RK-0000-1111-2222";
+    private static final String TYPED_PW = "TYPEDPW-adv-999";
+    private static final String ESC_TITLE = "Evil\u001b]0;PWNED\u0007x";
+    private static final String CSI_TITLE = "Bank\u009b2J\u009d0;OWNED\u009c";
+    private static final String BIDI_TITLE = "Mail\u202Egnp.exe";
 
     private static FakeVaultPort newPort() {
         return new FakeVaultPort(CANARY, RECOVERY);
@@ -197,6 +207,117 @@ class DashboardTest {
     }
 
     @Test
+    void addLoginCancelEmptiesEveryBox() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY);
+            openAddLogin(h);
+            Window dialog = h.activeWindow();
+            typeIntoAddLogin(h);
+            assertTrue(TuiHarness.boxTexts(dialog).contains(TYPED_PW));
+
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // urls, tags, OK, Cancel
+
+            assertFalse(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertAllEmpty(dialog);
+            assertEquals(0, h.port.last().saveCount());
+        }
+    }
+
+    @Test
+    void quitEmptiesOpenFormsIncludingUnlockBox() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            Window unlock = h.activeWindow();
+            h.type(CANARY); // typed, never submitted
+            h.controller.quit();
+            h.pump();
+            assertAllEmpty(unlock);
+        }
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY);
+            openAddLogin(h);
+            Window dialog = h.activeWindow();
+            typeIntoAddLogin(h);
+            h.controller.quit();
+            h.pump();
+            assertAllEmpty(dialog);
+            assertTrue(h.port.last().isLocked());
+        }
+    }
+
+    @Test
+    void addLoginPutFailureZeroesThePassword() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY);
+            h.port.last().failPuts();
+            openAddLogin(h);
+            fillAddLogin(h, "Gitea", "alice", TYPED_PW);
+
+            assertThrows(IllegalStateException.class, () -> h.press(KeyType.Tab, KeyType.Enter));
+
+            assertTrue(LoginRecord.class.cast(h.port.last().rejectedPut()).password().isClosed());
+            assertEquals(0, h.port.last().saveCount());
+        }
+    }
+
+    @Test
+    void controlAndBidiCharactersInStoredRecordsRenderAsReplacement() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY);
+            for (String title : List.of(ESC_TITLE, CSI_TITLE, BIDI_TITLE)) {
+                h.port.last().put(login(title, "u\u0085\u2028\u200Bser"));
+            }
+            h.type("e"); // refresh through search, then back to the full list
+            h.press(KeyType.Backspace);
+
+            String screen = h.screenText();
+            assertTrue(screen.contains("Evil\uFFFD]0;PWNED\uFFFDx"), screen);
+            assertTrue(screen.contains("Bank\uFFFD2J\uFFFD0;OWNED\uFFFD"), screen);
+            assertTrue(screen.contains("Mail\uFFFDgnp.exe"), screen);
+            assertTrue(screen.contains("u\uFFFD\uFFFD\uFFFDser"), screen);
+            assertTerminalSafe(h);
+
+            h.press(KeyType.Tab, KeyType.ArrowDown, KeyType.ArrowDown, KeyType.ArrowDown,
+                    KeyType.Enter); // detail view of the ESC record: window title and labels
+            assertTrue(h.screenText().contains(RecordDetailWindow.CLOSE));
+            assertTrue(h.screenText().contains("Evil\uFFFD]0;PWNED"), h.screenText());
+            assertTerminalSafe(h);
+            assertTrue(h.controller.isUnlocked());
+        }
+    }
+
+    @Test
+    void typedControlOrFormatCharacterIsRejected() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY);
+            openAddLogin(h);
+            Window dialog = h.activeWindow();
+            h.type("A\u009bB\u001bC\u202ED");
+            assertTrue(h.screenText().contains(Messages.UNSAFE_CHARACTER), h.screenText());
+            assertEquals("ABCD", TuiHarness.boxTexts(dialog).get(0));
+            assertTerminalSafe(h);
+
+            h.press(KeyType.Tab);
+            h.type("user\u0085");
+            h.press(KeyType.Tab);
+            h.type("pw");
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // urls, tags, OK
+
+            assertEquals(List.of("Login", "ABCD", "user"),
+                    DashboardWindow.row(h.port.last().records().get(3)).subList(0, 3));
+        }
+    }
+
+    @Test
+    void displaySafeReplacesEveryUnsafeClass() {
+        assertEquals("a\uFFFDb\uFFFDc\uFFFDd\uFFFDe\uFFFDf\uFFFDg\uFFFDh",
+                DisplaySafe.text("a\u001bb\u009bc\u0085d\u202Ee\u200Bf\u2028g\u2029h"));
+        assertEquals("\uFFFD", DisplaySafe.text("\uD800")); // lone surrogate
+        assertEquals("ok \uD83D\uDD11 \u00E9", DisplaySafe.text("ok \uD83D\uDD11 \u00E9"));
+        assertTrue(DisplaySafe.isSafe("plain title"));
+        assertFalse(DisplaySafe.isSafe("tab\there"));
+    }
+
+    @Test
     void detailViewMasksSecrets() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
@@ -250,11 +371,15 @@ class DashboardTest {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
             openAddLogin(h); // a dialog open on top must go too
+            Window dialog = h.activeWindow();
+            typeIntoAddLogin(h);
+            assertTrue(TuiHarness.boxTexts(dialog).contains(TYPED_PW));
 
             h.timers.fireLatest(); // IdleLock expiry: only posts to the GUI thread
             assertFalse(h.port.last().isLocked());
             h.pump();
 
+            assertAllEmpty(dialog); // ADR 0008: the typed password is not left in the masked box
             assertTrue(h.port.last().isLocked());
             assertFalse(h.controller.isUnlocked());
             assertEquals(1, h.timers.closes());
@@ -327,6 +452,24 @@ class DashboardTest {
     }
 
     @Test
+    void exceptionEscapingRunStillLocksTheSession() throws IOException {
+        FakeVaultPort port = newPort();
+        port.failSearches();
+        try (DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(100, 30))) {
+            CANARY.chars().forEach(c -> terminal.addInput(new KeyStroke((char) c, false, false)));
+            terminal.addInput(new KeyStroke(KeyType.Enter));
+            terminal.addInput(new KeyStroke(KeyType.Enter));
+            terminal.addInput(new KeyStroke('x', false, false)); // search throws on the GUI thread
+
+            TuiApp app = new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK);
+            assertThrows(IllegalStateException.class, () -> app.run(terminal));
+        }
+
+        assertEquals(1, port.openedSessions().size());
+        assertTrue(port.last().isLocked()); // run's finally locked the vault on the way out
+    }
+
+    @Test
     void runUnlocksAndEndsOnEndOfInput() throws IOException {
         FakeVaultPort port = newPort();
         try (DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(100, 30))) {
@@ -344,6 +487,33 @@ class DashboardTest {
 
     private static void openAddLogin(TuiHarness h) {
         h.press(KeyType.Tab, KeyType.Tab, KeyType.Enter); // search -> table -> Add login
+    }
+
+    private static void typeIntoAddLogin(TuiHarness h) {
+        h.type("Title");
+        h.press(KeyType.Tab);
+        h.type("user");
+        h.press(KeyType.Tab);
+        h.type(TYPED_PW);
+    }
+
+    private static void assertAllEmpty(Window form) {
+        List<String> texts = TuiHarness.boxTexts(form);
+        assertFalse(texts.isEmpty());
+        texts.forEach(t -> assertEquals("", t, texts::toString));
+    }
+
+    /** No control, format or separator character reached the virtual terminal (SR-501). */
+    private static void assertTerminalSafe(TuiHarness h) {
+        for (String text : List.of(h.screenText(), h.bufferText())) {
+            text.lines().forEach(line -> assertTrue(DisplaySafe.isSafe(line), line));
+        }
+    }
+
+    private static LoginRecord login(String title, String username) {
+        return new LoginRecord(UUID.randomUUID(), title, username,
+                SecretBytes.copyOf("pw".getBytes(StandardCharsets.UTF_8)), List.of(), "", List.of(),
+                FakeVaultPort.T0, FakeVaultPort.T0, FakeVaultPort.T0);
     }
 
     private static void fillAddLogin(TuiHarness h, String title, String user, String pw) {

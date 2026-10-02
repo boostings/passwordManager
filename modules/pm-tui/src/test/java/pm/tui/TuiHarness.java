@@ -1,7 +1,11 @@
 package pm.tui;
 
 import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.gui2.Component;
+import com.googlecode.lanterna.gui2.Container;
 import com.googlecode.lanterna.gui2.MultiWindowTextGUI;
+import com.googlecode.lanterna.gui2.TextBox;
+import com.googlecode.lanterna.gui2.Window;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.TerminalScreen;
@@ -110,6 +114,26 @@ final class TuiHarness implements AutoCloseable {
             sb.append('\n');
         });
         return sb.toString();
+    }
+
+    /** The window that currently has focus. */
+    Window activeWindow() {
+        return gui.getActiveWindow();
+    }
+
+    /** Text of every {@link TextBox} in {@code window}, masked boxes included, in layout order. */
+    static List<String> boxTexts(Window window) {
+        List<String> texts = new ArrayList<>();
+        collectBoxTexts(window.getComponent(), texts);
+        return texts;
+    }
+
+    private static void collectBoxTexts(Component c, List<String> texts) {
+        if (c instanceof TextBox box) {
+            texts.add(box.getText());
+        } else if (c instanceof Container container) {
+            container.getChildren().forEach(child -> collectBoxTexts(child, texts));
+        }
     }
 
     /** Every frame rendered since the harness started. */
