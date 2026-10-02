@@ -6,7 +6,20 @@ import java.util.UUID;
 
 import pm.crypto.SecretBytes;
 
-record WifiRecord(
+/**
+ * Wi-Fi network credential (ADR 0006). The password is a {@link SecretBytes} (ADR 0008).
+ *
+ * @param id       stable record id
+ * @param title    display title, at most 256 chars
+ * @param ssid     network name
+ * @param security one of WPA2, WPA3, WEP, OPEN
+ * @param password secret network key, closed by {@link #close()}
+ * @param hidden   whether the network is hidden
+ * @param notes    free text, at most 64 KiB
+ * @param created  creation time
+ * @param updated  last modification time
+ */
+public record WifiRecord(
         UUID id,
         String title,
         String ssid,
@@ -17,6 +30,7 @@ record WifiRecord(
         Instant created,
         Instant updated
 ) implements VaultRecord {
+    /** Null checks and length bounds (ADR 0006, MSC05-J). */
     public WifiRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(title, "title");
@@ -26,14 +40,11 @@ record WifiRecord(
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(created, "created");
         Objects.requireNonNull(updated, "updated");
-        if (title.length() > 256) {
-            throw new IllegalArgumentException("title too long");
-        }
-        if (notes.length() > 64 * 1024) {
-            throw new IllegalArgumentException("notes too long");
-        }
+        RecordLimits.checkTitle(title);
+        RecordLimits.checkNotes(notes);
     }
 
+    /** Closes the password (ADR 0008). */
     @Override
     public void close() {
         password.close();

@@ -7,7 +7,22 @@ import java.util.UUID;
 
 import pm.crypto.SecretBytes;
 
-record SshKeyRecord(
+/**
+ * SSH key pair (ADR 0006). The private key is a {@link SecretBytes} (ADR 0008); hosts are
+ * defensively copied (OBJ06-J) and bounded (MSC05-J).
+ *
+ * @param id          stable record id
+ * @param title       display title, at most 256 chars
+ * @param keyType     key algorithm, for example ssh-ed25519
+ * @param privateKey  secret private key, closed by {@link #close()}
+ * @param publicKey   public key in OpenSSH format
+ * @param fingerprint public key fingerprint
+ * @param comment     key comment, at most 64 KiB
+ * @param hosts       at most 64 host patterns
+ * @param created     creation time
+ * @param updated     last modification time
+ */
+public record SshKeyRecord(
         UUID id,
         String title,
         String keyType,
@@ -19,6 +34,7 @@ record SshKeyRecord(
         Instant created,
         Instant updated
 ) implements VaultRecord {
+    /** Null checks, length bounds and defensive copies (ADR 0006, OBJ06-J). */
     public SshKeyRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(title, "title");
@@ -30,18 +46,13 @@ record SshKeyRecord(
         Objects.requireNonNull(hosts, "hosts");
         Objects.requireNonNull(created, "created");
         Objects.requireNonNull(updated, "updated");
-        if (title.length() > 256) {
-            throw new IllegalArgumentException("title too long");
-        }
-        if (comment.length() > 64 * 1024) {
-            throw new IllegalArgumentException("comment too long");
-        }
+        RecordLimits.checkTitle(title);
+        RecordLimits.checkNotes(comment);
         hosts = List.copyOf(hosts);
-        if (hosts.size() > 64) {
-            throw new IllegalArgumentException("too many hosts");
-        }
+        RecordLimits.checkListSize(hosts.size());
     }
 
+    /** Closes the private key (ADR 0008). */
     @Override
     public void close() {
         privateKey.close();
