@@ -9,9 +9,9 @@ package pm.crypto;
  */
 public record Argon2Params(int memoryKiB, int iterations, int parallelism) {
     private static final int MIN_MEMORY_KIB = 65_536;
-    private static final int MAX_MEMORY_KIB = 1_048_576;
+    static final int MAX_MEMORY_KIB = 1_048_576;
     private static final int MIN_ITERATIONS = 3;
-    private static final int MAX_ITERATIONS = 10;
+    static final int MAX_ITERATIONS = 10;
     private static final int MIN_PARALLELISM = 1;
     private static final int MAX_PARALLELISM = 16;
 
