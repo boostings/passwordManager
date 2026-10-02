@@ -43,3 +43,17 @@ Sign-off: ☐ security owner ☐ second reviewer (names per CODEOWNERS)
 - Provision an NVD API key as a repository secret and make `dependencyCheckAggregate` blocking.
 - Confirm JDK 21 exposes TLS exporter keying material (ADR 0010 open item) — spike at M3 start.
 - Push to GitHub and observe the first real CI run on all three OS runners; local proof only so far.
+
+## M1 gate correction (2026-10-02)
+
+The M0 sign-off reported "PMD 0 findings", but PMD was not analyzing any files. Two rule
+references in `tools/cert-rules/pmd-cert.xml` (`EmptyControlStatement`, `BadComparison`) do not
+exist in PMD 7 under those paths, and the PMD run logged "No files to analyze" while the build
+still passed. Semgrep's built-in ignore list also skipped every `src/test` directory.
+
+Fixed: rule references corrected (`codestyle.xml/EmptyControlStatement`,
+`errorprone.xml/ComparisonWithNaN`); deprecated `AvoidLosingExceptionInformation` replaced by
+`UselessPureMethodCall`; root `.semgrepignore` added so tests are scanned. Proof: a planted
+`if (x > 5)` in pm-crypto now fails `pmdMain` with `AvoidLiteralsInIfCondition`; the first
+real PMD run found one genuine violation (`AvoidFieldNameMatchingMethodName` in
+`CryptoException`), which is fixed; `semgrep --verbose` lists no files skipped by `.semgrepignore`.
