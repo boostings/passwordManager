@@ -109,6 +109,19 @@ val semgrepCert = tasks.register<Exec>("semgrepCert") {
     description = "Run the CERT Semgrep rule pack (tools/cert-rules/semgrep/) over all Java sources."
     val out = layout.buildDirectory.file("reports/semgrep-cert.json")
     outputs.file(out)
+    // Real inputs, so a source or rule change re-runs the scan instead of reusing a stale report.
+    // Semgrep scans every non-git-ignored file under modules/ (tracked or not; verified with an
+    // untracked probe file), so the Java file tree plus the ignore files fully determine the scan
+    // set and `git ls-files` is not needed. The tree is a superset (it also contains git-ignored
+    // files), which can only cause an extra run, never a stale one.
+    inputs.files(fileTree("modules") { include("**/*.java"); exclude("**/build/**") })
+        .withPropertyName("javaSources").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("tools/cert-rules/semgrep")
+        .withPropertyName("rules").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(".semgrepignore")
+        .withPropertyName("semgrepignore").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(".gitignore")
+        .withPropertyName("gitignore").withPathSensitivity(PathSensitivity.RELATIVE)
     doFirst { out.get().asFile.parentFile.mkdirs() }
     commandLine("semgrep", "scan", "--config", "tools/cert-rules/semgrep", "--error", "--json",
         "--output", out.get().asFile.path, "--metrics=off", "modules")
@@ -125,10 +138,15 @@ val gitleaksScan = tasks.register<Exec>("gitleaksScan") {
 val certReport = tasks.register("certReport") {
     group = "verification"
     description = "Aggregate compiler, PMD, SpotBugs, Semgrep and ArchUnit results into build/reports/cert-compliance.md and fail on any Enforced-rule finding."
-    dependsOn(subprojects.map { it.tasks.matching { t -> t.name in setOf("pmdMain", "pmdTest", "spotbugsMain", "test") } })
+    // spotbugsTest is required because the parser below reads every XML in reports/spotbugs,
+    // including test.xml; without the dependency it could read a stale or missing test report.
+    dependsOn(subprojects.map { it.tasks.matching { t -> t.name in setOf("pmdMain", "pmdTest", "spotbugsMain", "spotbugsTest", "test") } })
     dependsOn(semgrepCert)
     val reportFile = layout.buildDirectory.file("reports/cert-compliance.md")
     outputs.file(reportFile)
+    // The report embeds the commit hash and a timestamp, and aggregates reports from many tasks,
+    // so it must regenerate on every invocation; never let Gradle call it UP-TO-DATE.
+    outputs.upToDateWhen { false }
     doLast {
         val findings = mutableListOf<String>()
         // PMD
