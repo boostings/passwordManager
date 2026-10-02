@@ -1,2 +1,2 @@
-/** Placeholder package for pm-storage; populated from M1. */
+/** Owner-only, bounded storage of encrypted vault bytes (ADR 0003, SR-040/041). */
 package pm.storage;
