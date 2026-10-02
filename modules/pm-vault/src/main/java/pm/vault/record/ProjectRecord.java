@@ -48,8 +48,6 @@ public record ProjectRecord(
     /** Closes every secret variable (ADR 0008). */
     @Override
     public void close() {
-        for (SecretBytes value : variables.values()) {
-            value.close();
-        }
+        variables.values().forEach(SecretBytes::close);
     }
 }
