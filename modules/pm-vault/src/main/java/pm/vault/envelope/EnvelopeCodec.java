@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import pm.crypto.Argon2Params;
+import pm.crypto.ConstantTime;
 import pm.vault.VaultException;
 import pm.vault.cbor.CborException;
 import pm.vault.cbor.CborLimits;
@@ -195,8 +196,8 @@ public final class EnvelopeCodec {
         if (file.length < MIN_FILE_LENGTH) {
             throw corrupt(null);
         }
-        // 2. Magic. It is a public constant, so a plain comparison is fine here.
-        if (!Arrays.equals(file, 0, MAGIC_LENGTH, FILE_MAGIC, 0, MAGIC_LENGTH)) {
+        // 2. Magic. Public, but SR-016 routes every byte[] comparison through ConstantTime.
+        if (!ConstantTime.equals(Arrays.copyOf(file, MAGIC_LENGTH), FILE_MAGIC)) {
             throw corrupt(null);
         }
         ByteBuffer buf = ByteBuffer.wrap(file);
