@@ -5,7 +5,7 @@ package pm.cli;
  * ever written: no exception message, path, passphrase or secret field.
  */
 enum Messages {
-    USAGE("usage: pm [--vault <path>] init | add-login | list | search <query> | tui"),
+    USAGE("usage: pm [--vault <path>] [--] init | add-login | list | search <query> | tui"),
     NO_TERMINAL("interactive terminal required"),
     MISSING_COMMAND("missing command"),
     UNKNOWN_COMMAND("unknown command"),
@@ -15,13 +15,15 @@ enum Messages {
     DUPLICATE_VAULT_OPTION("--vault given more than once"),
     EMPTY_VAULT_PATH("vault path is empty"),
     INVALID_VAULT_PATH("vault path is not valid"),
+    VAULT_PATH_NOT_FILE("vault path must name a file, not a directory"),
+    VAULT_PATH_TILDE("'~' is not expanded in --vault; give the full path"),
     NO_HOME_DIR("cannot determine the home directory; pass --vault <path>"),
     INPUT_CLOSED("input closed"),
     EMPTY_PASSPHRASE("passphrase must not be empty"),
     EMPTY_PASSWORD("password must not be empty"),
     MALFORMED_SECRET("input contains malformed characters"),
     PASSPHRASE_MISMATCH("passphrases do not match; no vault was created"),
-    INVALID_TEXT("input contains control characters"),
+    INVALID_TEXT("input contains control or invisible formatting characters"),
     EMPTY_TITLE("title must not be empty"),
     EMPTY_QUERY("search query must not be empty"),
     INVALID_RECORD("record fields are out of bounds"),
@@ -47,7 +49,10 @@ enum Messages {
     ERR_LOCKED("vault is in use by another process"),
     ERR_STORAGE("vault storage error"),
     ERR_NOT_FOUND("no vault at this path; run 'pm init' first"),
-    ERR_TERMINAL("terminal error");
+    ERR_TERMINAL("terminal error"),
+    ERR_RECOVERY_NOT_SHOWN("the vault was created but its recovery key could not be shown;"
+            + " delete the new vault file and run 'pm init' again"),
+    ERR_INTERNAL("internal error");
 
     private final String catalogueText;
 
