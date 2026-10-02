@@ -11,6 +11,6 @@ E commits are to be re-authored to the Lane E teammate before push (name pending
 - [x] **E1** C/D contract stubs (pm-vault, scaffolding only) + E stubs: TuiApp, IdleLock, Main, module-infos (done: VaultPort/Session seam; §2 amended to `requires transitive` lanterna; CE-002 DoNotUseThreads on IdleLock, CE-003 EI_EXPOSE_REP on holder records; gate green 0 findings)
 - [ ] **E2a** CLI: Main/run(args, ConsoleIo), init/add-login/list/search, exit codes, Messages + MainArgsTest
 - [ ] **E2b** TUI: unlock, dashboard + search, detail (masked), add-login dialog + DashboardTest (virtual terminal)
-- [ ] **E2c** IdleLock (ReentrantLock, not synchronized) + IdleLockTest with deterministic scheduler
+- [x] **E2c** IdleLock (ReentrantLock, not synchronized) + IdleLockTest with deterministic scheduler (done: generation counter blocks stale expiry; 11 tests incl. real-executor smoke; gate green 0 findings)
 - [ ] **E-review** Adversarial review of all E changes; findings fixed or recorded
 - [~] **E3** EndToEndTest with canary passphrase (BLOCKED: needs real Lane C VaultService)
