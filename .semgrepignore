@@ -1,0 +1,5 @@
+# Replaces Semgrep's default ignore list, which skips test directories. RULES.md applies to
+# production, test, and build code alike (CONTRIBUTING.md), so tests are scanned.
+build/
+.gradle/
+.claude/
