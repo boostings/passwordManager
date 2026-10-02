@@ -153,6 +153,8 @@ val certReport = tasks.register("certReport") {
         subprojects.forEach { p ->
             p.layout.buildDirectory.dir("reports/pmd").get().asFile.listFiles { f -> f.extension == "xml" }?.forEach { f ->
                 Regex("<violation[^>]*rule=\"([^\"]+)\"[^>]*>").findAll(f.readText()).forEach { m -> findings += "PMD ${m.groupValues[1]} in ${p.name}" }
+                // A PMD processing error means a file was never analysed; count it so "0 findings" cannot be vacuous.
+                Regex("<error[^>]*filename=\"([^\"]+)\"").findAll(f.readText()).forEach { m -> findings += "PMD processing error on ${m.groupValues[1].substringAfterLast('/')} in ${p.name}" }
             }
             p.layout.buildDirectory.dir("reports/spotbugs").get().asFile.listFiles { f -> f.extension == "xml" }?.forEach { f ->
                 Regex("<BugInstance[^>]*type=\"([^\"]+)\"").findAll(f.readText()).forEach { m -> findings += "SpotBugs ${m.groupValues[1]} in ${p.name}" }
