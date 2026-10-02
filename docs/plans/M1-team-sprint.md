@@ -230,7 +230,7 @@ public final class SafeLog {
 }
 ```
 
-### B: `pm.storage` (module pm-storage)
+### B: `pm.storage` (module pm-storage) (Naren)
 
 ```java
 package pm.storage;
