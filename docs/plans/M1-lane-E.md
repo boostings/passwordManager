@@ -7,8 +7,8 @@ Decision (2026-10-02, user): Lanes C/D are unbuilt, so E builds against §2 C/D 
 (branch `m1/e/cd-stubs`, replaced by C/D later) and tests against in-memory fakes behind an E-owned port.
 E commits are to be re-authored to the Lane E teammate before push (name pending from user).
 
-- [ ] **E0** Lanterna 3.1.3 dependency + verification metadata (sha256 checked against Maven Central)
-- [ ] **E1** C/D contract stubs (pm-vault, scaffolding only) + E stubs: TuiApp, IdleLock, Main, module-infos
+- [x] **E0** Lanterna 3.1.3 dependency + verification metadata (done: jar/pom sha1 match Central (no .sha256 published); signing key unavailable on keyservers → ignored-key, checksum-pinned only)
+- [x] **E1** C/D contract stubs (pm-vault, scaffolding only) + E stubs: TuiApp, IdleLock, Main, module-infos (done: VaultPort/Session seam; §2 amended to `requires transitive` lanterna; CE-002 DoNotUseThreads on IdleLock, CE-003 EI_EXPOSE_REP on holder records; gate green 0 findings)
 - [ ] **E2a** CLI: Main/run(args, ConsoleIo), init/add-login/list/search, exit codes, Messages + MainArgsTest
 - [ ] **E2b** TUI: unlock, dashboard + search, detail (masked), add-login dialog + DashboardTest (virtual terminal)
 - [ ] **E2c** IdleLock (ReentrantLock, not synchronized) + IdleLockTest with deterministic scheduler
