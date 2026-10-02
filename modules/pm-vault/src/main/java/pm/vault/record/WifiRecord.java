@@ -3,18 +3,20 @@ package pm.vault.record;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+
 import pm.crypto.SecretBytes;
 
-/**
- * SCAFFOLDING by Lane E for §2 contract; Lane C/D replace this file.
- *
- * <p>Wi-Fi network credential (ADR 0006). {@code security} is one of WPA2, WPA3, WEP, OPEN.
- */
-public record WifiRecord(UUID id, String title, String ssid, String security,
-        SecretBytes password, boolean hidden, String notes, Instant created, Instant updated)
-        implements VaultRecord {
-
-    /** Null checks. */
+record WifiRecord(
+        UUID id,
+        String title,
+        String ssid,
+        String security,
+        SecretBytes password,
+        boolean hidden,
+        String notes,
+        Instant created,
+        Instant updated
+) implements VaultRecord {
     public WifiRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(title, "title");
@@ -24,10 +26,14 @@ public record WifiRecord(UUID id, String title, String ssid, String security,
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(created, "created");
         Objects.requireNonNull(updated, "updated");
-        // Lane D: length bounds
+        if (title.length() > 256) {
+            throw new IllegalArgumentException("title too long");
+        }
+        if (notes.length() > 64 * 1024) {
+            throw new IllegalArgumentException("notes too long");
+        }
     }
 
-    /** Closes the password. */
     @Override
     public void close() {
         password.close();

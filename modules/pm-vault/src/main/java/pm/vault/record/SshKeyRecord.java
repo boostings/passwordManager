@@ -4,18 +4,21 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+
 import pm.crypto.SecretBytes;
 
-/**
- * SCAFFOLDING by Lane E for §2 contract; Lane C/D replace this file.
- *
- * <p>SSH key pair (ADR 0006). Collections are defensively copied (OBJ06-J).
- */
-public record SshKeyRecord(UUID id, String title, String keyType, SecretBytes privateKey,
-        String publicKey, String fingerprint, String comment, List<String> hosts, Instant created,
-        Instant updated) implements VaultRecord {
-
-    /** Null checks and defensive copies. */
+record SshKeyRecord(
+        UUID id,
+        String title,
+        String keyType,
+        SecretBytes privateKey,
+        String publicKey,
+        String fingerprint,
+        String comment,
+        List<String> hosts,
+        Instant created,
+        Instant updated
+) implements VaultRecord {
     public SshKeyRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(title, "title");
@@ -24,13 +27,21 @@ public record SshKeyRecord(UUID id, String title, String keyType, SecretBytes pr
         Objects.requireNonNull(publicKey, "publicKey");
         Objects.requireNonNull(fingerprint, "fingerprint");
         Objects.requireNonNull(comment, "comment");
+        Objects.requireNonNull(hosts, "hosts");
         Objects.requireNonNull(created, "created");
         Objects.requireNonNull(updated, "updated");
+        if (title.length() > 256) {
+            throw new IllegalArgumentException("title too long");
+        }
+        if (comment.length() > 64 * 1024) {
+            throw new IllegalArgumentException("comment too long");
+        }
         hosts = List.copyOf(hosts);
-        // Lane D: length bounds
+        if (hosts.size() > 64) {
+            throw new IllegalArgumentException("too many hosts");
+        }
     }
 
-    /** Closes the private key. */
     @Override
     public void close() {
         privateKey.close();

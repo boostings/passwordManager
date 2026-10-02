@@ -4,33 +4,45 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+
 import pm.crypto.SecretBytes;
 
-/**
- * SCAFFOLDING by Lane E for §2 contract; Lane C/D replace this file.
- *
- * <p>Website or application login (ADR 0006). Collections are defensively copied (OBJ06-J).
- */
-public record LoginRecord(UUID id, String title, String username, SecretBytes password,
-        List<String> urls, String notes, List<String> tags, Instant created, Instant updated,
-        Instant lastUsed) implements VaultRecord {
-
-    /** Null checks and defensive copies. */
+record LoginRecord(
+        UUID id,
+        String title,
+        String username,
+        SecretBytes password,
+        List<String> urls,
+        String notes,
+        List<String> tags,
+        Instant created,
+        Instant updated,
+        Instant lastUsed
+) implements VaultRecord {
     public LoginRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(title, "title");
         Objects.requireNonNull(username, "username");
         Objects.requireNonNull(password, "password");
+        Objects.requireNonNull(urls, "urls");
         Objects.requireNonNull(notes, "notes");
+        Objects.requireNonNull(tags, "tags");
         Objects.requireNonNull(created, "created");
         Objects.requireNonNull(updated, "updated");
         Objects.requireNonNull(lastUsed, "lastUsed");
+        if (title.length() > 256) {
+            throw new IllegalArgumentException("title too long");
+        }
+        if (notes.length() > 64 * 1024) {
+            throw new IllegalArgumentException("notes too long");
+        }
         urls = List.copyOf(urls);
         tags = List.copyOf(tags);
-        // Lane D: length bounds
+        if (urls.size() > 64 || tags.size() > 64) {
+            throw new IllegalArgumentException("too many urls/tags");
+        }
     }
 
-    /** Closes the password. */
     @Override
     public void close() {
         password.close();
