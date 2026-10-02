@@ -5,11 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalField;
+import java.time.temporal.UnsupportedTemporalTypeException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,6 +23,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.DoubleAdder;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -92,6 +102,24 @@ final class SafeLogLeakTest {
         }
     }
 
+    /** A project {@code TemporalAccessor}; not a java.base class, so it is refused. */
+    private static final class LeakyTemporal implements TemporalAccessor {
+        @Override
+        public boolean isSupported(TemporalField field) {
+            return false;
+        }
+
+        @Override
+        public long getLong(TemporalField field) {
+            throw new UnsupportedTemporalTypeException("none");
+        }
+
+        @Override
+        public String toString() {
+            return CANARY;
+        }
+    }
+
     /** {@link System.Logger} that records every emitted message. */
     private static final class Capture implements System.Logger {
         private final List<String> lines = Collections.synchronizedList(new ArrayList<>());
@@ -128,6 +156,16 @@ final class SafeLogLeakTest {
         return builder;
     }
 
+    private static byte[] canaryBytes() {
+        return CANARY.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static LongAdder adderOf(byte[] key) {
+        LongAdder adder = new LongAdder();
+        adder.add(ByteBuffer.wrap(key).getLong());
+        return adder;
+    }
+
     static Stream<Arguments> wrappedSecrets() {
         Supplier<char[]> pw = CANARY::toCharArray;
         return Stream.of(
@@ -147,6 +185,15 @@ final class SafeLogLeakTest {
                 Arguments.of("char[]", (Supplier<Object>) pw::get),
                 Arguments.of("byte[]", (Supplier<Object>) () -> CANARY.getBytes(StandardCharsets.UTF_8)),
                 Arguments.of("project Number subclass", (Supplier<Object>) LeakyNumber::new),
+                Arguments.of("project TemporalAccessor", (Supplier<Object>) LeakyTemporal::new),
+                Arguments.of("BigInteger(key)", (Supplier<Object>) () -> new BigInteger(1, canaryBytes())),
+                Arguments.of("BigDecimal(key)",
+                        (Supplier<Object>) () -> new BigDecimal(new BigInteger(1, canaryBytes()))),
+                Arguments.of("AtomicLong(key prefix)",
+                        (Supplier<Object>) () -> new AtomicLong(ByteBuffer.wrap(canaryBytes()).getLong())),
+                Arguments.of("AtomicInteger(key prefix)",
+                        (Supplier<Object>) () -> new AtomicInteger(ByteBuffer.wrap(canaryBytes()).getInt())),
+                Arguments.of("LongAdder(key prefix)", (Supplier<Object>) () -> adderOf(canaryBytes())),
                 Arguments.of("Throwable", (Supplier<Object>) () -> new IllegalStateException(CANARY)));
     }
 
@@ -227,5 +274,26 @@ final class SafeLogLeakTest {
                 Path.of("vault"), null);
         assertEquals(List.of(EVENT + " text 42 7 1.5 true c " + id + " PT3S " + at + " vault null"),
                 capture.lines);
+    }
+
+    /** D5: each java.base boxed primitive is accepted; nothing wider. */
+    @Test
+    void everyBoxedPrimitiveNumberIsEmitted() {
+        Capture capture = new Capture();
+        SafeLog.over(capture).info(EVENT, 1, 2L, (short) 3, (byte) 4, 5.5f, 6.5d);
+        assertEquals(List.of(EVENT + " 1 2 3 4 5.5 6.5"), capture.lines);
+    }
+
+    /** D5: wide JDK numbers are refused as UNLOGGABLE_ARG, even holding a harmless value. */
+    @Test
+    void wideJdkNumbersAreRefused() {
+        Capture capture = new Capture();
+        SafeLog log = SafeLog.over(capture);
+        for (Object n : List.of(BigInteger.ONE, BigDecimal.ONE, new AtomicInteger(1), new AtomicLong(1),
+                new LongAdder(), new DoubleAdder())) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> log.info(EVENT, n));
+            assertEquals("UNLOGGABLE_ARG", e.getMessage(), n.getClass().getName());
+        }
+        assertTrue(capture.lines.isEmpty(), capture.all());
     }
 }

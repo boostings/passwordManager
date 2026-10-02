@@ -17,9 +17,15 @@ import pm.crypto.Sensitive;
  * <p><b>Allowlist, not blocklist.</b> An argument is logged only if it is {@code null} or one of:
  * {@link String}, {@link Boolean}, {@link Character}, {@link UUID}, {@link Duration}, an
  * {@link Enum} constant (rendered by {@link Enum#name()}, so an overridden {@code toString} is
- * never called), or a {@link Number}, {@link TemporalAccessor} or {@link Path} whose runtime class
- * is a JDK class in {@code java.base} (so a project subclass cannot smuggle state out through
- * {@code toString}). Everything else throws {@link IllegalArgumentException}.
+ * never called), one of the boxed primitives {@link Integer}, {@link Long}, {@link Short},
+ * {@link Byte}, {@link Float} or {@link Double}, or a {@link TemporalAccessor} or {@link Path} whose
+ * runtime class is a JDK class in {@code java.base} (so a project subclass cannot smuggle state out
+ * through {@code toString}). Everything else throws {@link IllegalArgumentException}.
+ *
+ * <p>Other {@link Number}s are refused even though they live in {@code java.base}:
+ * {@code BigInteger}, {@code BigDecimal} and the {@code Atomic*}/{@code *Adder} types can hold a
+ * whole key ({@code new BigInteger(1, keyBytes)}) and print it in full. A boxed primitive carries
+ * at most 64 bits.
  *
  * <p>SR-500 requires that no secret reaches any log. A blocklist that inspects the top-level
  * argument type cannot meet that: a secret travels just as well inside a {@code CharBuffer}, a
@@ -111,11 +117,22 @@ public final class SafeLog {
                 || arg instanceof Character
                 || arg instanceof UUID
                 || arg instanceof Duration
-                || arg instanceof Enum<?>) {
+                || arg instanceof Enum<?>
+                || boxedPrimitiveNumber(arg)) {
             return true;
         }
-        boolean jdkValue = arg instanceof Number || arg instanceof TemporalAccessor || arg instanceof Path;
+        boolean jdkValue = arg instanceof TemporalAccessor || arg instanceof Path;
         return jdkValue && arg.getClass().getModule() == JAVA_BASE;
+    }
+
+    /** Exactly the java.base boxed primitives; all are final, so {@code instanceof} is an exact match. */
+    private static boolean boxedPrimitiveNumber(Object arg) {
+        return arg instanceof Integer
+                || arg instanceof Long
+                || arg instanceof Short
+                || arg instanceof Byte
+                || arg instanceof Float
+                || arg instanceof Double;
     }
 
     private static String render(Object arg) {
