@@ -15,9 +15,10 @@ import pm.vault.VaultException;
 /**
  * Unlock screen: one masked field, unlock with the passphrase or with the recovery key (ADR 0004).
  * The typed value is drained to {@code char[]} and the box cleared at once (ADR 0008); failures
- * show a fixed catalogue message only (SR-501).
+ * show a fixed catalogue message only (SR-501). A value typed but never submitted is wiped by
+ * {@link #clearInputs()} on quit (ADR 0008).
  */
-final class UnlockWindow {
+final class UnlockWindow implements InputForm {
     static final String TITLE = "Unlock vault";
     static final String UNLOCK = "Unlock";
     static final String RECOVERY = "Use recovery key";
@@ -49,8 +50,15 @@ final class UnlockWindow {
     }
 
     /** The Lanterna window. */
-    Window window() {
+    @Override
+    public Window window() {
         return basicWindow;
+    }
+
+    /** Empties the masked credential box (ADR 0008). */
+    @Override
+    public void clearInputs() {
+        credentialBox.setText("");
     }
 
     private void submit(boolean recoveryKey) {

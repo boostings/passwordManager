@@ -15,7 +15,8 @@ import pm.vault.record.WifiRecord;
 
 /**
  * Read-only record detail. Secret fields are always shown as {@link Messages#SECRET_MASK} and are
- * never read: reveal and clipboard copy are out of scope for M1 (planned for M4, SR-503).
+ * never read: reveal and clipboard copy are out of scope for M1 (planned for M4, SR-503). The
+ * window title and every label pass through {@link DisplaySafe#text(String)} (SR-501).
  */
 final class RecordDetailWindow {
     static final String CLOSE = "Close";
@@ -25,11 +26,11 @@ final class RecordDetailWindow {
     private final BasicWindow basicWindow;
 
     RecordDetailWindow(VaultRecord shownRecord) {
-        basicWindow = new BasicWindow(shownRecord.title());
+        basicWindow = new BasicWindow(DisplaySafe.text(shownRecord.title()));
         Panel grid = new Panel(new GridLayout(GRID_COLUMNS));
         for (List<String> field : fields(shownRecord)) {
-            grid.addComponent(new Label(field.get(0)));
-            grid.addComponent(new Label(field.get(1)));
+            grid.addComponent(new Label(DisplaySafe.text(field.get(0))));
+            grid.addComponent(new Label(DisplaySafe.text(field.get(1))));
         }
         Button close = new Button(CLOSE, basicWindow::close);
         grid.addComponent(close);

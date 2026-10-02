@@ -26,9 +26,21 @@ import java.util.concurrent.locks.ReentrantLock;
  * normally. The exception is not swallowed: it is handed to the running thread's {@link
  * Thread.UncaughtExceptionHandler} rather than being parked unseen in the expired future.
  *
+ * <p><b>Close guarantee.</b> The staleness check and {@code onLock} run together under
+ * {@code lock}, and {@link #close()} takes the same lock. So once {@code close()} returns,
+ * {@code onLock} is not running on any other thread and will never start again; a
+ * {@code close()} that races an expiry waits for that {@code onLock} call to finish. The same holds
+ * for {@link #touch()}: an expiry superseded by a {@code touch()} never runs {@code onLock}.
+ * Because {@code lock} is reentrant, {@code onLock} may itself call {@code touch()} or
+ * {@code close()} on the same thread. <b>Contract:</b> {@code onLock} must be short and must not
+ * block on another thread that may call {@code touch()} or {@code close()}, or the two would
+ * deadlock. The TUI's {@code onLock} only enqueues a task with Lanterna's
+ * {@code TextGUIThread.invokeLater}, an unsynchronized {@code Queue.add} that never blocks.
+ *
  * <p>Shared state is guarded by a {@link ReentrantLock} ({@code lock}); {@code synchronized} is
- * banned by the PMD CERT rule set. Error Prone's {@code @GuardedBy} annotation is not on the
- * compile classpath, so the guard is documented per field instead.
+ * banned by the PMD CERT rule set. Error Prone's {@code @GuardedBy} annotation
+ * ({@code error_prone_annotations}) is not on pm-tui's compile classpath, so the guard is
+ * documented per field instead.
  */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: TPS00-J executor; PMD 7 flags executors too
 public final class IdleLock implements AutoCloseable {
@@ -104,8 +116,11 @@ public final class IdleLock implements AutoCloseable {
     }
 
     /**
-     * Cancels any pending lock and disables further {@link #touch()} calls. Idempotent. Does
-     * <em>not</em> shut down the injected executor, which belongs to the caller.
+     * Cancels any pending lock and disables further {@link #touch()} calls (SR-504). If an
+     * {@code onLock} call is running on another thread, waits (uninterruptibly) for it to finish;
+     * after this returns {@code onLock} never starts again. See the class comment for the exact
+     * guarantee. Idempotent. Does <em>not</em> shut down the injected executor, which belongs to
+     * the caller.
      */
     @Override
     public void close() {
@@ -135,6 +150,7 @@ public final class IdleLock implements AutoCloseable {
         }
     }
 
+    /** Runs {@code onLock} for expiry {@code gen} unless it is stale; holds {@code lock} throughout. */
     private void expire(long gen) {
         lock.lock();
         try {
@@ -142,9 +158,14 @@ public final class IdleLock implements AutoCloseable {
                 return; // superseded by a touch() or close() that raced this expiry
             }
             pending = null;
+            runOnLockLocked();
         } finally {
             lock.unlock();
         }
+    }
+
+    /** Runs {@code onLock}, handing a {@link RuntimeException} to the uncaught-exception handler. */
+    private void runOnLockLocked() {
         try {
             onLock.run();
         } catch (RuntimeException e) {

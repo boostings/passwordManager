@@ -7,6 +7,7 @@ import com.googlecode.lanterna.input.KeyStroke;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,7 +17,9 @@ import pm.vault.VaultException;
 /**
  * Screen flow of the TUI (plan.md §13 M1): unlock, dashboard, record detail and add-login, plus
  * idle auto-lock (SR-504). All methods run on the Lanterna GUI thread, except the idle timer's
- * {@code onLock}, which only posts {@link #lock()} through {@code invokeLater}.
+ * {@code onLock}, which only posts {@link #lock()} through {@code invokeLater}. Every open
+ * {@link InputForm} is tracked and its boxes emptied on unlock, lock, idle-lock and quit, so a
+ * typed password never outlives its window in a pm reference (ADR 0008, SR-504).
  */
 final class TuiController {
 
@@ -43,6 +46,8 @@ final class TuiController {
     private final IdleTimerFactory timers;
     private final Clock timeSource;
     private final ActivityListener activityListener = new ActivityListener();
+    /** GUI-thread confined: forms shown and not yet cleared by the controller. */
+    private final List<InputForm> openForms = new ArrayList<>();
 
     // GUI-thread confined state.
     private Session session;
@@ -63,7 +68,7 @@ final class TuiController {
 
     /** Shows the unlock screen. */
     void start() {
-        show(new UnlockWindow(this).window());
+        showForm(new UnlockWindow(this));
     }
 
     /** Whether the user asked to quit. */
@@ -139,6 +144,13 @@ final class TuiController {
         quitRequested = true;
     }
 
+    /** Shows {@code form} and tracks it so lock and quit can empty its boxes (ADR 0008). */
+    void showForm(InputForm form) {
+        openForms.removeIf(f -> !gui.getWindows().contains(f.window()));
+        openForms.add(form);
+        show(form.window());
+    }
+
     /** Adds {@code window} on top, wiring the activity listener so every key touches the timer. */
     void show(Window window) {
         window.addWindowListener(activityListener);
@@ -147,6 +159,7 @@ final class TuiController {
     }
 
     private void endSession() {
+        clearForms();
         sessionGeneration++;
         if (idleTimer != null) {
             idleTimer.close();
@@ -161,9 +174,16 @@ final class TuiController {
     }
 
     private void removeAllWindows() {
+        clearForms();
         for (Window w : List.copyOf(gui.getWindows())) {
             gui.removeWindow(w);
         }
+    }
+
+    /** Empties every tracked form, masked boxes included, and forgets it (ADR 0008). */
+    private void clearForms() {
+        openForms.forEach(InputForm::clearInputs);
+        openForms.clear();
     }
 
     /** Touches the idle timer on every key event that reaches any TUI window. */

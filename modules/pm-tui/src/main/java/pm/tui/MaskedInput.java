@@ -26,9 +26,12 @@ final class MaskedInput {
      * Copies the box content into a fresh {@code char[]} owned by the caller and clears the box.
      * The caller hands the array to {@code SecretChars.takeOwnership}, which zero-fills it.
      */
-    @SecretBoundary(reason = "Lanterna 3.1.3 TextBox stores its content only as String lines and "
-            + "exposes no char[] accessor; the String is copied to char[] and the box is cleared "
-            + "in this one method, so no secret String is held by pm code beyond this call")
+    @SecretBoundary(reason = "Lanterna 3.1.3 TextBox stores its content only as immutable String "
+            + "lines and exposes no char[] accessor. It builds a new String on every keystroke, so "
+            + "each typed prefix of the secret is a separate String that stays on the heap until "
+            + "GC and cannot be zeroed. This method copies the final String to char[] and clears "
+            + "the box; pm code then holds no secret String reference, but the prefix copies "
+            + "remain (measured: HeapTui prefix-copy count is non-zero; see ADR 0008, R-003)")
     static char[] drain(TextBox box) {
         char[] out = box.getText().toCharArray();
         box.setText("");
