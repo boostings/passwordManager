@@ -7,6 +7,12 @@
         <Method name="initCipher"/>
         <Bug pattern="CIPHER_INTEGRITY"/>
     </Match>
+    <!-- CE-004: refuseEscape must compare the generic result to the buffer by reference. -->
+    <Match>
+        <Class name="pm.crypto.SecretBytes"/>
+        <Method name="refuseEscape"/>
+        <Bug pattern="EC_UNRELATED_TYPES_USING_POINTER_EQUALITY"/>
+    </Match>
     <!-- CE-003: holder records intentionally hand the caller a live vault/session handle (ownership transfer). -->
     <Match>
         <Class name="pm.vault.CreatedVault"/>
@@ -15,5 +21,11 @@
     <Match>
         <Class name="pm.tui.CreatedSession"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- CE-005: one explicit collection before refusing Argon2 for lack of heap, so garbage is not counted as in use. -->
+    <Match>
+        <Class name="pm.crypto.Kdf"/>
+        <Method name="collectGarbage"/>
+        <Bug pattern="DM_GC"/>
     </Match>
 </FindBugsFilter>

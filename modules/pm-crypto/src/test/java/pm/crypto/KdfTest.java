@@ -234,16 +234,56 @@ class KdfTest {
         assertEquals(Argon2Params.FLOOR.memoryKiB(), Kdf.memoryCapKiB(0L));
         assertEquals(256L * MIB, Kdf.heapBudgetBytes(512L * MIB));
         assertEquals(UNLIMITED_BUDGET, Kdf.heapBudgetBytes(-1L));
+        assertEquals(UNLIMITED_BUDGET, Kdf.heapBudgetBytes(Long.MAX_VALUE));
         assertTrue(Kdf.heapBudgetBytes() > 0);
     }
 
-    /** F6: parameters from a hostile header that exceed the heap budget fail before allocation. */
+    /** D3: tune on a 123 MiB heap (MaxRAM=512m) caps at the floor, which argon2id then accepts. */
+    @Test
+    void tuneOnSmallHeapYieldsParamsArgon2idAccepts() {
+        long maxHeap = 123L * MIB;
+        long used = 8L * MIB;
+        Argon2Params tuned = Kdf.tune(TARGET, p -> 0L, Kdf.heapBudgetBytes(maxHeap));
+        assertEquals(Argon2Params.FLOOR.memoryKiB(), tuned.memoryKiB());
+        long needed = tuned.memoryKiB() * 1024L * 11 / 10;
+        assertTrue(needed <= Kdf.availableHeapBytes(maxHeap, used));
+    }
+
+    /** D3: available heap is max minus used now; an undefined max is bounded by the 1 GiB cap, never unbounded. */
+    @Test
+    void availableHeapIsMaxMinusUsedOrOneGibCapWhenUndefined() {
+        assertEquals(412L * MIB, Kdf.availableHeapBytes(512L * MIB, 100L * MIB));
+        long capNeed = Argon2Params.MAX_MEMORY_KIB * 1024L * 11 / 10;
+        assertEquals(capNeed, Kdf.UNBOUNDED_HEAP_AVAILABLE);
+        assertEquals(capNeed, Kdf.availableHeapBytes(-1L, 0L));
+        assertEquals(capNeed, Kdf.availableHeapBytes(Long.MAX_VALUE, 0L));
+        assertTrue(Kdf.availableHeapBytes() > 0);
+    }
+
+    /** D3: a shortfall triggers one collection and a fresh figure; no shortfall measures once. */
+    @Test
+    void availableHeapForRemeasuresOnlyOnShortfall() {
+        assertTrue(Kdf.availableHeapFor(0L) > 0);
+        assertTrue(Kdf.availableHeapFor(Long.MAX_VALUE) > 0);
+        assertEquals(Argon2Params.FLOOR.memoryKiB() * 1024L * 11 / 10, Kdf.requiredHeapBytes(Argon2Params.FLOOR));
+    }
+
+    /** F6/D3: parameters from a hostile header that need more than the free heap fail before allocation. */
     @Test
     void argon2idRejectsMemoryAboveHeapBudget() {
-        long budget = Argon2Params.FLOOR.memoryKiB() * 1024L - 1;
+        long available = Argon2Params.FLOOR.memoryKiB() * 1024L * 11 / 10 - 1;
         CryptoException e = assertThrows(CryptoException.class,
-                () -> Kdf.argon2id(sb(new byte[1]), new byte[Kdf.SALT_LEN], Argon2Params.FLOOR, budget));
+                () -> Kdf.argon2id(sb(new byte[1]), new byte[Kdf.SALT_LEN], Argon2Params.FLOOR, available));
         assertEquals(CryptoException.Code.BAD_PARAMS, e.code());
+    }
+
+    /** D3: exactly 1.1 x m of free heap is enough (the real need is about 1.03 x m). */
+    @Test
+    void argon2idAcceptsMemoryAtExactlyTenPercentHeadroom() throws CryptoException {
+        long available = Argon2Params.FLOOR.memoryKiB() * 1024L * 11 / 10;
+        try (SecretBytes out = Kdf.argon2id(sb(new byte[1]), new byte[Kdf.SALT_LEN], Argon2Params.FLOOR, available)) {
+            assertEquals(Kdf.ARGON2_OUT_LEN, out.length());
+        }
     }
 
     // ---- HKDF-SHA256 ----------------------------------------------------------------------

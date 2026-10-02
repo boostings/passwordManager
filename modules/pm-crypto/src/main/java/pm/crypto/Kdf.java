@@ -1,6 +1,5 @@
 package pm.crypto;
 
-import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.ToLongFunction;
@@ -31,6 +30,15 @@ public final class Kdf {
     private static final int TUNE_MEMORY_FACTOR = 2;
     private static final long BYTES_PER_KIB = 1024L;
     private static final long HEAP_BUDGET_DIVISOR = 2L;
+    /**
+     * Argon2 needs about 1.03 x m of heap (the m-KiB block matrix plus generator state); refuse
+     * unless 1.1 x m fits in the heap still free, so a hostile header fails before allocating.
+     */
+    private static final long HEADROOM_NUM = 11L;
+    private static final long HEADROOM_DEN = 10L;
+    /** Free heap assumed when the JVM defines no maximum: exactly enough for the 1 GiB parameter cap. */
+    static final long UNBOUNDED_HEAP_AVAILABLE =
+            Argon2Params.MAX_MEMORY_KIB * BYTES_PER_KIB * HEADROOM_NUM / HEADROOM_DEN;
 
     private Kdf() {
     }
@@ -39,22 +47,27 @@ public final class Kdf {
      * Argon2id (RFC 9106) with a 32-byte salt and 32-byte output.
      *
      * @throws CryptoException {@code BAD_INPUT} if the salt is not 32 bytes; {@code BAD_PARAMS} if
-     *     {@code params} need more than half the maximum heap, checked before anything is allocated
-     *     so a hostile vault header cannot exhaust the heap
+     *     {@code memoryKiB * 1024 * 11/10} exceeds the heap still available (maximum heap minus heap
+     *     in use now), checked before anything is allocated so a hostile vault header cannot exhaust
+     *     the heap. With no defined maximum heap only the 1 GiB {@link Argon2Params} cap applies.
      */
     public static SecretBytes argon2id(SecretBytes password, byte[] salt32, Argon2Params params) throws CryptoException {
-        return argon2id(password, salt32, params, heapBudgetBytes());
+        Objects.requireNonNull(params, "params");
+        return argon2id(password, salt32, params, availableHeapFor(requiredHeapBytes(params)));
     }
 
-    /** {@link #argon2id(SecretBytes, byte[], Argon2Params)} with an injectable memory budget in bytes. */
-    static SecretBytes argon2id(SecretBytes password, byte[] salt32, Argon2Params params, long budgetBytes)
+    /**
+     * {@link #argon2id(SecretBytes, byte[], Argon2Params)} with an injectable available-heap figure
+     * in bytes.
+     */
+    static SecretBytes argon2id(SecretBytes password, byte[] salt32, Argon2Params params, long availableBytes)
             throws CryptoException {
         Objects.requireNonNull(salt32, "salt32");
         Objects.requireNonNull(params, "params");
         if (salt32.length != SALT_LEN) {
             throw new CryptoException(CryptoException.Code.BAD_INPUT);
         }
-        if (params.memoryKiB() * BYTES_PER_KIB > budgetBytes) {
+        if (requiredHeapBytes(params) > availableBytes) {
             throw new CryptoException(CryptoException.Code.BAD_PARAMS);
         }
         Argon2BytesGenerator gen = argon2Generator(salt32, params);
@@ -121,21 +134,62 @@ public final class Kdf {
         return SecretBytes.takeOwnership(out);
     }
 
-    /**
-     * Half the maximum heap: Argon2 must leave room for the rest of the process. Read through the
-     * MemoryMXBean because the ArchUnit process rule bans {@code java.lang.Runtime} outside
-     * pm.approval and pm.platform.
-     */
-    static long heapBudgetBytes() {
-        return heapBudgetBytes(ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax());
+    /** Heap Argon2 must find free before running: {@code memoryKiB * 1024 * 11/10}. */
+    static long requiredHeapBytes(Argon2Params params) {
+        return params.memoryKiB() * BYTES_PER_KIB * HEADROOM_NUM / HEADROOM_DEN;
     }
 
-    /** {@code maxHeapBytes} is -1 when the JVM defines no maximum; then only the 1 GiB parameter cap applies. */
+    /**
+     * {@link #availableHeapBytes()}, measured again after one collection if the first figure is
+     * short of {@code requiredBytes}. "In use" counts unreachable garbage, such as the blocks of the
+     * Argon2 runs {@link #tune} just timed, which would otherwise refuse a run that fits.
+     */
+    static long availableHeapFor(long requiredBytes) {
+        long available = availableHeapBytes();
+        if (requiredBytes > available) {
+            collectGarbage();
+            available = availableHeapBytes();
+        }
+        return available;
+    }
+
+    /** CE-005: deliberate collection so the heap figure excludes garbage; runs only before refusing. */
+    private static void collectGarbage() {
+        System.gc();
+    }
+
+    /** Maximum heap minus heap in use now, or {@link #UNBOUNDED_HEAP_AVAILABLE} with no defined maximum. */
+    static long availableHeapBytes() {
+        Runtime rt = Runtime.getRuntime();
+        return availableHeapBytes(rt.maxMemory(), rt.totalMemory() - rt.freeMemory());
+    }
+
+    /**
+     * {@code maxHeapBytes} is {@link Long#MAX_VALUE} (or negative) when the JVM defines no maximum;
+     * then the figure is just enough for the 1 GiB parameter cap, never unbounded.
+     */
+    static long availableHeapBytes(long maxHeapBytes, long usedHeapBytes) {
+        if (undefinedMax(maxHeapBytes)) {
+            return UNBOUNDED_HEAP_AVAILABLE;
+        }
+        return maxHeapBytes - usedHeapBytes;
+    }
+
+    /** Half the maximum heap: what {@link #tune} may use, leaving headroom for the rest of the process. */
+    static long heapBudgetBytes() {
+        return heapBudgetBytes(Runtime.getRuntime().maxMemory());
+    }
+
+    /** With no defined maximum heap only the 1 GiB parameter cap applies (see {@link #memoryCapKiB}). */
     static long heapBudgetBytes(long maxHeapBytes) {
-        if (maxHeapBytes < 0) {
+        if (undefinedMax(maxHeapBytes)) {
             return Long.MAX_VALUE;
         }
         return maxHeapBytes / HEAP_BUDGET_DIVISOR;
+    }
+
+    private static boolean undefinedMax(long maxHeapBytes) {
+        return maxHeapBytes < 0 || maxHeapBytes == Long.MAX_VALUE;
     }
 
     /** min(1 GiB, budget) in KiB, rounded down to a power of two, never below the floor. */

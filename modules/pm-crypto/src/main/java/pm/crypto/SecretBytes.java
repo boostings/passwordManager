@@ -3,7 +3,6 @@ package pm.crypto;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
-import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -129,15 +128,12 @@ public final class SecretBytes implements AutoCloseable {
     }
 
     /**
-     * Refuses a result that IS the internal buffer; a copy with the same content passes. Identity is
-     * tested with an {@link IdentityHashMap} because the static analysers (PMD
-     * CompareObjectsWithEquals, SpotBugs EC_*) reject {@code ==} and {@code equals} between a
-     * generic result and an array.
+     * Refuses a result that IS the internal buffer; a copy with the same content passes. This must
+     * be reference identity, not {@code equals}: see CE-004 in docs/security/cert-exceptions.md.
      */
+    @SuppressWarnings("PMD.CompareObjectsWithEquals")
     private <R> R refuseEscape(R result) {
-        IdentityHashMap<Object, Boolean> self = new IdentityHashMap<>(1);
-        self.put(buf, Boolean.TRUE);
-        if (self.containsKey(result)) {
+        if (result == buf) { // CE-004: deliberate identity check
             throw new IllegalStateException("SECRET_ESCAPE");
         }
         return result;
