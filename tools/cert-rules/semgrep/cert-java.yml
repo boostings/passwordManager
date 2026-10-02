@@ -169,6 +169,9 @@ rules:
       - metavariable-regex:
           metavariable: $LEVEL
           regex: ^(trace|debug|info|warn|warning|error|fatal|severe|config|fine|finer|finest|log|logp|logrb|tracef|debugf|infof|warnf|errorf|fatalf|print|println|printf|format|append|write|addArgument|addKeyValue)$
+      # RecoveryKey.format(rk) is the pm-crypto encoder that returns SecretChars; "format" is a
+      # $LEVEL name only because of String.format, so this call is not a log sink.
+      - pattern-not: RecoveryKey.format(...)
       # The one reviewed place a secret may reach a terminal (e.g. showing the recovery key once)
       # is a method marked @SecretBoundary(reason = ...), same escape hatch as MSC03-J above.
       - pattern-not-inside: |
