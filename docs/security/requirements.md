@@ -69,6 +69,7 @@ desktop application.
 | SR-302 | Every credential release to the extension requires TUI approval or an explicit session policy scoped to one origin | T-EXT-03 | V4.1 | — |
 | SR-303 | Native messaging JSON is size-bounded (Chrome limit 1 MiB) and schema-validated; the parser is fuzzed | T-FUZZ-NM | V5.1 | MSC05-J |
 | SR-304 | Autofill happens only on explicit user action in the extension UI, never automatically on page load | T-EXT-04 | — | — |
+| SR-305 | Native messaging requests are one JSON object whose member names are exactly the set for its `type`, each of the listed type and range; the caller's extension origin is checked against the host's own allowlist before stdin is read (ADR 0014 §3, §4) | T-EXT-05, T-EXT-02 | V5.1 | IDS00-J, MSC05-J |
 
 ## Passkeys (SR-4xx)
 

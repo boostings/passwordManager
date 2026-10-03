@@ -41,6 +41,8 @@ Status: Planned until the test exists and passes in CI.
 | TM-51 | SR-301 | — | T-EXT-02 | M5 | Planned |
 | TM-52 | SR-302 | — | T-EXT-03 | M5 | Planned |
 | TM-53 | SR-303 | MSC05-J | T-FUZZ-NM | M5 | Planned |
+| TM-51 | SR-301, SR-305 | — | T-EXT-02 (`ExtensionAllowlistTest`, `NativeHostTest`) | M5.1 | Tested |
+| TM-53 | SR-303, SR-305 | MSC05-J, IDS00-J | T-FUZZ-NM unit half (`NativeFramesTest`, `JsonTextTest`), T-EXT-05 (`MessagesTest`); fuzz harness M5.5 | M5.1 | Tested |
 | TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
 | TM-61 | SR-017 | — | ArchUnit | M4 | Planned |
 | TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |
