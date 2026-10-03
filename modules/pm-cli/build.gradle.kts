@@ -1,6 +1,7 @@
 // pm-cli — see plan.md §10 module tiers
 dependencies {
     implementation(project(":modules:pm-tui"))
+    implementation(project(":modules:pm-approval"))
 }
 
 // No application plugin: this copies the pm-cli jar and every runtime module jar into one

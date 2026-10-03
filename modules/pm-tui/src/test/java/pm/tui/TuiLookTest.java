@@ -225,6 +225,16 @@ class TuiLookTest {
     }
 
     @Test
+    void colortermSelectsTruecolorThroughTheEnvAccessor() {
+        assertTrue(PmTheme.forEnvironment(pm.domain.env.Env.of(java.util.Map.of("COLORTERM", "truecolor"))).isTrueColor());
+        assertTrue(PmTheme.forEnvironment(pm.domain.env.Env.of(java.util.Map.of("COLORTERM", "24bit"))).isTrueColor());
+        assertFalse(PmTheme.forEnvironment(pm.domain.env.Env.of(java.util.Map.of("COLORTERM", "yes"))).isTrueColor());
+        assertFalse(PmTheme.forEnvironment(pm.domain.env.Env.of(java.util.Map.of())).isTrueColor());
+        assertFalse(PmTheme.forEnvironment(pm.domain.env.Env.of(java.util.Map.of("COLORTERM", "truecolor\u001b[2J")))
+                .isTrueColor(), "an invalid value counts as unset");
+    }
+
+    @Test
     void motionHelpersAreClampedAndEased() {
         assertEquals(0x000000, PmTheme.blend(0x000000, 0xffffff, -1));
         assertEquals(0xffffff, PmTheme.blend(0x000000, 0xffffff, 2));

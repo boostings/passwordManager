@@ -129,6 +129,7 @@ final class FakeVaultPort implements VaultPort {
                 refused.add(r);
                 throw new IllegalStateException("vault is locked");
             }
+            stored.removeIf(old -> old.id().equals(r.id()));
             stored.add(r);
         }
 

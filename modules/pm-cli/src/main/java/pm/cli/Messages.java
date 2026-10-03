@@ -5,7 +5,10 @@ package pm.cli;
  * ever written: no exception message, path, passphrase or secret field.
  */
 enum Messages {
-    USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui];"
+    USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui"
+            + " | project add <title> [--dir <path>] | project list"
+            + " | env list | env import <file> | env export <file> --plaintext]"
+            + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
     UNKNOWN_COMMAND("unknown command"),
@@ -27,6 +30,17 @@ enum Messages {
     EMPTY_TITLE("title must not be empty"),
     EMPTY_QUERY("search query must not be empty"),
     INVALID_RECORD("record fields are out of bounds"),
+    BAD_PROFILE("profile names use a-z, 0-9, - and _, at most 32 characters"),
+    PROJECT_EXISTS("a project with this title or directory already exists"),
+    NO_SUCH_PROJECT("no project with this title"),
+    NO_PROJECT_HERE("no project registered for this directory; run 'pm project add <title>' or pass --project"),
+    NOT_A_DIRECTORY("project directory does not exist or is not a directory"),
+    ENV_FILE_UNREADABLE(".env file is missing, unreadable or larger than 1 MiB"),
+    EXPORT_NEEDS_PLAINTEXT("export writes secrets to disk in plain text; add --plaintext to confirm"),
+    EXPORT_EXISTS("the export file already exists; pm never overwrites it"),
+    EXPORT_UNREPRESENTABLE("a value holds control characters a .env file cannot carry; nothing was exported"),
+    EXPORT_FAILED("the export file could not be written"),
+    AUDIT_UNAVAILABLE("the audit log could not be written, so nothing was exported"),
 
     PROMPT_PASSPHRASE("Passphrase: "),
     PROMPT_NEW_PASSPHRASE("New passphrase: "),
@@ -43,6 +57,15 @@ enum Messages {
     RECOVERY_KEY_NOTICE("recovery key (shown once; write it down and store it offline):"),
     LOGIN_ADDED("login added: "),
     LIST_HEADER("id  type  title  updated"),
+    PROJECT_ADDED("project added: "),
+    PROJECT_HEADER("title  directory  profiles"),
+    ENV_HEADER("variables in "),
+    ENV_IMPORTED("variables imported: "),
+    ENV_EXPORTED("variables exported (file is 0600): "),
+    ENV_REJECTED(".env file rejected: "),
+    WARN_GIT_NOT_IGNORED("warning: this file is inside a git repository and no .gitignore rule covers it;"
+            + " it could be committed"),
+    WARN_PLAINTEXT_LEFT("warning: the plaintext .env file is still on disk; delete it once the import is checked"),
 
     ERR_WRONG_CREDENTIAL("wrong passphrase or recovery key"),
     ERR_CORRUPT("vault file is corrupt or has been tampered with"),

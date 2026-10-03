@@ -41,7 +41,8 @@ import pm.vault.record.WifiRecord;
 
 /**
  * The CLI behind {@link Main} (plan.md §13 M1): hand-rolled argument parsing, the {@code init},
- * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, the bare {@code pm}
+ * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, the M2
+ * {@code project} and {@code env} groups ({@link EnvCommands}), the bare {@code pm}
  * that opens the whole app (creating the vault first when there is none), and the mapping from
  * failures to {@link ExitCodes}. Every line printed comes from {@link Messages} or is non-secret
  * record metadata (SR-501); passphrases live only in {@link SecretChars} and are zeroed after use
@@ -56,6 +57,7 @@ final class Cli {
     private static final String END_OF_OPTIONS = "--";
     private static final String OPTION_PREFIX = "-";
     private static final String INIT_COMMAND = "init";
+    private static final java.util.Set<String> GROUPS = java.util.Set.of("project", "env");
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
@@ -155,6 +157,7 @@ final class Cli {
         Deque<String> remaining = new ArrayDeque<>(List.of(args));
         String vaultArg = null;
         List<String> positional = new ArrayList<>();
+        List<String> sub = null;
         while (!remaining.isEmpty()) {
             String arg = remaining.removeFirst();
             switch (arg) {
@@ -182,6 +185,11 @@ final class Cli {
                         throw new UsageException(Messages.UNKNOWN_OPTION);
                     }
                     positional.add(arg);
+                    if (positional.size() == 1 && GROUPS.contains(arg)) {
+                        // project/env parse their own options (EnvCommands.Args).
+                        sub = new ArrayList<>(remaining);
+                        remaining.clear();
+                    }
                 }
             }
         }
@@ -190,6 +198,13 @@ final class Cli {
                 : VaultPaths.fromArgument(vaultArg);
         if (positional.isEmpty()) {
             return openApp(vaultPath, io, opener);
+        }
+        if (sub != null) {
+            EnvCommands env = new EnvCommands(properties, clock);
+            VaultPort port = opener.open(vaultPath, false);
+            return "project".equals(positional.get(0))
+                    ? env.project(sub, port, io)
+                    : env.env(sub, port, io, vaultPath);
         }
         String command = positional.get(0);
         List<String> operands = positional.subList(1, positional.size());
@@ -408,7 +423,7 @@ final class Cli {
         return secret;
     }
 
-    private static Session unlock(VaultPort port, ConsoleIo io) throws UsageException, VaultException {
+    static Session unlock(VaultPort port, ConsoleIo io) throws UsageException, VaultException {
         try (SecretChars passphrase = readSecret(io, Messages.PROMPT_PASSPHRASE, Messages.EMPTY_PASSPHRASE)) {
             return port.unlockWithPassphrase(passphrase);
         }

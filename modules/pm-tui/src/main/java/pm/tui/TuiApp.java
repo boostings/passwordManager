@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
+import pm.domain.env.Env;
 import java.util.concurrent.locks.LockSupport;
 import pm.vault.VaultService;
 
@@ -45,7 +46,7 @@ public final class TuiApp {
         try (var scheduler = IdleLock.newDaemonScheduler();
                 Screen screen = new TerminalScreen(terminal)) {
             screen.startScreen();
-            PmTheme theme = PmTheme.standard();
+            PmTheme theme = PmTheme.forEnvironment(Env.system());
             MultiWindowTextGUI gui = newGui(screen, theme);
             TuiController controller = new TuiController(gui, port, idleLock,
                     (timeout, onLock) -> new IdleLockTimer(new IdleLock(timeout, onLock, scheduler)),

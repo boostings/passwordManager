@@ -17,13 +17,13 @@ import com.googlecode.lanterna.gui2.TextGUIGraphics;
 import com.googlecode.lanterna.gui2.table.Table;
 import java.time.Duration;
 import java.time.Instant;
+import pm.domain.env.Env;
 
 /**
  * The pm look: a dark palette with a violet-to-cyan accent, rounded card frames, pill buttons
  * and no window shadows. The app draws with the nearest of the 256 indexed colors, which every
- * terminal pm targets renders (macOS Terminal included); 24-bit output exists for when the terminal
- * capability can be read through the pm-domain environment accessor (ENV02-J), which does not
- * exist yet. Also holds the small motion helpers the animated parts share; all
+ * terminal pm targets renders (macOS Terminal included), unless the terminal announces 24-bit
+ * color through {@code COLORTERM}, read with the validating pm-domain accessor (ENV02-J). Also holds the small motion helpers the animated parts share; all
  * of them are pure functions of an {@link Instant}, so tests drive them with a manual clock.
  */
 final class PmTheme {
@@ -41,6 +41,8 @@ final class PmTheme {
         }
     }
 
+    private static final String TRUECOLOR = "truecolor";
+    private static final String BITS24 = "24bit";
     private static final int BYTE = 0xff;
     private static final int RED_SHIFT = 16;
     private static final int GREEN_SHIFT = 8;
@@ -54,6 +56,15 @@ final class PmTheme {
     /** The theme the app runs with: 256 indexed colors. */
     static PmTheme standard() {
         return new PmTheme(false);
+    }
+
+    /**
+     * The theme for the terminal described by {@code env}: 24-bit when {@code COLORTERM} is
+     * {@code truecolor} or {@code 24bit}, otherwise 256 indexed colors.
+     */
+    static PmTheme forEnvironment(Env env) {
+        boolean full = env.get(Env.Var.COLORTERM).map(v -> TRUECOLOR.equals(v) || BITS24.equals(v)).orElse(false);
+        return new PmTheme(full);
     }
 
     /** Whether colors are emitted as 24-bit RGB. */
