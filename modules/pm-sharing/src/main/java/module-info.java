@@ -4,5 +4,7 @@
 module pm.sharing {
     requires transitive pm.vault;
 
+    exports pm.sharing.net;
+    exports pm.sharing.pair;
     exports pm.sharing.wire;
 }

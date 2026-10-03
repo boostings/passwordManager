@@ -77,6 +77,8 @@ final class ConstantTimeReviewTest {
             "\\bMessageDigest\\s*\\.\\s*isEqual\\b|import\\s+static\\s+java\\.security\\.MessageDigest\\b");
 
     private static final String RECEIVER_ARRAYS = "Arrays";
+    /** The sanctioned compare: {@code ConstantTime.equals(key, other)} is what SR-016 asks for. */
+    private static final String RECEIVER_CONSTANT_TIME = "ConstantTime";
     private static final String LINE_COMMENT = "//";
     private static final String BLOCK_COMMENT_OPEN = "/*";
     private static final String BLOCK_COMMENT_CLOSE = "*/";
@@ -161,6 +163,7 @@ final class ConstantTimeReviewTest {
                   boolean c(Object wrappedKey, Object o) { return wrappedKey.equals(o); }
                   boolean d(Object o, Object digest) { return o.equals(digest); }
                   boolean e(Object o) { return keyOf().equals(o); }
+                  boolean f(byte[] key, byte[] o) { return pm.crypto.ConstantTime.equals(key, o); }
                 }
                 """;
         assertEquals(List.of(
@@ -201,7 +204,7 @@ final class ConstantTimeReviewTest {
         Matcher eq = DOT_EQUALS.matcher(code);
         while (eq.find()) {
             String receiver = eq.group(1);
-            if (RECEIVER_ARRAYS.equals(receiver)) {
+            if (RECEIVER_ARRAYS.equals(receiver) || RECEIVER_CONSTANT_TIME.equals(receiver)) {
                 continue;
             }
             String args = argsFrom(code, eq.end());

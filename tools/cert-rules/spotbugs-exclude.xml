@@ -40,4 +40,14 @@
         <Method name="getAcceptedIssuers"/>
         <Bug pattern="WEAK_TRUST_MANAGER"/>
     </Match>
+    <!-- CE-012: an SSLContext's socket factories return SSL sockets by contract; the casts cannot fail. -->
+    <Match>
+        <Class name="pm.sharing.net.Lan"/>
+        <Or>
+            <Method name="listen"/>
+            <Method name="accept"/>
+            <Method name="connect"/>
+        </Or>
+        <Bug pattern="BC_UNCONFIRMED_CAST_OF_RETURN_VALUE"/>
+    </Match>
 </FindBugsFilter>
