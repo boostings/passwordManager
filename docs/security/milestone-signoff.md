@@ -143,3 +143,18 @@ Owner: Lane D, pm-vault CBOR and records (@M0hayan).
 Signed off: Lane D (@M0hayan).
 
 ### E
+
+Owner: Lane E, pm-cli and pm-tui (@Jstacs78).
+
+| Exit criterion | Proving test | Result (run 37138093559) |
+| --- | --- | --- |
+| TUI dashboard and search | `DashboardTest` (`rightPassphraseShowsDashboard`, `tableListsRecordsWithoutSecrets`, `typingInSearchFiltersRows`, `searchWithNoMatchShowsEmptyTable`) | `DashboardTest` ubuntu-22.04: 28 tests, 0 failures, 0 skipped<br>`DashboardTest` macos-14: 28 tests, 0 failures, 0 skipped<br>`DashboardTest` windows-2022: 28 tests, 0 failures, 0 skipped |
+| Auto-lock | `IdleLockTest` (`firesAtTimeout`, `touchAtFourMinutesDefersLockToNine`, `closePreventsFiring`) | `IdleLockTest` ubuntu-22.04: 13 tests, 0 failures, 0 skipped<br>`IdleLockTest` macos-14: 13 tests, 0 failures, 0 skipped<br>`IdleLockTest` windows-2022: 13 tests, 0 failures, 0 skipped |
+| End-to-end CLI create/unlock/add/list | `EndToEndTest`; transcript `docs/security/transcripts/M1-e2e-cli.txt` | `EndToEndTest` ubuntu-22.04: 1 tests, 0 failures, 0 skipped<br>`EndToEndTest` macos-14: 1 tests, 0 failures, 0 skipped<br>`EndToEndTest` windows-2022: 1 tests, 0 failures, 0 skipped |
+| No secret on CLI output | `CanaryTest` | `CanaryTest` ubuntu-22.04: 13 tests, 0 failures, 0 skipped<br>`CanaryTest` macos-14: 13 tests, 0 failures, 0 skipped<br>`CanaryTest` windows-2022: 13 tests, 0 failures, 0 skipped |
+| No secret in a String outside `@SecretBoundary` (pm-cli/pm-tui share) | Semgrep `cert.MSC03-J.secret-in-string` | Semgrep cert pack 0 on all 3 OSes |
+
+CI `gate` was green on all three OSes for the evidence run, and the final manual run is
+recorded with tag `m1` below.
+
+Signed off: Lane E (@Jstacs78).
