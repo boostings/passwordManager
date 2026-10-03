@@ -150,13 +150,13 @@ file. The full gate (`check certReport`, nothing excluded) is green with 0 findi
 
 | Module | Tests |
 | --- | --- |
-| pm-crypto | 144 |
-| pm-cli | 127 |
-| pm-storage | 40 (1 skipped) |
-| pm-vault | 115 |
+| pm-crypto | 147 |
+| pm-cli | 128 |
+| pm-storage | 59 |
+| pm-vault | 258 |
 | pm-tui | 41 |
 | pm-arch-tests | 15 |
-| pm-fuzz | 9 |
+| pm-fuzz | 20 |
 
 Run commands that prompt from a real terminal. Under automation, use `expect`; plain
 `script -q /dev/null` works for `--help` but loses typed-ahead input.
