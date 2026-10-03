@@ -138,6 +138,53 @@ final class EnvelopeCodecTest {
         assertCode(VaultException.Code.CORRUPT, file);
     }
 
+    // ---- versioned decode (ADR 0015) ----------------------------------------------------
+
+    @Test
+    void peekVersionReadsOnlyThePrefix() throws VaultException {
+        byte[] file = validFile();
+        assertEquals(EnvelopeCodec.VERSION, EnvelopeCodec.peekVersion(file));
+        ByteBuffer.wrap(file).putShort(8, (short) 0xFFFF);
+        assertEquals(0xFFFF, EnvelopeCodec.peekVersion(file));
+        byte[] badMagic = validFile();
+        badMagic[0] ^= 1;
+        assertEquals(VaultException.Code.CORRUPT,
+                assertThrows(VaultException.class, () -> EnvelopeCodec.peekVersion(badMagic)).code());
+        assertEquals(VaultException.Code.CORRUPT,
+                assertThrows(VaultException.class, () -> EnvelopeCodec.peekVersion(new byte[3])).code());
+    }
+
+    @Test
+    void decodeAtAnOlderVersionAcceptsOnlyThatVersion() throws VaultException {
+        EnvelopeHeader h = header();
+        byte[] dataSalt = filled(SALT, 0x11);
+        byte[] aad = EnvelopeCodec.aadOf(0, EnvelopeCodec.encodeHeader(h), dataSalt);
+        byte[] file = Arrays.copyOf(aad, aad.length + TAG);
+        assertEquals(0, ByteBuffer.wrap(file).getShort(8));
+        ParsedEnvelope parsed = EnvelopeCodec.decode(file, 0);
+        assertEquals(h, parsed.header());
+        assertArrayEquals(aad, parsed.aad());
+        assertCode(VaultException.Code.CORRUPT, file);
+        assertEquals(VaultException.Code.CORRUPT,
+                assertThrows(VaultException.class, () -> EnvelopeCodec.decode(validFile(), 0)).code());
+        byte[] newer = validFile();
+        ByteBuffer.wrap(newer).putShort(8, (short) 2);
+        assertEquals(VaultException.Code.UNSUPPORTED_VERSION,
+                assertThrows(VaultException.class, () -> EnvelopeCodec.decode(newer, 0)).code());
+    }
+
+    @Test
+    void versionArgumentsOutsideTheReadableRangeAreProgrammingErrors() {
+        byte[] headerCbor = EnvelopeCodec.encodeHeader(header());
+        byte[] dataSalt = filled(SALT, 0);
+        assertThrows(IllegalArgumentException.class, () -> EnvelopeCodec.aadOf(-1, headerCbor, dataSalt));
+        assertThrows(IllegalArgumentException.class,
+                () -> EnvelopeCodec.aadOf(EnvelopeCodec.VERSION + 1, headerCbor, dataSalt));
+        assertThrows(IllegalArgumentException.class, () -> EnvelopeCodec.decode(validFile(), -1));
+        assertThrows(IllegalArgumentException.class,
+                () -> EnvelopeCodec.decode(validFile(), EnvelopeCodec.VERSION + 1));
+    }
+
     // ---- check 4: header length ---------------------------------------------------------
 
     @Test

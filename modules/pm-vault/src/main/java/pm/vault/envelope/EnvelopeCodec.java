@@ -35,7 +35,7 @@ import pm.vault.cbor.CborWriter;
  */
 public final class EnvelopeCodec {
 
-    /** Current and only supported format version. */
+    /** Current format version, the only one written. Older ones are read through registered migrations (ADR 0015). */
     public static final int VERSION = 1;
 
     /** Largest accepted header, in bytes (ADR 0003). */
@@ -163,6 +163,21 @@ public final class EnvelopeCodec {
      * @param dataSalt32 32-byte data salt
      */
     public static byte[] aadOf(byte[] headerCbor, byte[] dataSalt32) {
+        return aadOf(VERSION, headerCbor, dataSalt32);
+    }
+
+    /**
+     * Returns the AAD for a file of format {@code version}. Only the migration framework and its
+     * tests name a version other than {@link #VERSION} (ADR 0015).
+     *
+     * @param version    format version written into the prefix, 0..{@link #VERSION}
+     * @param headerCbor encoded header, 1..{@link #MAX_HEADER} bytes
+     * @param dataSalt32 32-byte data salt
+     */
+    public static byte[] aadOf(int version, byte[] headerCbor, byte[] dataSalt32) {
+        if (version < 0 || version > VERSION) {
+            throw new IllegalArgumentException("version");
+        }
         Objects.requireNonNull(headerCbor, "headerCbor");
         Objects.requireNonNull(dataSalt32, "dataSalt32");
         if (headerCbor.length == 0 || headerCbor.length > MAX_HEADER) {
@@ -173,7 +188,7 @@ public final class EnvelopeCodec {
         }
         ByteBuffer buf = ByteBuffer.allocate(PREFIX_LENGTH + headerCbor.length + SALT_LENGTH);
         buf.put(FILE_MAGIC);
-        buf.putShort((short) VERSION);
+        buf.putShort((short) version);
         buf.putInt(headerCbor.length);
         buf.put(headerCbor);
         buf.put(dataSalt32);
@@ -191,6 +206,18 @@ public final class EnvelopeCodec {
      *                        {@code CORRUPT}
      */
     public static ParsedEnvelope decode(byte[] file) throws VaultException {
+        return decode(file, VERSION);
+    }
+
+    /**
+     * Reads only the frozen part of the layout, {@code magic ‖ version}, which every format
+     * version keeps (ADR 0015). The result is unauthenticated: it chooses a reader, nothing more.
+     *
+     * @param file complete file bytes
+     * @return the format version, read as unsigned (NUM03-J)
+     * @throws VaultException {@code CORRUPT} if the file is too short or the magic is wrong
+     */
+    public static int peekVersion(byte[] file) throws VaultException {
         Objects.requireNonNull(file, "file");
         // 1. Minimum length.
         if (file.length < MIN_FILE_LENGTH) {
@@ -200,15 +227,32 @@ public final class EnvelopeCodec {
         if (!ConstantTime.equals(Arrays.copyOf(file, MAGIC_LENGTH), FILE_MAGIC)) {
             throw corrupt(null);
         }
-        ByteBuffer buf = ByteBuffer.wrap(file);
-        // 3. Version, read as unsigned (NUM03-J).
-        int version = Short.toUnsignedInt(buf.getShort(MAGIC_LENGTH));
+        return Short.toUnsignedInt(ByteBuffer.wrap(file).getShort(MAGIC_LENGTH));
+    }
+
+    /**
+     * Same as {@link #decode(byte[])} for a file that must carry format {@code expectedVersion}.
+     * The migration framework uses it to read an older version whose envelope layout is
+     * unchanged; the version is part of the AAD, so it is authenticated with the rest (ADR 0015).
+     *
+     * @param file            complete file bytes
+     * @param expectedVersion 0..{@link #VERSION}
+     * @throws VaultException {@code UNSUPPORTED_VERSION} for a version newer than
+     *                        {@link #VERSION}, otherwise {@code CORRUPT}
+     */
+    public static ParsedEnvelope decode(byte[] file, int expectedVersion) throws VaultException {
+        if (expectedVersion < 0 || expectedVersion > VERSION) {
+            throw new IllegalArgumentException("expectedVersion");
+        }
+        // 1-3. Length, magic, version.
+        int version = peekVersion(file);
         if (version > VERSION) {
             throw new VaultException(VaultException.Code.UNSUPPORTED_VERSION, null);
         }
-        if (version != VERSION) {
+        if (version != expectedVersion) {
             throw corrupt(null);
         }
+        ByteBuffer buf = ByteBuffer.wrap(file);
         // 4. Header length, read as unsigned and checked in long arithmetic (NUM00-J).
         long headerLen = Integer.toUnsignedLong(buf.getInt(MAGIC_LENGTH + VERSION_LENGTH));
         if (headerLen == 0 || headerLen > MAX_HEADER) {

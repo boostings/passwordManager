@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 /**
  * Stores already encrypted vault bytes with exclusive locking and atomic replacement.
@@ -50,6 +51,8 @@ public final class VaultFileStore implements AutoCloseable {
     private static final int BACKUP_COUNT = 3;
     private static final String LOCK_SUFFIX = ".lock";
     private static final String TMP_SUFFIX = ".tmp";
+    /** Caller-named siblings: no further dot, so they can never collide with {@code .bak.N}. */
+    private static final Pattern SIBLING_SUFFIX = Pattern.compile("\\.[a-z0-9-]{1,32}");
     // Avoid opening a second channel: closing one can drop another channel's OS lock.
     private static final Set<Path> OPEN_PATHS = ConcurrentHashMap.newKeySet();
     private final Path file;
@@ -311,6 +314,84 @@ public final class VaultFileStore implements AutoCloseable {
             }
             return writeFile(newest, contents, true);
         });
+    }
+
+    /**
+     * Whether the private sibling {@code <vault><suffix>} exists, for example a pre-migration
+     * rollback copy (ADR 0015).
+     *
+     * @param suffix a dot followed by 1 to 32 lower-case letters, digits or dashes; not
+     *               {@code .lock} or {@code .tmp}
+     * @return whether a safe regular sibling file exists
+     * @throws StorageException if the sibling is a link, not owner-only, or cannot be inspected
+     */
+    public boolean siblingExists(String suffix) throws StorageException {
+        Path sibling = namedSibling(suffix);
+        return guarded(() -> checkRegularFile(sibling, true));
+    }
+
+    /**
+     * Reads the private sibling {@code <vault><suffix>} with the same bounds as {@link #readAll()}.
+     *
+     * @param suffix see {@link #siblingExists(String)}
+     * @return the sibling's bytes, owned by the caller
+     * @throws StorageException if missing, unsafe, oversized, or unreadable
+     */
+    public byte[] readSibling(String suffix) throws StorageException {
+        Path sibling = namedSibling(suffix);
+        return guarded(() -> readFile(sibling));
+    }
+
+    /**
+     * Creates the private sibling {@code <vault><suffix>} holding {@code data}, owner-only before
+     * it holds a byte, flushed, and installed by one atomic rename. It never replaces an existing
+     * sibling: the store's exclusive lock means only this instance writes siblings, and the
+     * existence check runs under that lock, so the call has create-new semantics.
+     *
+     * @param suffix see {@link #siblingExists(String)}
+     * @param data   bytes to store, copied before use (OBJ06-J)
+     * @throws StorageException {@code IO} if the sibling already exists, otherwise as
+     *                          {@link #writeAtomically(byte[])}
+     */
+    public void createSibling(String suffix, byte[] data) throws StorageException {
+        Objects.requireNonNull(data, "DATA");
+        Path sibling = namedSibling(suffix);
+        guarded(() -> {
+            if (checkRegularFile(sibling, true)) {
+                throw new StorageException(StorageException.Code.IO, null);
+            }
+            if (data.length > byteLimit) {
+                throw new StorageException(StorageException.Code.TOO_LARGE, null);
+            }
+            return writeFile(sibling, data.clone(), false);
+        });
+    }
+
+    /**
+     * Deletes the private sibling {@code <vault><suffix>} if it exists.
+     *
+     * @param suffix see {@link #siblingExists(String)}
+     * @return whether a sibling was deleted
+     * @throws StorageException if the sibling is unsafe or cannot be deleted
+     */
+    public boolean deleteSibling(String suffix) throws StorageException {
+        Path sibling = namedSibling(suffix);
+        return guarded(() -> {
+            if (!checkRegularFile(sibling, true)) {
+                return false;
+            }
+            Files.delete(sibling);
+            syncDirectory();
+            return true;
+        });
+    }
+
+    private Path namedSibling(String suffix) throws StorageException {
+        Objects.requireNonNull(suffix, "SUFFIX");
+        if (!SIBLING_SUFFIX.matcher(suffix).matches() || LOCK_SUFFIX.equals(suffix) || TMP_SUFFIX.equals(suffix)) {
+            throw new IllegalArgumentException("SUFFIX");
+        }
+        return sibling(file, suffix);
     }
 
     private boolean sameContents(Path path, byte[] contents) throws IOException, StorageException {

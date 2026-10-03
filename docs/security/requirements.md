@@ -105,6 +105,7 @@ desktop application.
 | SR-602 | Updates are signature-verified against a pinned key before application | T-UPD-01 | V14.2 | — |
 | SR-700 | Backup restore validates the whole archive first and rejects any entry whose canonical path escapes the target | T-BKP-01 | V12.3 | IDS04-J, FIO16-J |
 | SR-701 | Format-version downgrade is refused unless explicitly forced with a fresh backup | T-MIG-01 | — | — |
+| SR-702 | A format migration runs only after the old file authenticates; it keeps an owner-only rollback copy until the migrated file verifies on re-open, and on any failure leaves the original file in place (M7, ADR 0015) | T-MIG-01 | V12.3 | FIO02-J, ERR03-J |
 | SR-800 | Secret scanning runs on every PR and on full history; sample data is obviously fake | CI | V14.2 | MSC03-J |
 | SR-801 | No JMX, JDWP, or debug entry points in release artifacts | T-PKG-01 | V14.3 | ENV05-J, ENV06-J |
 | SR-900 | All Java complies with `RULES.md`; `certReport` shows zero findings for Enforced rules | CI | V1.1 | all |
