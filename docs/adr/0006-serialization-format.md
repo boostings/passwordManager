@@ -1,6 +1,7 @@
 # ADR 0006: CBOR with schema validation for all serialized data
 
-- Status: Proposed
+- Status: Accepted
+- Ratified 2026-10-03 by the M1 team
 - Date: 2026-09-10
 
 ## Context
@@ -62,3 +63,22 @@ Tier 1 module gains no third-party dependency (plan.md Part II Phase 5). The
 cost is that the subset must be extended by hand if a later schema needs a
 type outside it (for example negative integers or floats); such a change needs
 its own amendment. The package is not exported from `pm.vault`.
+
+## Implementation note (2026-10-03, checked against the M1 code at ratification)
+
+The Decision and Amendment 1 hold, with these differences from the code:
+
+- Integer range. `CborValue.UInt` holds a Java `long`, so the subset covers
+  unsigned integers 0 to 2^63 - 1 only. The reader rejects a major type 0
+  argument of 2^63 or more with `CborException.Code.LIMIT`, not as malformed.
+- Bounds. `CborLimits` sets two profiles, both with nesting depth <= 16.
+  `HEADER`: 1,024 items, 4,096-byte strings, 64 KiB total. `PAYLOAD`:
+  1,000,000 items, 1 MiB strings, 256 MiB total. Items are a running total in
+  which every map key and every map value counts as one. `CborWriter.encode`
+  enforces the same limits, so the writer cannot produce what the reader refuses.
+- Codec location. There is no `codec` package. The hand-written codecs are
+  `pm.vault.envelope.EnvelopeCodec` (header, `docs/schemas/vault-header.cddl`)
+  and `pm.vault.record.RecordCodec` (payload, `docs/schemas/records.cddl`).
+- Backups. M1 does not implement the backup outer map
+  (`{"kind":"backup",...}`). It stays a decision for the milestone that adds
+  backups.
