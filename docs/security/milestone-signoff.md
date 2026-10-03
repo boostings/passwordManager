@@ -70,6 +70,28 @@ Gradle test reports in that run's `reports-<os>` artifacts, in the form
 
 ### A
 
+Owner: Lane A, pm-crypto, security owner (@boostings).
+
+| Exit criterion | Proving test | Result (run 37138093559) |
+| --- | --- | --- |
+| Encrypt/decrypt round trip (crypto layer) | `AeadTest.openInvertsSeal` (jqwik property, 200 tries) plus `flippingAnyCiphertextBitFailsAuth` and `flippingAnyAadBitFailsAuth` | `AeadTest` ubuntu-22.04: 11 tests, 0 failures, 0 skipped<br>`AeadTest` macos-14: 11 tests, 0 failures, 0 skipped<br>`AeadTest` windows-2022: 11 tests, 0 failures, 0 skipped |
+| Tags and secrets compared in constant time | `ConstantTimeReviewTest` (`noShortCircuitCompareOfSecretsOutsideCrypto`, `messageDigestIsEqualOnlyInsidePmCrypto`, a planted-compare detector check); `pm.crypto.ConstantTimeTest`; Semgrep `cert.CT-compare.non-constant-time` | `ConstantTimeReviewTest` ubuntu-22.04: 4 tests, 0 failures, 0 skipped<br>`ConstantTimeReviewTest` macos-14: 4 tests, 0 failures, 0 skipped<br>`ConstantTimeReviewTest` windows-2022: 4 tests, 0 failures, 0 skipped<br>`pm.crypto.ConstantTimeTest` ubuntu-22.04: 4 tests, 0 failures, 0 skipped<br>`pm.crypto.ConstantTimeTest` macos-14: 4 tests, 0 failures, 0 skipped<br>`pm.crypto.ConstantTimeTest` windows-2022: 4 tests, 0 failures, 0 skipped<br>Semgrep cert pack 0 on all 3 OSes |
+| No secret in a String outside `@SecretBoundary` (pm-crypto share) | Semgrep `cert.MSC03-J.secret-in-string` | Semgrep cert pack 0 on all 3 OSes |
+
+Notes:
+- The sprint table names `AeadProperties`, but no class by that name exists. The round-trip
+  property lives in `AeadTest.openInvertsSeal`, which is the test cited here.
+- CERT exceptions: CE-001..CE-005 were re-checked against the code, and CE-006 was added for an
+  `ArrayRecordComponent` suppression that had no ledger row. All six are signed off in
+  `docs/security/cert-exceptions.md`. `plan.md` "Project status" records M1.
+- M0 carry-over "first real CI run on all three OS runners" is closed: run 37136437530 was the
+  first green run. CI is manual-only (`workflow_dispatch`) from 2026-10-03.
+- Open, not blocking M1: `pm.vault.envelope.Bytes.sameContents` hand-rolls a constant-time loop
+  (correct, but it should call `pm.crypto.ConstantTime.equals`); ADR 0004 has no ArchUnit rule that keeps
+  the VK out of direct GCM use, and T-ENC-01 is an example test, not a property. Tracked for M2.
+
+Signed off: Lane A (@boostings), security owner.
+
 ### B
 
 ### C
