@@ -1,6 +1,7 @@
 # ADR 0002: Java 21 LTS
 
-- Status: Proposed
+- Status: Accepted
+- Ratified 2026-10-03 by the M1 team
 - Date: 2026-09-10
 - Deciders: project team
 
@@ -36,3 +37,17 @@ lets the reproducible build gate be meaningful.
 ## CERT rules referenced
 MET02-J (avoid deprecated APIs: no SecurityManager), ENV04-J (bytecode
 verification stays on; no `-Xverify:none`).
+
+## Implementation note (2026-10-03, checked against the M1 code at ratification)
+
+The Java 21 decision holds: the root `build.gradle.kts` pins
+`JavaLanguageVersion.of(21)`, CI installs Temurin 21 with `actions/setup-java`,
+no Foojay resolver plugin is applied, and `ModuleBoundaryTest.noSecurityManager`
+bans `SecurityManager` and `AccessController`. One difference:
+
+- HKDF. The Consequences name the JDK `KDF` API or an in-house HKDF over
+  `javax.crypto.Mac`. Java 21 has no `javax.crypto.KDF`, and
+  `pm.crypto.Kdf.hkdfSha256` uses neither option. It uses Bouncy Castle's
+  `HKDFBytesGenerator` (`bcprov-jdk18on`), the same dependency that provides
+  Argon2id (ADR 0007). Ed25519, X25519, ChaCha20-Poly1305 and AES-GCM still
+  come from the JDK.
