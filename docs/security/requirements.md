@@ -78,6 +78,16 @@ desktop application.
 | SR-401 | Signature counters are persisted atomically before the assertion is returned | T-PK-02 | V2.8 | — |
 | SR-402 | Passkey private keys never leave `pm-crypto`; signing happens inside it | CI (ArchUnit) | V6.2 | — |
 
+## SSH keys and agent, M4 (SR-060 to SR-064)
+
+| ID | Requirement | Verification | ASVS | CERT |
+| --- | --- | --- | --- | --- |
+| SR-060 | SSH private key bytes are parsed, sent to the agent and exported only in `pm.crypto.ssh`; the API takes `SecretBytes` and never returns private bytes except through the explicit export; only `pm.cli` may use the package (qualified export `exports pm.crypto.ssh to pm.cli`); key bytes are written to channels only from zero-filled pm-owned direct buffers | Compiler (qualified export), CI (ArchUnit `onlyTheCliReachesSshKeys`, `noCryptoFacadeOverSshKeys`), `SshKeyTest` | V6.2 | MSC03-J, FIO13-J |
+| SR-061 | The agent socket path is refused unless absolute, its canonical parent is not group- or world-writable, and the socket itself (not followed through a link) is a socket owned by the current user; after connecting, the peer (`SO_PEERCRED`) must run as the current user | `SshAgentClientTest` | V12.3 | FIO00-J, FIO15-J, FIO16-J |
+| SR-062 | Key files and agent replies are parsed with every `uint32` length bounded before use (agent message at most 256 KiB, at most 1,024 identities); malformed, oversized, truncated or trailing input is refused with an error code | `SshKeyTest`, `SshAgentClientTest` | V5.1 | IDS00-J, NUM00-J, MSC05-J |
+| SR-063 | The export fallback writes the OpenSSH private key file with `CREATE_NEW`, `NOFOLLOW_LINKS` and mode `0600` set at creation; an existing target is never overwritten; a partial file is deleted if writing fails | `SshKeyExportTest` | V12.3 | FIO01-J, FIO16-J |
+| SR-064 | Encrypted `openssh-key-v1` files are refused with `ENCRYPTED_KEY`; no partial decryption or key derivation is attempted | `SshKeyTest` | V6.2 | ERR01-J |
+
 ## Cross-cutting (SR-5xx to SR-8xx)
 
 | ID | Requirement | Verification | ASVS | CERT |

@@ -43,6 +43,11 @@ Status: Planned until the test exists and passes in CI.
 | TM-53 | SR-303 | MSC05-J | T-FUZZ-NM | M5 | Planned |
 | TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
 | TM-61 | SR-017 | — | ArchUnit | M4 | Planned |
+| TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Planned |
+| — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Planned |
+| — | SR-062 | IDS00-J, NUM00-J, MSC05-J | `SshKeyTest`, `SshAgentClientTest` | M4 | Planned |
+| — | SR-063 | FIO01-J, FIO16-J | `SshKeyExportTest` | M4 | Planned |
+| — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Planned |
 | TM-70 | — | — | T-HEALTH-01 (network capture) | M4 | Planned |
 | TM-71 | SR-602 | — | T-UPD-01 | M7 | Planned |
 | TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01 | M1 | Planned |

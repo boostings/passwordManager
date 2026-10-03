@@ -69,6 +69,28 @@ final class ModuleBoundaryTest {
                     .should().dependOnClassesThat().resideInAnyPackage("pm.tui..", "pm.cli..", "pm.platform..")
                     .because("plan.md §10: Tier 1 is independent of presentation and platform layers");
 
+    /**
+     * SR-060 / ADR 0013, plan.md §13 M4: SSH private keys are parsed, sent to the agent and exported
+     * only in pm.crypto.ssh, and only the CLI drives it. The TUI and every other module never reach it.
+     */
+    @ArchTest
+    static final ArchRule onlyTheCliReachesSshKeys =
+            noClasses().that().resideOutsideOfPackages("pm.crypto..", "pm.cli..", "pm.arch..")
+                    .should().dependOnClassesThat().resideInAPackage("pm.crypto.ssh..")
+                    .because("SR-060: only pm.cli may use the ssh-agent client and key export (ADR 0013)");
+
+    /**
+     * SR-060 / ADR 0013: no facade in pm.crypto re-exports SSH key handling to other modules. With
+     * {@code exports pm.crypto.ssh to pm.cli}, the compiler already stops every other module,
+     * including uses of inlined constants that bytecode rules cannot see.
+     */
+    @ArchTest
+    static final ArchRule noCryptoFacadeOverSshKeys =
+            noClasses().that().resideInAPackage("pm.crypto..")
+                    .and().resideOutsideOfPackage("pm.crypto.ssh..")
+                    .should().dependOnClassesThat().resideInAPackage("pm.crypto.ssh..")
+                    .because("SR-060: pm.crypto.ssh is reachable only from pm.cli, not through another pm.crypto package");
+
     /** pm-crypto depends on nothing else in the project. */
     @ArchTest
     static final ArchRule cryptoIsLeaf =
