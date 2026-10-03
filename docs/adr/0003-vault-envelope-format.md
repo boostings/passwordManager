@@ -1,6 +1,7 @@
 # ADR 0003: Vault envelope format
 
-- Status: Proposed
+- Status: Accepted
+- Ratified 2026-10-03 by the M1 team
 - Date: 2026-09-10
 - Deciders: project team
 
@@ -61,3 +62,22 @@ header; `data-classification.md` is the authority.
 ## CERT rules referenced
 SER03-J, SER12-J (no native serialization), MSC05-J (size bounds), FIO02-J,
 IDS11-J (validate final representation).
+
+## Implementation note (2026-10-03, checked against the M1 code at ratification)
+
+The layout, AAD, 64 KiB header cap (`EnvelopeCodec.MAX_HEADER`), 256 MiB file
+cap (`VaultFileStore.MAX_FILE_BYTES`), newer-version refusal
+(`UNSUPPORTED_VERSION`) and atomic temp-file + fsync + rename write
+(`VaultFileStore`) are implemented as stated. The header differs from the
+sketch above. `docs/schemas/vault-header.cddl` is authoritative:
+
+- The header carries `"schema_version": 1` (ADR 0006).
+- Slots have no `"params"` map. A slot is exactly `id` (16-byte UUID),
+  `type` and `wrapped_key` (40 bytes).
+- M1 accepts only the slot types `"passphrase"` and `"recovery"`, with exactly
+  one passphrase slot and at most one recovery slot. `"keychain"` and `"fido2"`
+  are rejected as `CORRUPT` until a later milestone adds them.
+- `save_seq` must be >= 1 and is bumped on every save. M1 has no restore
+  operation, so the rollback warning is not implemented yet. M1 also has no
+  forced open: a version older than 1 is `CORRUPT`, and one newer than 1 is
+  `UNSUPPORTED_VERSION`.

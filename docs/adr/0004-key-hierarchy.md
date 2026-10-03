@@ -1,6 +1,7 @@
 # ADR 0004: Key hierarchy and unlock slots
 
-- Status: Proposed
+- Status: Accepted
+- Ratified 2026-10-03 by the M1 team
 - Date: 2026-09-10
 - Deciders: project team
 
@@ -53,3 +54,26 @@ asserts distinct `data_salt` per save.
 
 ## CERT rules referenced
 MSC02-J, OBJ07-J, OBJ14-J, MET03-J.
+
+## Implementation note (2026-10-03, checked against the M1 code at ratification)
+
+Implemented in M1: VK, the passphrase slot, the recovery slot, AES-KWP
+wrapping (`pm.crypto.KeyWrap`, `AES/KWP/NoPadding`, RFC 5649) and the per-save
+DK = HKDF(VK, data_salt, "pm/data/v1") with a zero nonce. Differences:
+
+- Passphrase KEK. The diagram shows Argon2id producing KEK_p directly. The code
+  (`pm.vault.slot.SlotCrypto`) also runs the Argon2id output through HKDF, as
+  the per-slot rule above requires: KEK = HKDF-SHA256(ikm = input, no salt,
+  info = "pm/slot/v1/" + slot UUID, 32 bytes) for both slot types.
+- Wrap name. The diagram says "AES-256-KW". The wrap is AES Key Wrap *with
+  Padding* (RFC 5649), as the bullet says, under the JDK transformation name
+  `AES/KWP/NoPadding`.
+- Recovery key. It is 32 random bytes plus a 3-byte SHA-256 checksum, shown as
+  56 base32 characters in 8 dash-separated groups of 7 (`pm.crypto.RecoveryKey`).
+- Not yet implemented: keychain and FIDO2 slots, VK rotation, and adding or
+  removing slots.
+- Security considerations. No ArchUnit rule yet asserts that GCM is never
+  called with VK. `ModuleBoundaryTest` only confines JCA use to `pm-crypto`.
+  T-ENC-01 is an example-based test
+  (`VaultServiceTest.saveUsesFreshDataSaltAndClockTime`), not a property test.
+  Both gaps remain open.
