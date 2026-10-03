@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pm</title>
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <header>
+    <h1>pm</h1>
+    <p id="origin" class="origin"></p>
+  </header>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section aria-labelledby="logins-heading">
+    <h2 id="logins-heading">Logins for this site</h2>
+    <ul id="entries"></ul>
+  </section>
+
+  <details>
+    <summary>Generate a password</summary>
+    <form id="generate">
+      <p class="hint">pm saves the new password as a login for this site, then fills it.</p>
+      <label>Username <input id="gen-username" type="text" autocomplete="off" maxlength="1024"></label>
+      <label>Length <input id="gen-length" type="number" min="8" max="128" value="20" required></label>
+      <label><input id="gen-lower" type="checkbox" checked> a–z</label>
+      <label><input id="gen-upper" type="checkbox" checked> A–Z</label>
+      <label><input id="gen-digits" type="checkbox" checked> 0–9</label>
+      <label><input id="gen-symbols" type="checkbox" checked> symbols</label>
+      <button type="submit">Generate, save and fill</button>
+    </form>
+  </details>
+
+  <details>
+    <summary>Save a login for this site</summary>
+    <form id="save">
+      <label>Username <input id="save-username" type="text" autocomplete="off" maxlength="1024"></label>
+      <label>Password <input id="save-password" type="password" autocomplete="off" maxlength="4096" required></label>
+      <button type="submit">Save</button>
+    </form>
+  </details>
+</body>
+</html>

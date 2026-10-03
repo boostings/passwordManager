@@ -1,0 +1,9 @@
+{
+  "name": "pm-extension",
+  "private": true,
+  "type": "module",
+  "description": "pm browser extension (MV3). No dependencies; tests use node --test only.",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}

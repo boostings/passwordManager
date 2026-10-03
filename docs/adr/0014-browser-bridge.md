@@ -1,6 +1,6 @@
 # ADR 0014: Browser bridge — Chrome native messaging host, exact origins, broker-gated release
 
-- Status: Accepted (M5.1 host, M5.2 bridge)
+- Status: Accepted (M5.1 host, M5.2 bridge, M5.3 extension; M5.4 wires the TUI relay and installer)
 - Date: 2026-10-03
 
 ## Context
@@ -162,6 +162,44 @@ page ── content fill ── extension (MV3) ──native messaging── pm-
   live in the TUI process. M5.4 provides the relay (`pm browser host` forwards the decoded request
   to the TUI over the existing 0600 broker socket, where `Bridge` runs with
   `ApprovalPort.inProcess`). The host process itself never holds the vault key or a grant.
+
+### 7. The extension (`extension/`, SR-304, SR-308, SR-309)
+
+- Manifest V3 with exactly `nativeMessaging`, `activeTab` and `scripting`, no host permissions,
+  no content scripts, no web-accessible resources and a `script-src 'self'` CSP. Each permission
+  is justified in `docs/security/extension-permissions.md`.
+- `background.js` (module service worker) delegates to `bridge.js`, which accepts messages only
+  from its own popup, reads the origin from the active tab itself, sends one native message per
+  action to host `pm.browser`, checks the reply's `type`, `id` and shape, and injects
+  `fillInPage` with `frameIds: [0]` only when the reply's approved origin equals the tab origin.
+  `fill.js` checks again inside the page (`window.top === window`, `location.origin` equal).
+  Passwords go from the native reply straight into the injected call, never to the popup.
+- `fill.js` writes only into fields the user can see: enabled, writable,
+  `checkVisibility({opacityProperty, visibilityProperty, contentVisibilityAuto})` true (which
+  covers `display:none`, `visibility:hidden` and `opacity:0` on the field or any ancestor) and a
+  non-zero bounding box; hence `minimum_chrome_version` 121. It calls DOM methods through
+  `Document.prototype`, `Element.prototype` and the `HTMLInputElement.prototype.form` getter,
+  because a form control named `querySelectorAll` or `getAttribute` shadows that property on its
+  form. Off-screen but rendered fields are still eligible (a scrolled login form is legitimate).
+- `generate` sends the popup's username, requires the reply to carry the stored entry id, and
+  then fills. If the fill fails after the save, the popup is told the login was saved and why it
+  was not filled.
+- Service worker lifetime: Chrome may stop an idle MV3 service worker (about 30 s) even while a
+  `sendNativeMessage` call waits on a slow approval; whether a pending native call keeps the
+  worker alive is not verified (INFERRED). The extension therefore never fails silently: a
+  native call that rejects after the host started is `HOST_DISCONNECTED`, a host that cannot be
+  started is `HOST_UNAVAILABLE`, and the popup turns a rejected or empty answer from the
+  background (worker stopped) into "the request was interrupted before pm answered". **M5.4**
+  must measure this with the real relay and, if approvals routinely outlive the worker, keep it
+  alive for the duration (for example a popup-held `runtime.connect` port that the background
+  pings) or move to a `connectNative` port; nothing is filled after an interruption, because the
+  answer that would carry the password is lost with the worker.
+- `popup.html`/`popup.js` list logins (metadata from `lookup`), and offer a generate-save-and-fill
+  form and a save form.
+  DOM is built with `textContent`; the typed password is cleared after a save.
+- Tests run with `node --test` and fakes for `chrome.*` and the DOM (no npm dependencies), wired
+  into Gradle as `:modules:pm-browser:extensionTest`, which `check` depends on.
+- `extension/native-host/pm.browser.json.template` is the host manifest the M5.4 installer fills in.
 
 ## Alternatives considered
 

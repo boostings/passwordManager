@@ -45,6 +45,8 @@ Status: Planned until the test exists and passes in CI.
 | TM-53 | SR-303, SR-305 | MSC05-J, IDS00-J | T-FUZZ-NM unit half (`NativeFramesTest`, `JsonTextTest`), T-EXT-05 (`MessagesTest`); fuzz harness M5.5 | M5.1 | Tested |
 | TM-50 | SR-300, SR-306 | IDS01-J | T-EXT-01 (`OriginTest`, `BridgeTest` exact-origin cases) | M5.2 | Tested |
 | TM-52 | SR-302, SR-307 | MET03-J | T-EXT-03 (`BridgeTest` denying broker, session-policy scope) | M5.2 | Tested |
+| TM-50, TM-54 | SR-304, SR-309 | — | T-EXT-04 (`extension/test/fill.test.js`, `background.test.js`) | M5.3 | Tested |
+| TM-52 | SR-308 | — | T-EXT-06 (`extension/test/manifest.test.js`) + permission review M5.5 | M5.3 | Tested |
 | TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
 | TM-61 | SR-017 | — | ArchUnit | M4 | Planned |
 | TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |

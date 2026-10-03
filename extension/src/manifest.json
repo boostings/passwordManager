@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "pm",
+  "version": "0.5.0",
+  "description": "Fill, save and generate logins from the pm password manager on this machine. Every release is approved in pm.",
+  "minimum_chrome_version": "121",
+  "permissions": ["nativeMessaging", "activeTab", "scripting"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "pm",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}
