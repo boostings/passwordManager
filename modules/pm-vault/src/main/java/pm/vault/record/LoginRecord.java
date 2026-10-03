@@ -46,9 +46,9 @@ public record LoginRecord(
         title = FieldRules.text(title, FieldRules.MAX_TITLE_CHARS, "title");
         username = FieldRules.text(username, FieldRules.MAX_SHORT_TEXT_CHARS, "username");
         FieldRules.secret(password, "password");
-        urls = FieldRules.texts(urls, FieldRules.MAX_URL_CHARS, "urls");
+        urls = List.copyOf(FieldRules.texts(urls, FieldRules.MAX_URL_CHARS, "urls"));
         notes = FieldRules.text(notes, FieldRules.MAX_NOTES_CHARS, "notes");
-        tags = FieldRules.texts(tags, FieldRules.MAX_SHORT_TEXT_CHARS, "tags");
+        tags = List.copyOf(FieldRules.texts(tags, FieldRules.MAX_SHORT_TEXT_CHARS, "tags"));
         created = FieldRules.instant(created, "created");
         updated = FieldRules.instant(updated, "updated");
         lastUsed = FieldRules.instant(lastUsed, "lastUsed");

@@ -45,8 +45,8 @@ public record ProjectRecord(
         title = FieldRules.text(title, FieldRules.MAX_TITLE_CHARS, "title");
         canonicalPath = FieldRules.text(canonicalPath, FieldRules.MAX_PATH_CHARS, "canonicalPath");
         gitRemote = FieldRules.text(gitRemote, FieldRules.MAX_URL_CHARS, "gitRemote");
-        variables = FieldRules.secrets(variables, "variables");
-        config = FieldRules.settings(config, "config");
+        variables = Map.copyOf(FieldRules.secrets(variables, "variables"));
+        config = Map.copyOf(FieldRules.settings(config, "config"));
         created = FieldRules.instant(created, "created");
         updated = FieldRules.instant(updated, "updated");
     }

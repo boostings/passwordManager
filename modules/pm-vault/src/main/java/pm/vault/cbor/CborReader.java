@@ -207,7 +207,7 @@ public final class CborReader {
         private int items;
 
         Cursor(byte[] data, CborLimits limits) {
-            this.data = data;
+            this.data = data.clone();
             this.limits = limits;
         }
 

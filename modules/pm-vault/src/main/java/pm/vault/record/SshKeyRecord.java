@@ -49,7 +49,7 @@ public record SshKeyRecord(
         publicKey = FieldRules.text(publicKey, FieldRules.MAX_PUBLIC_KEY_CHARS, "publicKey");
         fingerprint = FieldRules.text(fingerprint, FieldRules.MAX_SHORT_TEXT_CHARS, "fingerprint");
         comment = FieldRules.text(comment, FieldRules.MAX_NOTES_CHARS, "comment");
-        hosts = FieldRules.texts(hosts, FieldRules.MAX_SHORT_TEXT_CHARS, "hosts");
+        hosts = List.copyOf(FieldRules.texts(hosts, FieldRules.MAX_SHORT_TEXT_CHARS, "hosts"));
         created = FieldRules.instant(created, "created");
         updated = FieldRules.instant(updated, "updated");
     }
