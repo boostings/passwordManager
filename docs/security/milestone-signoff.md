@@ -111,6 +111,24 @@ Signed off: Lane B (@Ra1ny1).
 
 ### C
 
+Owner: Lane C, pm-vault envelope and service (@bzgoering).
+
+| Exit criterion | Proving test | Result (run 37138093559) |
+| --- | --- | --- |
+| Byte flip detected before any record is parsed | `TamperTest.everySingleByteFlipFailsBeforeAnyRecordIsParsed`, `sampledFlipsFailThroughFullPassphraseUnlock` | `TamperTest` ubuntu-22.04: 3 tests, 0 failures, 0 skipped<br>`TamperTest` macos-14: 3 tests, 0 failures, 0 skipped<br>`TamperTest` windows-2022: 3 tests, 0 failures, 0 skipped |
+| KDF always completes | `SlotCryptoWorkFactorTest.wrongPassphraseRunsArgon2idOnceWithTheHeaderParamsLikeTheRightOne`, `wrongPassphraseIsNotMeasurablyFasterThanTheRightOne`, `outOfRangeHeaderNeverReachesArgon2id` | `SlotCryptoWorkFactorTest` ubuntu-22.04: 6 tests, 0 failures, 0 skipped<br>`SlotCryptoWorkFactorTest` macos-14: 6 tests, 0 failures, 0 skipped<br>`SlotCryptoWorkFactorTest` windows-2022: 6 tests, 0 failures, 0 skipped |
+| Create/unlock/lock/save, passphrase, recovery key | `VaultServiceTest` (`createThenUnlockWithPassphraseThenWithRecoveryKey`, `closeLocksAndIsIdempotent`, `saveSeqIncreasesOnEverySave`, `wrongPassphraseIsWrongCredential`, recovery-key cases) | `VaultServiceTest` ubuntu-22.04: 21 tests, 0 failures, 0 skipped<br>`VaultServiceTest` macos-14: 21 tests, 0 failures, 0 skipped<br>`VaultServiceTest` windows-2022: 21 tests, 0 failures, 0 skipped |
+| No secret in a String outside `@SecretBoundary` (pm-vault share) | Semgrep `cert.MSC03-J.secret-in-string` | Semgrep cert pack 0 on all 3 OSes |
+
+Notes:
+- Fixed during sign-off: an Argon2 run larger than the free heap was reported as `CORRUPT`. It is
+  now `INSUFFICIENT_MEMORY` on both create and unlock (CLI exit 7). Proved by
+  `createNeedingMoreArgon2MemoryThanTheHeapIsInsufficientMemory` and
+  `unlockOfHeaderNeedingMoreArgon2MemoryThanTheHeapIsInsufficientMemory`, which fail with
+  `expected: <INSUFFICIENT_MEMORY> but was: <CORRUPT>` without the fix and pass in this run.
+
+Signed off: Lane C (@bzgoering).
+
 ### D
 
 ### E
