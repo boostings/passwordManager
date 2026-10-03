@@ -131,4 +131,15 @@ Signed off: Lane C (@bzgoering).
 
 ### D
 
+Owner: Lane D, pm-vault CBOR and records (@M0hayan).
+
+| Exit criterion | Proving test | Result (run 37138093559) |
+| --- | --- | --- |
+| Corrupted input never gives a partial record | `RecordCodecTest.truncationNeverPartial`, `singleBitFlipNeverYieldsAShorterList` (jqwik properties) | `RecordCodecTest` ubuntu-22.04: 24 tests, 0 failures, 0 skipped<br>`RecordCodecTest` macos-14: 24 tests, 0 failures, 0 skipped<br>`RecordCodecTest` windows-2022: 24 tests, 0 failures, 0 skipped |
+| Login/Wi-Fi/SSH/Project records | `RecordCodecTest.roundTripsOneRecordOfEachType` plus per-type validation tests | `RecordCodecTest` ubuntu-22.04: 24 tests, 0 failures, 0 skipped<br>`RecordCodecTest` macos-14: 24 tests, 0 failures, 0 skipped<br>`RecordCodecTest` windows-2022: 24 tests, 0 failures, 0 skipped |
+| Decoders survive hostile input | Jazzer fuzz targets (regression mode in the gate); long runs in `docs/security/fuzz/M1-fuzz-runs.md`: 19,445,362 / 13,976,479 / 17,807,331 executions, 0 crashes | `CborReaderFuzzTest` ubuntu-22.04: 7 tests, 0 failures, 0 skipped<br>`CborReaderFuzzTest` macos-14: 7 tests, 0 failures, 0 skipped<br>`CborReaderFuzzTest` windows-2022: 7 tests, 0 failures, 0 skipped<br>`RecordCodecFuzzTest` ubuntu-22.04: 9 tests, 0 failures, 0 skipped<br>`RecordCodecFuzzTest` macos-14: 9 tests, 0 failures, 0 skipped<br>`RecordCodecFuzzTest` windows-2022: 9 tests, 0 failures, 0 skipped<br>`EnvelopeFuzzTest` ubuntu-22.04: 8 tests, 0 failures, 0 skipped<br>`EnvelopeFuzzTest` macos-14: 8 tests, 0 failures, 0 skipped<br>`EnvelopeFuzzTest` windows-2022: 8 tests, 0 failures, 0 skipped |
+| No secret in a String outside `@SecretBoundary` (pm-vault records share) | Semgrep `cert.MSC03-J.secret-in-string` | Semgrep cert pack 0 on all 3 OSes |
+
+Signed off: Lane D (@M0hayan).
+
 ### E
