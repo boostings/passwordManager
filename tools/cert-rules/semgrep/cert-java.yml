@@ -38,8 +38,8 @@ rules:
   - id: cert.IDS07-J.processbuilder-outside-approval
     languages: [java]
     severity: ERROR
-    message: "SR-100/SR-102: only pm-approval may spawn processes."
-    paths: { exclude: ["/modules/pm-approval/**", "/modules/pm-platform-*/**"] }
+    message: "SR-100/SR-102: only pm.approval.run.EnvRunner (and platform adapters) may spawn processes."
+    paths: { exclude: ["/modules/pm-approval/src/main/java/pm/approval/run/EnvRunner.java", "/modules/pm-platform-*/**"] }
     pattern: new ProcessBuilder(...)
   - id: cert.ERR09-J.system-exit
     languages: [java]

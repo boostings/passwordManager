@@ -158,3 +158,54 @@ CI `gate` was green on all three OSes for the evidence run, and the final manual
 recorded with tag `m1` below.
 
 Signed off: Lane E (@Jstacs78).
+
+## M2 — Environment sharing
+
+Evidence: local runs on 2026-10-03 at commit M2.7 (this section's commit). M1 used a CI run as
+evidence; for M2 the manual CI workflow has **not** been dispatched yet, because that needs the
+branch pushed and nothing is pushed without the owner's approval. Until then the rows below rest
+on these local runs:
+
+- Full gate on macOS 27.0 arm64, JDK 21.0.12.1:
+  `./gradlew --rerun-tasks check certReport gitleaksScan`. Result: `BUILD SUCCESSFUL`,
+  `**Result: 0 findings.**`, gitleaks "no leaks found", 804 tests from committed sources, 0 failures.
+- Linux filesystem trace in Docker (eclipse-temurin:21-jdk, Ubuntu, linux/aarch64) with
+  `tools/ci/env-run-trace.sh`: `env-run-trace: PASS`.
+
+| Exit criterion (plan.md §13 M2) | Proving test | Local result |
+| --- | --- | --- |
+| `env run` never writes to disk, verified with filesystem tracing | `EnvRunNoDiskWriteTest`: real file vault; every file under home, repository and vault fingerprinted before and after; only `audit.log` and `audit.log.head` change; no file holds the value. `tools/ci/env-run-trace.sh` runs the test under `strace -ff` and checks every create, write, rename and link by the test JVM and its children between the test's markers (CI Linux job step added) | `EnvRunNoDiskWriteTest` macOS: 1 test, 0 failures, 0 skipped. Linux strace: `40 syscalls from 39 threads/processes in 0.184 s; 6 successful writes checked; 2 execve in window`, `PASS, only the audit log, its head and the vault lock were written`. Planted check: a synthetic `openat(... "/tmp/leaked.env", O_WRONLY\|O_CREAT ...)` added to a copy of that trace gives `FAIL ... /tmp/leaked.env`, exit 1 |
+| Child launched via `ProcessBuilder` with an argument list, never a shell; the command shown is the command run | `EnvRunnerTest.argvShownIsArgvExecutedWithoutShellExpansion` (`$(...)`, backticks, `;`, `*` arrive literally); `EnvCommandsTest.standaloneRunShowsTheExactArgvAndRunsItAfterY`; `ApprovalDialogTest.promptShowsRequesterScopeAndEveryArgvElementOnItsOwnLine`; ArchUnit `onlyTheEnvRunnerSpawnsProcesses` and Semgrep `cert.IDS07-J.processbuilder-outside-approval`, both narrowed to `pm.approval.run.EnvRunner` | `EnvRunnerTest` 5/0/0, `EnvCommandsTest` 16/0/0, `ApprovalDialogTest` 7/0/0, `ModuleBoundaryTest` 10/0/0 (tests/failures/skipped). Planted `new ProcessBuilder("true")` in `pm.approval.PlantedSpawn` failed `onlyTheEnvRunnerSpawnsProcesses` ("violated (1 times)"), then removed |
+| Broker IPC authenticated per platform; PID never the identity; unauthenticated requests rejected and logged | `BrokerIpcTest` (`wrongTokenIsDeniedAndAudited`, `oversizedFrameIsRejectedBeforeReadingAndAudited`, `peerRunningAsAnotherUserIsDenied`, `stolenOldTokenIsUselessAfterRotation`, `unsafeRunDirectoriesAreRefused`, `linkedTokenFileIsRefused`); `SocketApprovalHostTest` | `BrokerIpcTest` 11/0/0, `SocketApprovalHostTest` 2/0/0 |
+| Approval timeout denies (fail closed) | `ApprovalBrokerTest.unansweredPromptTimesOutAsDeny`; `ApprovalDialogTest.anUnansweredPromptIsDeniedAfterTheTimeout`, `lockingDeniesTheWaitingPromptAndClosesIt` | `ApprovalBrokerTest` 16/0/0, `ApprovalDialogTest` 7/0/0 |
+| `.env` parser fuzzed for 24 CPU-hours with no crash or hang | `DotEnvFuzzTest` (Jazzer; regression mode in the gate replays the committed seeds) | **Open, owner's to schedule.** A 30-minute local campaign is recorded in `docs/security/fuzz/M2-fuzz-runs.md`. Gate: `DotEnvFuzzTest` 8/0/0 |
+| Scope escalation: an approve-once decision cannot be reused | `ApprovalBrokerTest.approveOnceCannotBeReused`, `row3ReplayedOrStaleRequestsAreRefused`, `injectRequestsMustShowWhatRuns` | `ApprovalBrokerTest` 16/0/0 |
+
+Deviations from plan.md, accepted at this sign-off:
+
+- **Windows transport.** plan.md names a named pipe with a user-SID DACL. ADR 0009 Amendment 1
+  (M2.4) uses the same Unix domain socket on Windows 10 1803+ in an owner-only-ACL directory,
+  because the JDK has no named-pipe server API. Windows has no peer credentials in the JDK, so
+  the session token and the directory ACL are the controls there. approval-model §5 was
+  corrected at M2.7 to match; it still described the M0 named-pipe draft.
+- **"The broker is the parent of the child."** The runner executes in the `pm env run` process
+  after the TUI-hosted broker releases the approved values over the authenticated socket
+  (approval-model §6). The request's identity is the token plus peer uid, and the argv that runs
+  is the argv in the approved request, checked by `EnvRunner` (`NOT_APPROVED` otherwise).
+- **Approval-dialog rendering.** The dialog renders argv elements through `DisplaySafe`, which
+  replaces control characters, so the screen is byte-identical to what runs only for printable
+  text. Arguments longer than 72 columns, or more than 12 arguments, are shortened with a red
+  "shortened for display" warning.
+
+CERT exceptions: the M2 sweep is recorded at the top of `docs/security/cert-exceptions.md`. CE-002
+was extended, CE-007 was signed off, and CE-008..CE-010 were added. Every suppression in the tree
+maps to one row.
+
+Open, not blocking M2:
+- The 24 CPU-hour `.env` campaign (owner's to schedule on a long-running machine).
+- Dispatching the manual CI workflow on all three OSes, which includes the new Linux strace step.
+  This needs the branch pushed.
+- M1 carry-overs still open: `pm.vault.envelope.Bytes.sameContents` should call
+  `pm.crypto.ConstantTime.equals`; there is no ArchUnit rule keeping the VK out of direct GCM use.
+
+Signed off: Lane A (@boostings), security owner.

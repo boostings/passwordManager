@@ -41,7 +41,7 @@ Applicable rules: 145 (Enforced: 72; Review-only: 73).
 ### [IDS07-J. Sanitize untrusted data passed to the Runtime.exec() method](https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j)
 
 **Project status:** Enforced
-**Project applicability:** Semgrep cert.IDS07-J.runtime-exec / processbuilder-outside-approval; ArchUnit onlyApprovalSpawnsProcesses
+**Project applicability:** Semgrep cert.IDS07-J.runtime-exec / processbuilder-outside-approval; ArchUnit onlyTheEnvRunnerSpawnsProcesses
 **Rule guidance:** Treat command and argument data as untrusted. Prefer an allowlisted executable plus a ProcessBuilder argument list, validate each argument, and never build a shell command from concatenated input.
 **Risk:** Severity=High; Likelihood=Probable; Detectable=Yes; Repairable=No; Priority=P12; Level=L1
 **Example:** [Cli.java:141](modules/pm-cli/src/main/java/pm/cli/Cli.java#L141) - representative project code for this rule family.

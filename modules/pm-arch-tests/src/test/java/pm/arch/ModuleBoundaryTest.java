@@ -46,18 +46,20 @@ final class ModuleBoundaryTest {
                     call.getTargetOwner().isEquivalentTo(Runtime.class) && "exec".equals(call.getName()));
 
     /**
-     * SR-100 / IDS07-J: only pm-approval and platform adapters spawn or inspect processes. Targets
-     * the process APIs themselves ({@code Runtime.exec(..)}, {@code ProcessBuilder},
+     * SR-100 / IDS07-J, plan.md §13 M2: the only class that spawns or inspects processes is the env
+     * runner, which starts the approved argv with no shell (approval-model §6), plus the platform
+     * adapters. Targets the process APIs themselves ({@code Runtime.exec(..)}, {@code ProcessBuilder},
      * {@code ProcessHandle}), not all of {@code java.lang.Runtime}: heap figures such as
-     * {@code Runtime.maxMemory()} spawn nothing.
+     * {@code Runtime.maxMemory()} spawn nothing. Narrowed at M2.7 from "anything in pm-approval".
      */
     @ArchTest
-    static final ArchRule onlyApprovalSpawnsProcesses =
-            noClasses().that().resideOutsideOfPackages("pm.approval..", "pm.platform..")
+    static final ArchRule onlyTheEnvRunnerSpawnsProcesses =
+            noClasses().that().resideOutsideOfPackage("pm.platform..")
+                    .and().haveNameNotMatching("pm\\.approval\\.run\\.EnvRunner(\\$.*)?")
                     .should().callMethodWhere(RUNTIME_EXEC)
                     .orShould().dependOnClassesThat().haveNameMatching(
                             "java\\.lang\\.(ProcessBuilder|ProcessHandle)(\\$.*)?")
-                    .because("SR-100/SR-102: process spawning is the broker's job");
+                    .because("SR-100/SR-102: only pm.approval.run.EnvRunner runs the approved argv");
 
     /** Tier 1 modules never depend on TUI, CLI or platform modules. */
     @ArchTest

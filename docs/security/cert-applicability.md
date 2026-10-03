@@ -23,7 +23,7 @@ the rule is Review-only in practice and the certReport notes it.
 | IDS03-J | Do not log unsanitized user input | Enforced | Semgrep cert.FIO13-J.log-secret; redacting logger (SR-500) |
 | IDS04-J | Safely extract files from ZipInputStream | Enforced | Semgrep cert.FIO03-J.temp-file + SafePath in pm-storage (SR-700); T-BKP-01 |
 | IDS06-J | Exclude unsanitized user input from format strings | Review-only | Code-review checklist item; no reliable automated check |
-| IDS07-J | Sanitize untrusted data passed to the Runtime.exec() method | Enforced | Semgrep cert.IDS07-J.runtime-exec / processbuilder-outside-approval; ArchUnit onlyApprovalSpawnsProcesses |
+| IDS07-J | Sanitize untrusted data passed to the Runtime.exec() method | Enforced | Semgrep cert.IDS07-J.runtime-exec / processbuilder-outside-approval; ArchUnit onlyTheEnvRunnerSpawnsProcesses |
 | IDS08-J | Sanitize untrusted data included in a regular expression | Review-only | Code-review checklist item; no reliable automated check |
 | IDS11-J | Perform any string modifications before validation | Review-only | Code-review checklist item; no reliable automated check |
 | IDS14-J | Do not trust the contents of hidden form fields | Not applicable | No web forms served; browser share page has no form input |

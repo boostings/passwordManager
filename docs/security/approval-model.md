@@ -88,26 +88,27 @@ without `vars` (whole profile) does **not** match a policy that lists vars.
 
 ## 5. IPC transport and authentication (SR-101, SR-108)
 
+As built at M2.4 (ADR 0009 Amendment 1, which supersedes the per-platform table drafted here in
+M0): one transport on every OS.
+
 | Platform | Transport | Peer authentication |
 | --- | --- | --- |
-| macOS | Unix domain socket at `$HOME/Library/Application Support/passwordManager/run/<random32>.sock`, dir mode 0700 | `LOCAL_PEERCRED` (uid must equal broker uid) + session token |
-| Linux | Unix domain socket at `$XDG_RUNTIME_DIR/passwordManager/<random32>.sock` (fallback `$HOME/.local/state/...`, 0700) | `SO_PEERCRED` uid + session token |
-| Windows | Named pipe `\\.\pipe\passwordManager-<random32>` with DACL = current user SID only, `PIPE_REJECT_REMOTE_CLIENTS` | DACL + session token |
+| macOS | Unix domain socket `broker.sock` in the run directory, dir 0700 | `SO_PEERCRED` via `jdk.net.ExtendedSocketOptions` (uid must equal the broker's) + session token |
+| Linux | Same, run directory `$XDG_RUNTIME_DIR/pm` | Same |
+| Windows 10 1803+ | Same (`UnixDomainSocketAddress`), run directory with an owner-only ACL | No peer credentials in the JDK: session token + directory ACL |
 
-- The socket path is written to a 0600 file the CLI reads; symlinks in the
-  path are refused (`Files.isSymbolicLink` after canonicalization).
-- Session token: 32 random bytes generated when the broker starts; handed to
-  `env run` and agents via the same 0600 file; rotated on every vault lock.
-- Java 21 `UnixDomainSocketAddress` is used on macOS/Linux; peer credentials
-  are obtained via a small JNI-free approach: on Linux read `SO_PEERCRED`
-  through `jdk.net.ExtendedSocketOptions` if exposed, otherwise the broker
-  additionally verifies the client by requiring it to prove it can read the
-  0600 token file (which only the same uid can). The token is therefore the
-  primary control on all platforms and peer creds are defense in depth.
-- Windows named pipes are accessed through the JDK `RandomAccessFile` on the
-  pipe path; the DACL is set at creation via a PowerShell-free approach using
-  `java.nio.file.attribute.AclFileAttributeView` where supported, else the
-  launcher creates the pipe with the DACL (documented in platform adapter).
+- Run directory: `$XDG_RUNTIME_DIR/pm` when set, else `run/` beside the vault (`RunDir.locate`).
+  The broker creates it owner-only; the broker and the client both refuse it if it is a link,
+  not a directory, or open to anyone else (`UNSAFE_PATH`).
+- Session token: 32 random bytes, written to `token` in the run directory 0600 through
+  create-new and an atomic rename, deleted on lock and replaced on every unlock. The token is the
+  primary control on all platforms; peer credentials are defense in depth.
+- Frames: one request and one reply per connection, 4-byte length, at most 64 KiB, deterministic
+  CBOR. Oversized, truncated or undecodable frames are answered `DENIED_MALFORMED` and audited
+  without reading the body; a wrong token is denied and audited. At most 8 connections at once.
+- plan.md §13 M2 named a Windows named pipe with a user-SID DACL. That was replaced by the socket
+  above (ADR 0009 Amendment 1): the JDK has no named-pipe server API, and the directory ACL gives
+  the same "current user only" property. Recorded as a deviation in the M2 sign-off.
 
 ## 6. Injection (operation = env-inject)
 
