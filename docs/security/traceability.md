@@ -58,3 +58,11 @@ Status: Planned until the test exists and passes in CI.
 | TM-92 | SR-800 | MSC03-J | CI gitleaks | M0 | Planned |
 | TM-93 | SR-801 | ENV05-J, ENV06-J | T-PKG-01 | M7 | Planned |
 | all | SR-900 | all | certReport | M0 | Planned |
+
+## M4 generation and health
+
+| Threat | SR | CERT | Test / check | Milestone | Status |
+| --- | --- | --- | --- | --- | --- |
+| — (weak or biased generated secret) | SR-060, SR-061 | MSC02-J | `UniformTest`, `PasswordGeneratorTest`, `PassphraseGeneratorTest` | M4 | Implemented (M4.1) |
+| — (generated secret left in memory) | SR-062 | MSC03-J | `PasswordGeneratorTest.resultIsOwnedAndZeroedOnClose`, R | M4 | Implemented (M4.1) |
+| — (corrupt wordlist) | SR-063 | IDS00-J | `PassphraseGeneratorTest.wordlistValidationRejectsCorruptLists` | M4 | Implemented (M4.1) |

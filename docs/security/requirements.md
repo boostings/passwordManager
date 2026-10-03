@@ -108,3 +108,12 @@ desktop application.
 | SR-800 | Secret scanning runs on every PR and on full history; sample data is obviously fake | CI | V14.2 | MSC03-J |
 | SR-801 | No JMX, JDWP, or debug entry points in release artifacts | T-PKG-01 | V14.3 | ENV05-J, ENV06-J |
 | SR-900 | All Java complies with `RULES.md`; `certReport` shows zero findings for Enforced rules | CI | V1.1 | all |
+
+## Generation and health (SR-06x, M4)
+
+| ID | Requirement | Verification | ASVS | CERT |
+| --- | --- | --- | --- | --- |
+| SR-060 | Generated passwords and passphrases draw randomness only from `pm.crypto.Csprng` in production (`RandomSource.secure()`); every index is drawn by rejection sampling, never by modulo reduction, so output is uniform over the policy's valid set (ADR 0012) | `UniformTest`, `PasswordGeneratorTest`, `PassphraseGeneratorTest` (chi-square on a fixed-seed DRBG; SecureRandom smoke) | V6.3 | MSC02-J |
+| SR-061 | A password policy's "at least one of each class" rule is met by discarding whole candidates, and the reported entropy is log2 of the exact count of valid outputs (inclusion-exclusion); passphrases report 13 bits per word | `PasswordGeneratorTest.entropyIsTheExactCountOfValidPasswords`, `.aCandidateMissingAClassIsDiscardedWhole` | V2.1 | MSC02-J |
+| SR-062 | Generator output is returned in `SecretChars`, never built in a `String` or a growing buffer; discarded candidates are zero-filled | R, `PasswordGeneratorTest.resultIsOwnedAndZeroedOnClose` | V6.2 | MSC03-J |
+| SR-063 | The bundled wordlist is verified on load (8,192 distinct, sorted, `[a-z]{4,5}` words); a corrupt list fails loudly instead of silently lowering entropy | `PassphraseGeneratorTest.wordlistValidationRejectsCorruptLists` | — | IDS00-J |
