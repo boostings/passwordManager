@@ -127,7 +127,7 @@ line (base64), hash-chained:
 ```cddl
 audit-entry = {
   seq: uint, ts: uint, prev: bytes .size 32,           ; SHA-256 of previous entry
-  kind: "unlock"/"lock"/"approval"/"policy"/"share"/"pair"/"revoke"/"export"/"slot",
+  kind: "unlock"/"lock"/"approval"/"prompt"/"policy"/"share"/"pair"/"revoke"/"export"/"slot",
   ? request_id: bytes, ? requester_kind: tstr, ? os_user: tstr,
   ? project: tstr, ? profile: tstr, ? var_count: uint, ? record_ids: [+bytes],
   ? decision: tstr, ? argv0: tstr,                     ; program name only, never full argv
@@ -135,7 +135,11 @@ audit-entry = {
 }
 ```
 Entry `seq`/`prev` chain is verified on open; a break is reported to the user
-as "audit log tampered or truncated after entry N". No Secret-class field is
+as "audit log tampered or truncated after entry N". A chain cannot notice entries
+cut from the end, so a 0600 sidecar `audit.log.head` holds the last `seq` and
+its SHA-256 after each append (it may lag the log by one entry after a crash,
+never lead it). A same-user process can rewrite both files; the log detects
+accidents and naive edits, not a same-user attacker (threat model T-12). No Secret-class field is
 ever written (`data-classification.md`); full argv is excluded because
 arguments may embed secrets.
 
