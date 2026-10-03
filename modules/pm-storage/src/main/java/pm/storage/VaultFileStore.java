@@ -485,7 +485,7 @@ public final class VaultFileStore implements AutoCloseable {
         }
     }
 
-    private static Path prepareDirectory(Path requested) throws IOException, StorageException {
+    static Path prepareDirectory(Path requested) throws IOException, StorageException {
         Deque<Path> missing = new ArrayDeque<>();
         Path existing = requested;
         while (!Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
@@ -547,7 +547,7 @@ public final class VaultFileStore implements AutoCloseable {
     }
 
     // A regular, non-link store file that is owner-only and owned like its directory.
-    private static boolean checkRegularFile(Path path, boolean allowMissing)
+    static boolean checkRegularFile(Path path, boolean allowMissing)
             throws IOException, StorageException {
         if (!checkPlainFile(path)) {
             if (allowMissing) {
@@ -562,7 +562,7 @@ public final class VaultFileStore implements AutoCloseable {
     }
 
     // Whether a regular file exists at the path; a link or any other kind of entry is refused.
-    private static boolean checkPlainFile(Path path) throws IOException, StorageException {
+    static boolean checkPlainFile(Path path) throws IOException, StorageException {
         try {
             BasicFileAttributes attributes = Files.readAttributes(
                     path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
@@ -581,7 +581,7 @@ public final class VaultFileStore implements AutoCloseable {
     // The creation attributes name the directory's owner. If this process creates files under
     // another identity (an administrator-owned directory), restrict the file to its real owner
     // before anything is written to it (FIO01-J).
-    private static void ensurePrivate(Path created) throws StorageException {
+    static void ensurePrivate(Path created) throws StorageException {
         if (!OwnerOnly.isOwnerOnly(created)) {
             OwnerOnly.apply(created);
         }
@@ -619,13 +619,13 @@ public final class VaultFileStore implements AutoCloseable {
         return parent;
     }
 
-    private static void discard(Path path) throws IOException {
+    static void discard(Path path) throws IOException {
         if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             Files.delete(path);
         }
     }
 
-    private static StorageException translated(Throwable error) {
+    static StorageException translated(Throwable error) {
         StorageException.Code code = StorageException.Code.IO;
         if (error instanceof NoSuchFileException) {
             code = StorageException.Code.NOT_FOUND;

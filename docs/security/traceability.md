@@ -52,6 +52,7 @@ Status: Planned until the test exists and passes in CI.
 | TM-71 | SR-602 | — | T-UPD-01 | M7 | Planned |
 | TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01 | M1 | Planned |
 | TM-81 | SR-701, SR-702 | FIO02-J, ERR03-J | T-MIG-01 (MigrationTest, GoldenFixtureTest) | M7 | Planned |
+| TM-82 | SR-700, SR-703, SR-704 | FIO01-J, FIO02-J, ERR03-J | T-BKP-01 (VaultBackupsTest, BackupDirectoryTest) | M7 | Planned |
 | TM-81 | SR-105 | MSC05-J | T-FUZZ-ENV | M2 | Planned |
 | TM-82 | SR-110 | — | T-ENV-03 | M2 | Planned |
 | TM-90 | SR-600 | — | CI dependency verification + scan | M0 | Planned |

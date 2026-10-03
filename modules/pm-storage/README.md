@@ -9,6 +9,7 @@ password validation, and decoding vault records belong to the other lanes.
 | File | Responsibility | Rules and requirements |
 | --- | --- | --- |
 | `OwnerOnly.java` | Apply and check POSIX permissions or Windows owner ACLs; supply restrictive attributes at file creation | FIO01-J, SR-040 |
+| `BackupDirectory.java` | Owner-only backup directory: create-new atomic writes, filtered listing, bounded reads, link refusal (ADR 0015) | FIO00/01/02/03/16-J, SR-040/041 |
 | `StorageException.java` | Return a fixed error code without retaining path-bearing causes or suppressed exceptions | ERR01-J, SR-501 |
 | `VaultFileStore.java` | Canonicalize paths, hold an exclusive lock, read within a size limit, replace files atomically, rotate backups, create and delete caller-named private siblings (the pre-migration rollback copy, ADR 0015), release resources | FIO00/02/03/04/08/10/16-J, OBJ06/14-J, ADR 0003, SR-041 |
 
@@ -95,6 +96,7 @@ The caller coordinates the backup/save sequence as one logical operation.
 | `ExistingDirectoryTest` | An existing secure directory is accepted and left unchanged on POSIX and Windows; a write grant to another principal is refused; a DENY entry is not a grant; administrative accounts are recognised by SID |
 | `PathHandlingTest` | A directory name the filesystem alters stays usable; vault names ending in a dot are refused; an absent filesystem root gives `NOT_FOUND` |
 | `SiblingTest` | Rollback-copy siblings are owner-only, create-new, bounded, crash-safe before rename, and cannot be named like the lock, staging or backup files |
+| `BackupDirectoryTest` | Backup files are owner-only and create-new; crashes before the rename leave nothing, after it the complete file; links, unsafe names and insecure directories are refused |
 | `BoundedReadProperties` | Generated binary inputs preserve every byte within the limit and never return partial data when oversized |
 
 With JDK 21 available to Gradle, run:

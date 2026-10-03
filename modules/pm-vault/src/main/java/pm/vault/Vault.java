@@ -228,6 +228,43 @@ public final class Vault implements AutoCloseable {
     }
 
     /**
+     * Runs {@code action} on the file as last saved and the VK, under the vault lock so that no
+     * save can replace the file meanwhile (ADR 0015 backups). Neither argument may be retained.
+     *
+     * @throws VaultException {@code LOCKED} after close, {@code STORAGE} if the file cannot be
+     *                        read, or whatever {@code action} throws
+     */
+    <T> T withSavedFile(SavedFileAction<T> action) throws VaultException {
+        Objects.requireNonNull(action, "action");
+        return locked(() -> {
+            if (closed) {
+                throw new VaultException(VaultException.Code.LOCKED, null);
+            }
+            byte[] file;
+            try {
+                file = store.readAll();
+            } catch (StorageException e) {
+                throw new VaultException(VaultException.Code.STORAGE, e);
+            }
+            return action.run(file, vaultKey);
+        });
+    }
+
+    /** Body of {@link #withSavedFile}. */
+    @FunctionalInterface
+    interface SavedFileAction<T> {
+        /**
+         * Uses the saved file and the VK.
+         *
+         * @param file the saved file, owned by the action
+         * @param vk   the vault key; not closed and not retained
+         * @return the result
+         * @throws VaultException on failure
+         */
+        T run(byte[] file, SecretBytes vk) throws VaultException;
+    }
+
+    /**
      * Derives the per-save data key DK = HKDF-SHA256(VK, dataSalt, "pm/data/v1", 32)
      * (ADR 0004). The caller closes the result.
      */
