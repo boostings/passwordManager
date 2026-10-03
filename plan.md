@@ -2,8 +2,13 @@
 
 ## Project status
 
-This is a planning document only. The repository is private, the working name is
-`passwordManager`, and implementation has not started.
+The repository is private and the working name is `passwordManager`.
+
+| Milestone | Status |
+| --- | --- |
+| M0 Product and security design | Delivered 2026-09-10; open sign-off items listed under `## M0` in `docs/security/milestone-signoff.md` |
+| M1 Local vault foundation | Done (2026-10-03): exit criteria signed off in `docs/security/milestone-signoff.md`, CI green on Linux, macOS and Windows, tag `m1` |
+| M2 onward | Not started |
 
 This plan is written so that security is a required
 activity in every phase of the software development life cycle (SDLC), not a
