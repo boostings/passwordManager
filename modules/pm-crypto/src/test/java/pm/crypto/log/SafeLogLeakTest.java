@@ -276,6 +276,25 @@ final class SafeLogLeakTest {
                 capture.lines);
     }
 
+    /**
+     * CR-1 / IDS03-J: text inside a String or Character argument cannot end the record and forge the
+     * next one. CR, LF, the other C0/C1 controls and U+2028/U+2029 come out as escapes; the rest of
+     * the text is unchanged.
+     */
+    @Test
+    void recordBreakingCharsInArgsAreEscapedNotEmitted() {
+        Capture capture = new Capture();
+        SafeLog.over(capture).warn(EVENT, "vault.pmv\r\nINFO: VAULT_UNLOCKED admin", '\n', "a\tb", "\u001b[2K",
+                "x\u0085y\u007fz", "p q r");
+        String u = "\\u";
+        assertEquals(List.of(EVENT + " vault.pmv" + u + "000d" + u + "000aINFO: VAULT_UNLOCKED admin " + u + "000a a"
+                + u + "0009b " + u + "001b[2K x" + u + "0085y" + u + "007fz p" + u + "2028q" + u + "2029r"),
+                capture.lines);
+        for (char c : capture.all().toCharArray()) {
+            assertFalse(Character.isISOControl(c), "control character reached the log");
+        }
+    }
+
     /** D5: each java.base boxed primitive is accepted; nothing wider. */
     @Test
     void everyBoxedPrimitiveNumberIsEmitted() {

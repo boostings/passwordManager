@@ -4,23 +4,23 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-
 import pm.crypto.SecretBytes;
 
 /**
- * Website or application login (ADR 0006). The password is a {@link SecretBytes} (ADR 0008);
- * lists are defensively copied (OBJ06-J) and bounded (MSC05-J).
+ * A website or application login (plan.md section 4, ADR 0006, {@code login-record} in
+ * {@code docs/schemas/records.cddl}).
  *
- * @param id       stable record id
- * @param title    display title, at most 256 chars
- * @param username account name
- * @param password secret password, closed by {@link #close()}
- * @param urls     at most 64 urls
- * @param notes    free text, at most 64 KiB
- * @param tags     at most 64 tags
- * @param created  creation time
- * @param updated  last modification time
- * @param lastUsed last use time
+ * @param id record identity
+ * @param title display title, at most 256 characters
+ * @param username account name, at most 1,024 characters
+ * @param password the secret, at most 64 KiB; owned by this record and zero-filled by
+ *     {@link #close()} (ADR 0008)
+ * @param urls at most 64 URLs of at most 8,192 characters each
+ * @param notes free text, at most 65,536 characters
+ * @param tags at most 64 tags of at most 1,024 characters each
+ * @param created creation time, truncated to whole seconds
+ * @param updated last change, truncated to whole seconds
+ * @param lastUsed last use, truncated to whole seconds
  */
 public record LoginRecord(
         UUID id,
@@ -34,27 +34,26 @@ public record LoginRecord(
         Instant updated,
         Instant lastUsed
 ) implements VaultRecord {
-    /** Null checks, length bounds and defensive copies (ADR 0006, OBJ06-J). */
+    /**
+     * Validates every field and takes unmodifiable copies of the lists (MET00-J, OBJ06-J).
+     *
+     * @throws NullPointerException if a component or a list element is null
+     * @throws IllegalArgumentException if a field exceeds its bound, a text holds an unpaired
+     *     surrogate, or an instant is before 1970 or after 9999
+     */
     public LoginRecord {
         Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(title, "title");
-        Objects.requireNonNull(username, "username");
-        Objects.requireNonNull(password, "password");
-        Objects.requireNonNull(urls, "urls");
-        Objects.requireNonNull(notes, "notes");
-        Objects.requireNonNull(tags, "tags");
-        Objects.requireNonNull(created, "created");
-        Objects.requireNonNull(updated, "updated");
-        Objects.requireNonNull(lastUsed, "lastUsed");
-        RecordLimits.checkTitle(title);
-        RecordLimits.checkNotes(notes);
-        urls = List.copyOf(urls);
-        tags = List.copyOf(tags);
-        RecordLimits.checkListSize(urls.size());
-        RecordLimits.checkListSize(tags.size());
+        title = FieldRules.text(title, FieldRules.MAX_TITLE_CHARS, "title");
+        username = FieldRules.text(username, FieldRules.MAX_SHORT_TEXT_CHARS, "username");
+        FieldRules.secret(password, "password");
+        urls = FieldRules.texts(urls, FieldRules.MAX_URL_CHARS, "urls");
+        notes = FieldRules.text(notes, FieldRules.MAX_NOTES_CHARS, "notes");
+        tags = FieldRules.texts(tags, FieldRules.MAX_SHORT_TEXT_CHARS, "tags");
+        created = FieldRules.instant(created, "created");
+        updated = FieldRules.instant(updated, "updated");
+        lastUsed = FieldRules.instant(lastUsed, "lastUsed");
     }
 
-    /** Closes the password (ADR 0008). */
     @Override
     public void close() {
         password.close();

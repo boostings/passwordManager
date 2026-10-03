@@ -3,50 +3,52 @@ package pm.vault.cbor;
 import java.util.Objects;
 
 /**
- * CBOR decode failure (ADR 0006 amendment). The message is the code name only, never input
- * content (SR-501, ERR01-J).
+ * Rejection of an encoded item by {@link CborReader} (ADR 0006 Amendment 1, SR-021).
+ *
+ * <p>The message is fixed text chosen by the reader. It never contains bytes or text taken from the
+ * input, so it can be chained into other exceptions without leaking vault content (SR-501,
+ * ERR01-J). Callers branch on {@link #code()}, never on the message.
  */
 public final class CborException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    /** Failure classes. */
+    /** Why the input was rejected. */
     public enum Code {
-        /** Input is not well-formed CBOR of the accepted subset. */
+        /** Not well-formed, or outside the supported subset (tags, floats, negative integers, ...). */
         MALFORMED,
-        /** A {@link CborLimits} bound was exceeded. */
+        /** A {@link CborLimits} bound was exceeded, or a number does not fit the supported range. */
         LIMIT,
-        /** Input is well-formed but not in deterministic form (RFC 8949 §4.2.1). */
+        /** Well-formed, but not the RFC 8949 section 4.2.1 deterministic encoding. */
         NON_CANONICAL
     }
 
-    private final Code failure;
+    private final Code reason;
 
     /**
-     * Creates an exception whose message is {@code code.name()}.
+     * Creates a rejection.
      *
-     * @param code failure class, never null
+     * @param code why the input was rejected
+     * @param message fixed text, never input data
      */
-    public CborException(Code code) {
-        this(code, null);
+    public CborException(Code code, String message) {
+        super(message);
+        this.reason = Objects.requireNonNull(code, "code");
     }
 
     /**
-     * Creates an exception whose message is {@code code.name()}.
+     * Creates a rejection with the underlying cause.
      *
-     * @param code  failure class, never null
-     * @param cause underlying failure, may be null
+     * @param code why the input was rejected
+     * @param message fixed text, never input data
+     * @param cause the failure that led to the rejection
      */
-    public CborException(Code code, Throwable cause) {
-        super(Objects.requireNonNull(code, "code").name(), cause);
-        this.failure = code;
+    public CborException(Code code, String message, Throwable cause) {
+        super(message, cause);
+        this.reason = Objects.requireNonNull(code, "code");
     }
 
-    /**
-     * Returns the failure class.
-     *
-     * @return the code
-     */
+    /** Returns why the input was rejected. */
     public Code code() {
-        return failure;
+        return reason;
     }
 }

@@ -18,12 +18,13 @@ import com.tngtech.archunit.lang.ArchRule;
 @AnalyzeClasses(packages = "pm", importOptions = ImportOption.DoNotIncludeTests.class)
 final class ModuleBoundaryTest {
 
-    /** SR-017 / MSC02-J: only pm-crypto touches the JCA. */
+    /** SR-017 / MSC02-J: cryptographic JCA APIs stay in pm-crypto; Principal supports file ACLs. */
     @ArchTest
     static final ArchRule onlyCryptoUsesJca =
-            noClasses().that().resideOutsideOfPackage("pm.crypto..")
-                    .should().dependOnClassesThat().resideInAnyPackage("javax.crypto..", "java.security..")
-                    .because("SR-017: only pm-crypto may use javax.crypto / java.security");
+            noClasses().that().resideOutsideOfPackages("pm.crypto..", "pm.arch..")
+                    .should().dependOnClassesThat().haveNameMatching(
+                            "javax\\.crypto\\..*|java\\.security\\.(?!Principal$).*")
+                    .because("SR-017: cryptographic javax.crypto / java.security APIs stay in pm-crypto");
 
     /** SR-507 / SER12-J: no Java native serialization anywhere. */
     @ArchTest

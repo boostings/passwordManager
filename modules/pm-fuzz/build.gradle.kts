@@ -6,4 +6,8 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("-XX:-DisableAttachMechanism")
+    // Jazzer's default filter instruments only classes found in class-path directories. pm-vault
+    // reaches this module as a jar, so without this the parsers under test would get no coverage
+    // feedback in fuzzing mode (JAZZER_FUZZ=1) and the fuzzer would mutate blindly.
+    systemProperty("jazzer.instrument", "pm.vault.**,pm.fuzz.**")
 }

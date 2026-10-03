@@ -4,21 +4,23 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-
 import pm.crypto.SecretBytes;
 
 /**
- * Per-project secrets and configuration (ADR 0006). Variable values are {@link SecretBytes}
- * (ADR 0008); maps are defensively copied (OBJ06-J).
+ * A software project with its environment variables (plan.md section 4, ADR 0006,
+ * {@code project-record} in {@code docs/schemas/records.cddl}).
  *
- * @param id            stable record id
- * @param title         display title, at most 256 chars
- * @param canonicalPath canonical project directory
- * @param gitRemote     git remote url, may be empty
- * @param variables     secret variables, closed by {@link #close()}
- * @param config        non-secret configuration
- * @param created       creation time
- * @param updated       last modification time
+ * @param id record identity
+ * @param title project name, at most 256 characters
+ * @param canonicalPath canonical filesystem path, at most 32,768 characters
+ * @param gitRemote git remote URL, at most 8,192 characters
+ * @param variables at most 1,024 variables; each name is at most 1,024 characters and each value
+ *     is a secret of at most 64 KiB, owned by this record and zero-filled by {@link #close()}
+ *     (ADR 0008)
+ * @param config at most 1,024 non-secret settings; each name is at most 1,024 characters and each
+ *     value at most 65,536 characters
+ * @param created creation time, truncated to whole seconds
+ * @param updated last change, truncated to whole seconds
  */
 public record ProjectRecord(
         UUID id,
@@ -30,22 +32,25 @@ public record ProjectRecord(
         Instant created,
         Instant updated
 ) implements VaultRecord {
-    /** Null checks, length bounds and defensive copies (ADR 0006, OBJ06-J). */
+    /**
+     * Validates every field and takes unmodifiable copies of the maps (MET00-J, OBJ06-J). The
+     * copied variable map shares its {@link SecretBytes} values with the caller's map.
+     *
+     * @throws NullPointerException if a component, a map key or a map value is null
+     * @throws IllegalArgumentException if a field exceeds its bound, a text holds an unpaired
+     *     surrogate, or an instant is before 1970 or after 9999
+     */
     public ProjectRecord {
         Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(title, "title");
-        Objects.requireNonNull(canonicalPath, "canonicalPath");
-        Objects.requireNonNull(gitRemote, "gitRemote");
-        Objects.requireNonNull(variables, "variables");
-        Objects.requireNonNull(config, "config");
-        Objects.requireNonNull(created, "created");
-        Objects.requireNonNull(updated, "updated");
-        RecordLimits.checkTitle(title);
-        variables = Map.copyOf(variables);
-        config = Map.copyOf(config);
+        title = FieldRules.text(title, FieldRules.MAX_TITLE_CHARS, "title");
+        canonicalPath = FieldRules.text(canonicalPath, FieldRules.MAX_PATH_CHARS, "canonicalPath");
+        gitRemote = FieldRules.text(gitRemote, FieldRules.MAX_URL_CHARS, "gitRemote");
+        variables = FieldRules.secrets(variables, "variables");
+        config = FieldRules.settings(config, "config");
+        created = FieldRules.instant(created, "created");
+        updated = FieldRules.instant(updated, "updated");
     }
 
-    /** Closes every secret variable (ADR 0008). */
     @Override
     public void close() {
         variables.values().forEach(SecretBytes::close);

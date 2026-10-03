@@ -49,6 +49,8 @@ enum Messages {
     ERR_LOCKED("vault is in use by another process"),
     ERR_STORAGE("vault storage error"),
     ERR_NOT_FOUND("no vault at this path; run 'pm init' first"),
+    ERR_INSUFFICIENT_MEMORY("this vault needs more memory than Java was given;"
+            + " raise the heap limit (for example -Xmx2g) and try again"),
     ERR_TERMINAL("terminal error"),
     ERR_RECOVERY_NOT_SHOWN("the vault was created but its recovery key could not be shown;"
             + " delete the new vault file and run 'pm init' again"),

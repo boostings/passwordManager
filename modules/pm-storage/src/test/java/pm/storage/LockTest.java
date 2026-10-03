@@ -1,12 +1,17 @@
 package pm.storage;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -41,6 +46,30 @@ final class LockTest {
             assertThrows(IllegalStateException.class, store::readAll);
             assertThrows(IllegalStateException.class, store::backup);
             assertThrows(IllegalStateException.class, () -> store.writeAtomically(new byte[] {1}));
+        }
+    }
+
+    // The duplicate-open test above is answered by the in-process registry. Here the lock file is
+    // locked through a channel the registry knows nothing about, as another process would do.
+    @Test
+    void lockHeldOutsideTheRegistryIsHonoured() throws IOException, StorageException {
+        Path file = root.resolve("private/vault.pmv");
+        try (VaultFileStore first = VaultFileStore.open(file)) {
+            first.writeAtomically(new byte[] {1});
+        }
+        Path lockFile = file.resolveSibling("vault.pmv.lock");
+        try (FileChannel other = FileChannel.open(lockFile, StandardOpenOption.WRITE);
+                FileLock held = other.lock()) {
+            assertTrue(held.isValid());
+            StorageException error = assertThrows(StorageException.class, () -> {
+                try (VaultFileStore unexpected = VaultFileStore.open(file)) {
+                    assertTrue(unexpected.exists());
+                }
+            });
+            assertEquals(StorageException.Code.LOCKED_BY_OTHER, error.code());
+        }
+        try (VaultFileStore next = VaultFileStore.open(file)) {
+            assertArrayEquals(new byte[] {1}, next.readAll());
         }
     }
 

@@ -3,50 +3,51 @@ package pm.vault.record;
 import java.util.Objects;
 
 /**
- * Record payload failure (ADR 0006). The message is the code name only, never record content
- * (SR-501, ERR01-J).
+ * Rejection of a payload by {@link RecordCodec#decodePayload} (ADR 0006, SR-021).
+ *
+ * <p>The message is fixed text. It never contains record content, so it is safe to chain into
+ * other exceptions (SR-501, ERR01-J). Callers branch on {@link #code()}, never on the message.
  */
 public final class RecordException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    /** Failure classes. */
+    /** Why the payload was rejected. */
     public enum Code {
-        /** Payload violates the record schema (ADR 0006). */
+        /** Valid CBOR that does not match {@code docs/schemas/records.cddl}. */
         SCHEMA,
-        /** A record or payload bound was exceeded. */
+        /** A size, count or range bound was exceeded. */
         LIMIT,
-        /** Payload is not well-formed. */
+        /** Not a deterministic encoding of the supported CBOR subset. */
         MALFORMED
     }
 
-    private final Code failure;
+    private final Code reason;
 
     /**
-     * Creates an exception whose message is {@code code.name()}.
+     * Creates a rejection.
      *
-     * @param code failure class, never null
+     * @param code why the payload was rejected
+     * @param message fixed text, never record content
      */
-    public RecordException(Code code) {
-        this(code, null);
+    public RecordException(Code code, String message) {
+        super(message);
+        this.reason = Objects.requireNonNull(code, "code");
     }
 
     /**
-     * Creates an exception whose message is {@code code.name()}.
+     * Creates a rejection with the underlying cause.
      *
-     * @param code  failure class, never null
-     * @param cause underlying failure, may be null
+     * @param code why the payload was rejected
+     * @param message fixed text, never record content
+     * @param cause the failure that led to the rejection
      */
-    public RecordException(Code code, Throwable cause) {
-        super(Objects.requireNonNull(code, "code").name(), cause);
-        this.failure = code;
+    public RecordException(Code code, String message, Throwable cause) {
+        super(message, cause);
+        this.reason = Objects.requireNonNull(code, "code");
     }
 
-    /**
-     * Returns the failure class.
-     *
-     * @return the code
-     */
+    /** Returns why the payload was rejected. */
     public Code code() {
-        return failure;
+        return reason;
     }
 }

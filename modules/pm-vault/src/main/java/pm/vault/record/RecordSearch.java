@@ -2,52 +2,61 @@ package pm.vault.record;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
- * Case-insensitive ({@code Locale.ROOT}) substring search over the §2 non-secret fields only:
- * title, username, urls, tags, ssid and hosts. Never reads a secret field (ADR 0006, SR-503).
- * An empty or null query matches every record.
+ * Text search over the non-secret fields of a record (sprint plan section 2 D).
+ *
+ * <p>The searched fields are exactly: the title of every record, plus user name, URLs and tags of
+ * a login, the SSID of a Wi-Fi network and the hosts of an SSH key. Secret fields (passwords,
+ * private keys, variable values) are never read, so a query can never confirm part of a secret
+ * (SR-505, data-classification.md). Matching is a case-insensitive substring test that lower-cases
+ * both sides with {@link Locale#ROOT} (STR02-J).
  */
 public final class RecordSearch {
-    private RecordSearch() {}
+    private RecordSearch() {
+    }
 
     /**
-     * Whether {@code record} matches {@code query}.
+     * Returns whether {@code record} matches {@code query}.
      *
-     * @param record the record; not closed
-     * @param query  search text, may be null or empty
-     * @return true if any searchable field contains the query, ignoring case
+     * @param record the record to test
+     * @param query the search text; the empty string matches every record
+     * @return true if a searched field contains {@code query}, ignoring case
+     * @throws NullPointerException if an argument is null
      */
     public static boolean matches(VaultRecord record, String query) {
-        String value = query == null ? "" : query.toLowerCase(Locale.ROOT);
-        if (value.isEmpty() || contains(record.title(), value)) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(query, "query");
+        String needle = query.toLowerCase(Locale.ROOT);
+        if (needle.isEmpty() || contains(record.title(), needle)) {
             return true;
         }
-        // Class.cast rather than pattern bindings: PMD CloseResource reports every
-        // AutoCloseable binding, and these records are owned by the caller.
+        // Class.cast, not a pattern variable: the record is the caller's, and a local of an
+        // AutoCloseable type would have to be closed here.
         if (record instanceof LoginRecord) {
-            return loginMatches(LoginRecord.class.cast(record), value);
+            return matchesLogin(LoginRecord.class.cast(record), needle);
         }
         if (record instanceof WifiRecord) {
-            return contains(WifiRecord.class.cast(record).ssid(), value);
+            return contains(WifiRecord.class.cast(record).ssid(), needle);
         }
         if (record instanceof SshKeyRecord) {
-            return containsAny(SshKeyRecord.class.cast(record).hosts(), value);
+            return containsAny(SshKeyRecord.class.cast(record).hosts(), needle);
         }
         return false;
     }
 
-    private static boolean loginMatches(LoginRecord login, String query) {
-        return contains(login.username(), query)
-            || containsAny(login.urls(), query)
-            || containsAny(login.tags(), query);
+    private static boolean matchesLogin(LoginRecord login, String needle) {
+        return contains(login.username(), needle)
+                || containsAny(login.urls(), needle)
+                || containsAny(login.tags(), needle);
     }
 
-    private static boolean contains(String candidate, String query) {
-        return candidate.toLowerCase(Locale.ROOT).contains(query);
+    private static boolean contains(String candidate, String needle) {
+        return candidate.toLowerCase(Locale.ROOT).contains(needle);
     }
 
-    private static boolean containsAny(List<String> values, String query) {
-        return values.stream().anyMatch(value -> contains(value, query));
+    private static boolean containsAny(List<String> candidates, String needle) {
+        return candidates.stream().anyMatch(candidate -> contains(candidate, needle));
     }
 }
