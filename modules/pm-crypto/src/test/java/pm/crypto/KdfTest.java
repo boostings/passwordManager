@@ -226,6 +226,35 @@ class KdfTest {
                 Argon2Params.FLOOR.parallelism()), tuned);
     }
 
+    /**
+     * CR-4: on a heap too small to run even the floor (below about 75 MiB) the real timer died with
+     * OutOfMemoryError. Now nothing is timed and the floor comes back; argon2id then refuses it with
+     * BAD_PARAMS on that JVM.
+     */
+    @Test
+    void tuneTimesNothingWhenTheFloorDoesNotFitInFreeHeap() {
+        AtomicInteger calls = new AtomicInteger();
+        long oneByteShort = Kdf.requiredHeapBytes(Argon2Params.FLOOR) - 1;
+        Argon2Params tuned = Kdf.tune(TARGET, p -> {
+            calls.incrementAndGet();
+            return 0L;
+        }, UNLIMITED_BUDGET, oneByteShort);
+        assertEquals(Argon2Params.FLOOR, tuned);
+        assertEquals(0, calls.get());
+    }
+
+    /** CR-4: exactly enough free heap for the floor is enough to tune as before. */
+    @Test
+    void tuneRunsTheTimerWhenTheFloorJustFitsInFreeHeap() {
+        AtomicInteger calls = new AtomicInteger();
+        Argon2Params tuned = Kdf.tune(TARGET, p -> {
+            calls.incrementAndGet();
+            return TARGET_NANOS;
+        }, UNLIMITED_BUDGET, Kdf.requiredHeapBytes(Argon2Params.FLOOR));
+        assertEquals(Argon2Params.FLOOR, tuned);
+        assertEquals(1, calls.get());
+    }
+
     @Test
     void memoryCapIsMinOfOneGibAndBudgetAsPowerOfTwo() {
         assertEquals(Argon2Params.MAX_MEMORY_KIB, Kdf.memoryCapKiB(UNLIMITED_BUDGET));

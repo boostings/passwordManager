@@ -10,7 +10,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -86,19 +89,29 @@ final class SymlinkRefusedTest {
         }
     }
 
-    @Test
-    void sharedExistingDirectoryIsRejectedWithoutChangingItsPermissions()
+    // FIO00-J: a directory that group or other users can write to is shared. The modes are test
+    // parameters so that each write bit is covered: group only, other only, and both.
+    @ParameterizedTest
+    @ValueSource(strings = {"rwxrwx---", "rwxr-x-w-", "rwxrwxrwx"})
+    void sharedExistingDirectoryIsRejectedWithoutChangingItsPermissions(String shared)
             throws IOException {
         assumeTrue(root.getFileSystem().supportedFileAttributeViews().contains("posix"));
         Path directory = Files.createDirectory(root.resolve("shared"));
-        Path changed = Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxr-xr-x"));
+        Path changed = Files.setPosixFilePermissions(directory, mode(shared));
         assertEquals(StorageException.Code.PERMISSIONS,
                 assertThrows(StorageException.class, () -> {
                     try (VaultFileStore store = VaultFileStore.open(changed.resolve("vault.pmv"))) {
                         assertFalse(store.exists());
                     }
                 }).code());
-        assertEquals(PosixFilePermissions.fromString("rwxr-xr-x"), Files.getPosixFilePermissions(directory));
+        assertEquals(mode(shared), Files.getPosixFilePermissions(directory));
+        try (Stream<Path> children = Files.list(directory)) {
+            assertEquals(0, children.count());
+        }
+    }
+
+    private static Set<PosixFilePermission> mode(String text) {
+        return PosixFilePermissions.fromString(text);
     }
 
     private static void makeLink(Path link, Path target) throws IOException {

@@ -1,0 +1,108 @@
+; Vault record payload (plan.md section 4, ADR 0006), schema version 1.
+;
+; This is the plaintext that AES-256-GCM protects (ADR 0003, ADR 0005). It is
+; decoded only after the tag has verified (SR-020), by
+; pm.vault.record.RecordCodec, which writes exactly the keys listed here.
+;
+; Encoding: deterministic CBOR (RFC 8949 section 4.2.1, ADR 0006 Amendment 1):
+; definite lengths, shortest-form integers and lengths, map keys in bytewise
+; order of their encoded form, text as well-formed UTF-8. The reader rejects
+; anything else.
+;
+; Rules that CDDL cannot state, all enforced by RecordCodec.decodePayload:
+;   - All or nothing: any violation rejects the whole payload (SR-021).
+;   - Record ids are unique within "records".
+;   - Readers ignore unknown keys, in the payload map and in every record map
+;     (ADR 0006 forward compatibility). Unknown keys are not written back. The
+;     "variables" and "config" maps are data: every entry in them is read.
+;   - Every key listed in a map below is required.
+;   - Sizes marked "chars" count UTF-16 code units, as the Java model does;
+;     a text of n chars is at most 3 * n bytes of UTF-8. The .size controls
+;     below give that byte bound.
+;
+; Secret fields (data-classification.md: Secret) are byte strings and are never
+; held as text: login and wifi "password", ssh-key "private_key", and every
+; value of project "variables". All other fields are Sensitive.
+;
+; Decoder bounds (CborLimits.PAYLOAD): payload <= 256 MiB, at most 1,000,000
+; data items in total (every integer, string, boolean, array and map, and
+; every map key and value, counts as one), any single string <= 1 MiB,
+; container nesting <= 16. The writer applies the same bounds, so it never
+; produces a payload the reader refuses.
+
+payload = {
+  "schema_version" => 1,               ; mandatory in every top-level map (ADR 0006)
+  "records"        => [* record],
+}
+
+record = login-record / wifi-record / ssh-key-record / project-record
+
+login-record = {
+  "type"      => "login",
+  "id"        => uuid-text,
+  "title"     => title,
+  "username"  => short-text,
+  "password"  => secret,
+  "urls"      => [0*64 url-text],
+  "notes"     => long-text,
+  "tags"      => [0*64 short-text],
+  "created"   => epoch-seconds,
+  "updated"   => epoch-seconds,
+  "last_used" => epoch-seconds,
+}
+
+wifi-record = {
+  "type"     => "wifi",
+  "id"       => uuid-text,
+  "title"    => title,
+  "ssid"     => short-text,
+  "security" => wifi-security,
+  "password" => secret,                ; empty for an open network
+  "hidden"   => bool,
+  "notes"    => long-text,
+  "created"  => epoch-seconds,
+  "updated"  => epoch-seconds,
+}
+
+ssh-key-record = {
+  "type"        => "ssh_key",
+  "id"          => uuid-text,
+  "title"       => title,
+  "key_type"    => short-text,         ; for example "ed25519"
+  "private_key" => secret,
+  "public_key"  => tstr .size (0..49152),   ; at most 16,384 chars
+  "fingerprint" => short-text,
+  "comment"     => long-text,
+  "hosts"       => [0*64 short-text],
+  "created"     => epoch-seconds,
+  "updated"     => epoch-seconds,
+}
+
+project-record = {
+  "type"           => "project",
+  "id"             => uuid-text,
+  "title"          => title,
+  "canonical_path" => tstr .size (0..98304),   ; at most 32,768 chars
+  "git_remote"     => url-text,
+  "variables"      => { 0*1024 short-text => secret },      ; name => secret value
+  "config"         => { 0*1024 short-text => long-text },   ; non-secret settings
+  "created"        => epoch-seconds,
+  "updated"        => epoch-seconds,
+}
+
+wifi-security = "WPA2" / "WPA3" / "WEP" / "OPEN"
+
+; RFC 9562 text form exactly as java.util.UUID.toString writes it: lower-case
+; hex in groups of 8-4-4-4-12. Any other spelling is rejected.
+uuid-text = tstr .regexp "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+title      = tstr .size (0..768)       ; at most 256 chars
+short-text = tstr .size (0..3072)      ; at most 1,024 chars
+url-text   = tstr .size (0..24576)     ; at most 8,192 chars
+long-text  = tstr .size (0..196608)    ; at most 65,536 chars
+secret     = bstr .size (0..65536)     ; at most 64 KiB
+
+; Whole seconds since 1970-01-01T00:00:00Z, up to 9999-12-31T23:59:59Z. The
+; model truncates finer instants to whole seconds and refuses instants outside
+; this range.
+epoch-seconds = 0..253402300799

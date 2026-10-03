@@ -31,6 +31,7 @@ final class Messages {
             case ALREADY_EXISTS -> "A vault already exists at this location.";
             case LOCKED -> "The vault is locked or in use by another process.";
             case STORAGE -> "The vault file could not be read or written.";
+            case INSUFFICIENT_MEMORY -> "This vault needs more memory than the app was given. Restart with a larger -Xmx.";
         };
     }
 

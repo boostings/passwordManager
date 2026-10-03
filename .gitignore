@@ -56,7 +56,11 @@ Thumbs.db
 *.jks
 *.keystore
 
-# Local passwordManager data
+# Local passwordManager data. *.pmv is the real vault extension (VaultPaths.VAULT_FILE);
+# the store also writes <name>.lock, <name>.tmp and <name>.bak.1..3 beside it.
+*.pmv
+*.pmv.lock
+*.pmv.bak.*
 *.pmvault
 *.vault
 vaults/

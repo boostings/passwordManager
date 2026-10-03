@@ -1,12 +1,16 @@
 package pm.vault.record;
 
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
-
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import pm.crypto.SecretBytes;
 import pm.vault.cbor.CborException;
 import pm.vault.cbor.CborLimits;
@@ -14,272 +18,435 @@ import pm.vault.cbor.CborReader;
 import pm.vault.cbor.CborValue;
 import pm.vault.cbor.CborWriter;
 
+/**
+ * Hand-written codec between the record model and the vault's plaintext payload (ADR 0006,
+ * schema in {@code docs/schemas/records.cddl}):
+ * {@code {"schema_version": 1, "records": [record, ...]}} in deterministic CBOR.
+ *
+ * <p><b>All or nothing (SR-021).</b> {@link #decodePayload} returns every record or throws
+ * {@link RecordException}. Whatever goes wrong, every record and every secret built up to that
+ * point is closed and nothing is returned, so corrupted input never yields a partial record.
+ *
+ * <p><b>Symmetry.</b> {@link #encodePayload} writes under {@link CborLimits#PAYLOAD} and the record
+ * constructors bound every field, so a payload this class writes is always one it can read back.
+ *
+ * <p><b>Secrets (ADR 0008, SR-505).</b> A secret field is a CBOR byte string and never becomes a
+ * {@code String}. Encoding and decoding copy secrets into intermediate arrays: the {@link CborValue}
+ * tree, the writer's working buffer and the encoded result before it is wrapped. Each of those
+ * copies is zero-filled before the method returns, on success and on failure. This is best effort
+ * only: the JVM may have moved or copied an array before it was cleared (risk R-003).
+ *
+ * <p>Unknown keys are ignored on read for forward compatibility (ADR 0006) and are not written
+ * back. Exception messages are fixed text and never contain payload content (SR-501, ERR01-J).
+ */
 public final class RecordCodec {
+    /** The only payload schema version this codec reads and writes. */
     public static final int SCHEMA_VERSION = 1;
 
-    private RecordCodec() {}
+    private static final String K_SCHEMA_VERSION = "schema_version";
+    private static final String K_RECORDS = "records";
+    private static final String K_TYPE = "type";
+    private static final String K_ID = "id";
+    private static final String K_TITLE = "title";
+    private static final String K_CREATED = "created";
+    private static final String K_UPDATED = "updated";
+    private static final String K_USERNAME = "username";
+    private static final String K_PASSWORD = "password";
+    private static final String K_URLS = "urls";
+    private static final String K_NOTES = "notes";
+    private static final String K_TAGS = "tags";
+    private static final String K_LAST_USED = "last_used";
+    private static final String K_SSID = "ssid";
+    private static final String K_SECURITY = "security";
+    private static final String K_HIDDEN = "hidden";
+    private static final String K_KEY_TYPE = "key_type";
+    private static final String K_PRIVATE_KEY = "private_key";
+    private static final String K_PUBLIC_KEY = "public_key";
+    private static final String K_FINGERPRINT = "fingerprint";
+    private static final String K_COMMENT = "comment";
+    private static final String K_HOSTS = "hosts";
+    private static final String K_CANONICAL_PATH = "canonical_path";
+    private static final String K_GIT_REMOTE = "git_remote";
+    private static final String K_VARIABLES = "variables";
+    private static final String K_CONFIG = "config";
 
+    private static final String T_LOGIN = "login";
+    private static final String T_WIFI = "wifi";
+    private static final String T_SSH_KEY = "ssh_key";
+    private static final String T_PROJECT = "project";
+
+    /** The canonical text form of a UUID: lower-case hex in groups of 8-4-4-4-12. */
+    private static final Pattern CANONICAL_UUID =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+
+    private RecordCodec() {
+    }
+
+    /**
+     * Encodes {@code records} as the vault payload. The records are not closed and stay owned by
+     * the caller.
+     *
+     * @param records the records to store; their ids must be distinct
+     * @return the plaintext payload; the caller closes it
+     * @throws IllegalArgumentException if two records share an id, or the payload would exceed
+     *     {@link CborLimits#PAYLOAD} (more than 1,000,000 data items or 256 MiB); nothing is
+     *     returned
+     * @throws IllegalStateException if a record's secret is already closed
+     */
     public static SecretBytes encodePayload(List<VaultRecord> records) {
         Objects.requireNonNull(records, "records");
-        List<CborValue> recordValues = new ArrayList<>();
-        for (VaultRecord record : records) {
-            recordValues.add(encodeRecord(record));
+        if (records.stream().map(VaultRecord::id).distinct().count() != records.size()) {
+            throw new IllegalArgumentException("duplicate record id");
         }
-        CborValue root = new CborValue.MapV(Map.of(
-            "schema_version", new CborValue.UInt(SCHEMA_VERSION),
-            "records", new CborValue.Array(recordValues)
-        ));
-        byte[] bytes = CborWriter.encode(root);
-        return SecretBytes.takeOwnership(bytes);
+        List<CborValue> items = new ArrayList<>(records.size());
+        try {
+            records.stream().map(RecordCodec::encodeRecord).forEach(items::add);
+            CborValue root = new CborValue.MapV(Map.of(
+                    K_SCHEMA_VERSION, new CborValue.UInt(SCHEMA_VERSION),
+                    K_RECORDS, new CborValue.Array(items)));
+            // takeOwnership copies the encoding and zero-fills the array the writer returned.
+            return SecretBytes.takeOwnership(CborWriter.encode(root, CborLimits.PAYLOAD));
+        } finally {
+            items.forEach(CborValue::wipe);
+        }
     }
 
+    /**
+     * Decodes a payload that has already been authenticated (SR-020). All or nothing: see the class
+     * comment.
+     *
+     * @param plaintext the payload; not closed, the caller keeps ownership
+     * @return every record in the payload, in payload order; the caller owns and closes them
+     * @throws RecordException {@code MALFORMED} if the bytes are not deterministic CBOR,
+     *     {@code LIMIT} if a bound is exceeded, {@code SCHEMA} if the content does not match
+     *     {@code records.cddl} (wrong {@code schema_version}, missing or mistyped field, unknown
+     *     record type, duplicate or non-canonical id, field out of bounds)
+     * @throws IllegalStateException if {@code plaintext} is closed
+     */
     public static List<VaultRecord> decodePayload(SecretBytes plaintext) throws RecordException {
         Objects.requireNonNull(plaintext, "plaintext");
-        try {
-            return plaintext.apply(bytes -> {
-                try {
-                    return decodePayloadBytes(bytes);
-                } catch (RecordException ex) {
-                    throw new IllegalStateException(ex);
-                }
-            });
-        } catch (IllegalStateException ex) {
-            Throwable cause = ex.getCause();
-            if (cause instanceof RecordException re) {
-                throw re;
+        AtomicReference<RecordException> rejection = new AtomicReference<>();
+        List<VaultRecord> records = plaintext.apply(bytes -> {
+            try {
+                return decodeBytes(bytes);
+            } catch (RecordException e) {
+                rejection.set(e);
+                return List.of();
             }
-            throw ex;
+        });
+        RecordException rejected = rejection.get();
+        if (rejected != null) {
+            throw rejected;
+        }
+        return records;
+    }
+
+    // ---- decode -------------------------------------------------------------------------------
+
+    private static List<VaultRecord> decodeBytes(byte[] plaintext) throws RecordException {
+        CborValue root;
+        try {
+            root = CborReader.decode(plaintext, CborLimits.PAYLOAD);
+        } catch (CborException e) {
+            RecordException.Code code = e.code() == CborException.Code.LIMIT
+                    ? RecordException.Code.LIMIT : RecordException.Code.MALFORMED;
+            throw new RecordException(code, "payload is not valid deterministic CBOR", e);
+        }
+        try {
+            return decodeRoot(root);
+        } finally {
+            // The tree still holds a copy of every secret byte string.
+            root.wipe();
         }
     }
 
-    private static List<VaultRecord> decodePayloadBytes(byte[] in) throws RecordException {
+    private static List<VaultRecord> decodeRoot(CborValue root) throws RecordException {
+        Map<String, CborValue> top = mapOf(root);
+        if (uint(top, K_SCHEMA_VERSION) != SCHEMA_VERSION) {
+            throw schema("unsupported schema_version");
+        }
+        if (!(top.get(K_RECORDS) instanceof CborValue.Array array)) {
+            throw schema("records is missing or not an array");
+        }
         List<VaultRecord> decoded = new ArrayList<>();
+        Set<UUID> ids = new HashSet<>();
+        boolean complete = false;
         try {
-            CborValue root = CborReader.decode(in, CborLimits.PAYLOAD);
-            if (!(root instanceof CborValue.MapV map)) {
-                throw new RecordException(RecordException.Code.SCHEMA, "root must be a map");
+            for (CborValue item : array.items()) {
+                decoded.add(decodeRecord(item, ids));
             }
-            CborValue schemaValue = map.entries().get("schema_version");
-            if (!(schemaValue instanceof CborValue.UInt schema) || schema.value() != SCHEMA_VERSION) {
-                throw new RecordException(RecordException.Code.SCHEMA, "schema_version missing or invalid");
+            List<VaultRecord> result = List.copyOf(decoded);
+            complete = true;
+            return result;
+        } finally {
+            if (!complete) {
+                decoded.forEach(VaultRecord::close);
             }
-            CborValue recordsValue = map.entries().get("records");
-            if (!(recordsValue instanceof CborValue.Array recordsArray)) {
-                throw new RecordException(RecordException.Code.SCHEMA, "records must be an array");
-            }
-            for (CborValue recordValue : recordsArray.items()) {
-                decoded.add(decodeRecord(recordValue));
-            }
-            return List.copyOf(decoded);
-        } catch (RecordException | CborException ex) {
-            for (VaultRecord record : decoded) {
-                record.close();
-            }
-            if (ex instanceof RecordException re) {
-                throw re;
-            }
-            throw new RecordException(RecordException.Code.MALFORMED, "payload could not be decoded", ex);
         }
     }
+
+    private static VaultRecord decodeRecord(CborValue item, Set<UUID> ids) throws RecordException {
+        Map<String, CborValue> fields = mapOf(item);
+        String type = text(fields, K_TYPE);
+        UUID id = uuid(fields);
+        if (!ids.add(id)) {
+            throw schema("duplicate record id");
+        }
+        try (Pending pending = new Pending()) {
+            return pending.commit(switch (type) {
+                case T_LOGIN -> decodeLogin(id, fields, pending);
+                case T_WIFI -> decodeWifi(id, fields, pending);
+                case T_SSH_KEY -> decodeSshKey(id, fields, pending);
+                case T_PROJECT -> decodeProject(id, fields, pending);
+                default -> throw schema("unknown record type");
+            });
+        } catch (IllegalArgumentException e) {
+            // A record constructor refused a field; its message names the field, not the content.
+            throw new RecordException(RecordException.Code.SCHEMA, "record field is out of bounds", e);
+        }
+    }
+
+    private static VaultRecord decodeLogin(UUID id, Map<String, CborValue> fields, Pending pending)
+            throws RecordException {
+        return new LoginRecord(id, text(fields, K_TITLE), text(fields, K_USERNAME),
+                pending.own(bytes(fields, K_PASSWORD)), texts(fields, K_URLS), text(fields, K_NOTES),
+                texts(fields, K_TAGS), instant(fields, K_CREATED), instant(fields, K_UPDATED),
+                instant(fields, K_LAST_USED));
+    }
+
+    private static VaultRecord decodeWifi(UUID id, Map<String, CborValue> fields, Pending pending)
+            throws RecordException {
+        return new WifiRecord(id, text(fields, K_TITLE), text(fields, K_SSID), text(fields, K_SECURITY),
+                pending.own(bytes(fields, K_PASSWORD)), bool(fields, K_HIDDEN), text(fields, K_NOTES),
+                instant(fields, K_CREATED), instant(fields, K_UPDATED));
+    }
+
+    private static VaultRecord decodeSshKey(UUID id, Map<String, CborValue> fields, Pending pending)
+            throws RecordException {
+        return new SshKeyRecord(id, text(fields, K_TITLE), text(fields, K_KEY_TYPE),
+                pending.own(bytes(fields, K_PRIVATE_KEY)), text(fields, K_PUBLIC_KEY),
+                text(fields, K_FINGERPRINT), text(fields, K_COMMENT), texts(fields, K_HOSTS),
+                instant(fields, K_CREATED), instant(fields, K_UPDATED));
+    }
+
+    private static VaultRecord decodeProject(UUID id, Map<String, CborValue> fields, Pending pending)
+            throws RecordException {
+        Map<String, SecretBytes> variables = new HashMap<>();
+        for (Map.Entry<String, CborValue> entry : mapOf(fields.get(K_VARIABLES)).entrySet()) {
+            variables.put(entry.getKey(), pending.own(bytesOf(entry.getValue())));
+        }
+        Map<String, String> config = new HashMap<>();
+        for (Map.Entry<String, CborValue> entry : mapOf(fields.get(K_CONFIG)).entrySet()) {
+            config.put(entry.getKey(), textOf(entry.getValue()));
+        }
+        return new ProjectRecord(id, text(fields, K_TITLE), text(fields, K_CANONICAL_PATH),
+                text(fields, K_GIT_REMOTE), variables, config,
+                instant(fields, K_CREATED), instant(fields, K_UPDATED));
+    }
+
+    /** Accepts only the canonical text form, exactly as {@link UUID#toString} writes it. */
+    private static UUID uuid(Map<String, CborValue> fields) throws RecordException {
+        String text = text(fields, K_ID);
+        if (!CANONICAL_UUID.matcher(text).matches()) {
+            throw schema("id is not a canonical UUID");
+        }
+        return UUID.fromString(text);
+    }
+
+    private static Instant instant(Map<String, CborValue> fields, String key) throws RecordException {
+        long seconds = uint(fields, key);
+        if (seconds > FieldRules.MAX_EPOCH_SECOND) {
+            throw new RecordException(RecordException.Code.LIMIT, "timestamp is out of range");
+        }
+        return Instant.ofEpochSecond(seconds);
+    }
+
+    private static Map<String, CborValue> mapOf(CborValue value) throws RecordException {
+        if (value instanceof CborValue.MapV map) {
+            return map.entries();
+        }
+        throw schema("expected a map");
+    }
+
+    private static String textOf(CborValue value) throws RecordException {
+        if (value instanceof CborValue.Text text) {
+            return text.value();
+        }
+        throw schema("expected a text string");
+    }
+
+    /** Returns a copy of the byte string; the caller zero-fills it. */
+    private static byte[] bytesOf(CborValue value) throws RecordException {
+        if (value instanceof CborValue.Bytes bytes) {
+            return bytes.value();
+        }
+        throw schema("expected a byte string");
+    }
+
+    private static String text(Map<String, CborValue> fields, String key) throws RecordException {
+        return textOf(fields.get(key));
+    }
+
+    private static byte[] bytes(Map<String, CborValue> fields, String key) throws RecordException {
+        return bytesOf(fields.get(key));
+    }
+
+    private static long uint(Map<String, CborValue> fields, String key) throws RecordException {
+        if (fields.get(key) instanceof CborValue.UInt uint) {
+            return uint.value();
+        }
+        throw schema("expected an unsigned integer");
+    }
+
+    private static boolean bool(Map<String, CborValue> fields, String key) throws RecordException {
+        if (fields.get(key) instanceof CborValue.Bool bool) {
+            return bool.value();
+        }
+        throw schema("expected a boolean");
+    }
+
+    private static List<String> texts(Map<String, CborValue> fields, String key) throws RecordException {
+        if (!(fields.get(key) instanceof CborValue.Array array)) {
+            throw schema("expected an array");
+        }
+        List<String> values = new ArrayList<>(array.items().size());
+        for (CborValue item : array.items()) {
+            values.add(textOf(item));
+        }
+        return values;
+    }
+
+    private static RecordException schema(String message) {
+        return new RecordException(RecordException.Code.SCHEMA, message);
+    }
+
+    // ---- encode -------------------------------------------------------------------------------
 
     private static CborValue encodeRecord(VaultRecord record) {
-        if (record instanceof LoginRecord login) {
-            LinkedHashMap<String, CborValue> map = new LinkedHashMap<>();
-            map.put("type", new CborValue.Text("login"));
-            map.put("id", new CborValue.Text(login.id().toString()));
-            map.put("title", new CborValue.Text(login.title()));
-            map.put("username", new CborValue.Text(login.username()));
-            map.put("password", new CborValue.Bytes(login.password().apply(bytes -> java.util.Arrays.copyOf(bytes, bytes.length))));
-            map.put("urls", encodeStrings(login.urls()));
-            map.put("notes", new CborValue.Text(login.notes()));
-            map.put("tags", encodeStrings(login.tags()));
-            map.put("created", new CborValue.UInt(login.created().getEpochSecond()));
-            map.put("updated", new CborValue.UInt(login.updated().getEpochSecond()));
-            map.put("last_used", new CborValue.UInt(login.lastUsed().getEpochSecond()));
-            return new CborValue.MapV(map);
+        Objects.requireNonNull(record, "record");
+        // Class.cast, not a pattern variable: the record is the caller's, and a local of an
+        // AutoCloseable type would have to be closed here.
+        if (record instanceof LoginRecord) {
+            return encodeLogin(LoginRecord.class.cast(record));
         }
-        if (record instanceof WifiRecord wifi) {
-            LinkedHashMap<String, CborValue> map = new LinkedHashMap<>();
-            map.put("type", new CborValue.Text("wifi"));
-            map.put("id", new CborValue.Text(wifi.id().toString()));
-            map.put("title", new CborValue.Text(wifi.title()));
-            map.put("ssid", new CborValue.Text(wifi.ssid()));
-            map.put("security", new CborValue.Text(wifi.security()));
-            map.put("password", new CborValue.Bytes(wifi.password().apply(bytes -> java.util.Arrays.copyOf(bytes, bytes.length))));
-            map.put("hidden", new CborValue.Bool(wifi.hidden()));
-            map.put("notes", new CborValue.Text(wifi.notes()));
-            map.put("created", new CborValue.UInt(wifi.created().getEpochSecond()));
-            map.put("updated", new CborValue.UInt(wifi.updated().getEpochSecond()));
-            return new CborValue.MapV(map);
+        if (record instanceof WifiRecord) {
+            return encodeWifi(WifiRecord.class.cast(record));
         }
-        if (record instanceof SshKeyRecord ssh) {
-            LinkedHashMap<String, CborValue> map = new LinkedHashMap<>();
-            map.put("type", new CborValue.Text("ssh_key"));
-            map.put("id", new CborValue.Text(ssh.id().toString()));
-            map.put("title", new CborValue.Text(ssh.title()));
-            map.put("key_type", new CborValue.Text(ssh.keyType()));
-            map.put("private_key", new CborValue.Bytes(ssh.privateKey().apply(bytes -> java.util.Arrays.copyOf(bytes, bytes.length))));
-            map.put("public_key", new CborValue.Text(ssh.publicKey()));
-            map.put("fingerprint", new CborValue.Text(ssh.fingerprint()));
-            map.put("comment", new CborValue.Text(ssh.comment()));
-            map.put("hosts", encodeStrings(ssh.hosts()));
-            map.put("created", new CborValue.UInt(ssh.created().getEpochSecond()));
-            map.put("updated", new CborValue.UInt(ssh.updated().getEpochSecond()));
-            return new CborValue.MapV(map);
+        if (record instanceof SshKeyRecord) {
+            return encodeSshKey(SshKeyRecord.class.cast(record));
         }
-        if (record instanceof ProjectRecord project) {
-            LinkedHashMap<String, CborValue> entries = new LinkedHashMap<>();
-            entries.put("type", new CborValue.Text("project"));
-            entries.put("id", new CborValue.Text(project.id().toString()));
-            entries.put("title", new CborValue.Text(project.title()));
-            entries.put("canonical_path", new CborValue.Text(project.canonicalPath()));
-            entries.put("git_remote", new CborValue.Text(project.gitRemote()));
-            LinkedHashMap<String, CborValue> variables = new LinkedHashMap<>();
-            for (Map.Entry<String, SecretBytes> variable : project.variables().entrySet()) {
-                variables.put(variable.getKey(), new CborValue.Bytes(variable.getValue().apply(bytes -> java.util.Arrays.copyOf(bytes, bytes.length))));
+        return encodeProject(ProjectRecord.class.cast(record));
+    }
+
+    // In each encoder the secret is copied last, so nothing can fail while an unwiped copy exists
+    // outside the returned map.
+
+    private static CborValue encodeLogin(LoginRecord login) {
+        Map<String, CborValue> fields = commonFields(T_LOGIN, login);
+        fields.put(K_USERNAME, new CborValue.Text(login.username()));
+        fields.put(K_URLS, textArray(login.urls()));
+        fields.put(K_NOTES, new CborValue.Text(login.notes()));
+        fields.put(K_TAGS, textArray(login.tags()));
+        fields.put(K_LAST_USED, seconds(login.lastUsed()));
+        fields.put(K_PASSWORD, secretBytes(login.password()));
+        return new CborValue.MapV(fields);
+    }
+
+    private static CborValue encodeWifi(WifiRecord wifi) {
+        Map<String, CborValue> fields = commonFields(T_WIFI, wifi);
+        fields.put(K_SSID, new CborValue.Text(wifi.ssid()));
+        fields.put(K_SECURITY, new CborValue.Text(wifi.security()));
+        fields.put(K_HIDDEN, new CborValue.Bool(wifi.hidden()));
+        fields.put(K_NOTES, new CborValue.Text(wifi.notes()));
+        fields.put(K_PASSWORD, secretBytes(wifi.password()));
+        return new CborValue.MapV(fields);
+    }
+
+    private static CborValue encodeSshKey(SshKeyRecord ssh) {
+        Map<String, CborValue> fields = commonFields(T_SSH_KEY, ssh);
+        fields.put(K_KEY_TYPE, new CborValue.Text(ssh.keyType()));
+        fields.put(K_PUBLIC_KEY, new CborValue.Text(ssh.publicKey()));
+        fields.put(K_FINGERPRINT, new CborValue.Text(ssh.fingerprint()));
+        fields.put(K_COMMENT, new CborValue.Text(ssh.comment()));
+        fields.put(K_HOSTS, textArray(ssh.hosts()));
+        fields.put(K_PRIVATE_KEY, secretBytes(ssh.privateKey()));
+        return new CborValue.MapV(fields);
+    }
+
+    private static CborValue encodeProject(ProjectRecord project) {
+        Map<String, CborValue> fields = commonFields(T_PROJECT, project);
+        fields.put(K_CANONICAL_PATH, new CborValue.Text(project.canonicalPath()));
+        fields.put(K_GIT_REMOTE, new CborValue.Text(project.gitRemote()));
+        Map<String, CborValue> config = new HashMap<>();
+        for (Map.Entry<String, String> entry : project.config().entrySet()) {
+            config.put(entry.getKey(), new CborValue.Text(entry.getValue()));
+        }
+        fields.put(K_CONFIG, new CborValue.MapV(config));
+        Map<String, CborValue> variables = new HashMap<>();
+        boolean complete = false;
+        try {
+            for (Map.Entry<String, SecretBytes> entry : project.variables().entrySet()) {
+                variables.put(entry.getKey(), secretBytes(entry.getValue()));
             }
-            entries.put("variables", new CborValue.MapV(variables));
-            LinkedHashMap<String, CborValue> config = new LinkedHashMap<>();
-            for (Map.Entry<String, String> entry : project.config().entrySet()) {
-                config.put(entry.getKey(), new CborValue.Text(entry.getValue()));
+            fields.put(K_VARIABLES, new CborValue.MapV(variables));
+            CborValue encoded = new CborValue.MapV(fields);
+            complete = true;
+            return encoded;
+        } finally {
+            if (!complete) {
+                // A later variable was closed: clear the copies of the earlier ones.
+                variables.values().forEach(CborValue::wipe);
             }
-            entries.put("config", new CborValue.MapV(config));
-            entries.put("created", new CborValue.UInt(project.created().getEpochSecond()));
-            entries.put("updated", new CborValue.UInt(project.updated().getEpochSecond()));
-            return new CborValue.MapV(entries);
         }
-        throw new IllegalArgumentException("Unsupported record type: " + record.getClass());
     }
 
-    private static CborValue encodeStrings(List<String> values) {
-        List<CborValue> items = new ArrayList<>();
-        for (String value : values) {
-            items.add(new CborValue.Text(value));
-        }
-        return new CborValue.Array(items);
+    private static Map<String, CborValue> commonFields(String type, VaultRecord record) {
+        Map<String, CborValue> fields = new HashMap<>();
+        fields.put(K_TYPE, new CborValue.Text(type));
+        fields.put(K_ID, new CborValue.Text(record.id().toString()));
+        fields.put(K_TITLE, new CborValue.Text(record.title()));
+        fields.put(K_CREATED, seconds(record.created()));
+        fields.put(K_UPDATED, seconds(record.updated()));
+        return fields;
     }
 
-    private static VaultRecord decodeRecord(CborValue value) throws RecordException, CborException {
-        if (!(value instanceof CborValue.MapV map)) {
-            throw new RecordException(RecordException.Code.MALFORMED, "record is not a map");
-        }
-        String type = readText(map, "type");
-        UUID id = UUID.fromString(readText(map, "id"));
-        String title = readText(map, "title");
-        long createdEpoch = readLong(map, "created");
-        long updatedEpoch = readLong(map, "updated");
-        if ("login".equals(type)) {
-            String username = readText(map, "username");
-            SecretBytes password = SecretBytes.takeOwnership(readBytes(map, "password"));
-            List<String> urls = readStrings(map, "urls");
-            String notes = readText(map, "notes");
-            List<String> tags = readStrings(map, "tags");
-            long lastUsedEpoch = readLong(map, "last_used");
-            return new LoginRecord(id, title, username, password, urls, notes, tags,
-                java.time.Instant.ofEpochSecond(createdEpoch), java.time.Instant.ofEpochSecond(updatedEpoch),
-                java.time.Instant.ofEpochSecond(lastUsedEpoch));
-        }
-        if ("wifi".equals(type)) {
-            String ssid = readText(map, "ssid");
-            String security = readText(map, "security");
-            SecretBytes password = SecretBytes.takeOwnership(readBytes(map, "password"));
-            boolean hidden = readBool(map, "hidden");
-            String notes = readText(map, "notes");
-            return new WifiRecord(id, title, ssid, security, password, hidden, notes,
-                java.time.Instant.ofEpochSecond(createdEpoch), java.time.Instant.ofEpochSecond(updatedEpoch));
-        }
-        if ("ssh_key".equals(type)) {
-            String keyType = readText(map, "key_type");
-            String publicKey = readText(map, "public_key");
-            String fingerprint = readText(map, "fingerprint");
-            String comment = readText(map, "comment");
-            List<String> hosts = readStrings(map, "hosts");
-            SecretBytes privateKey = SecretBytes.takeOwnership(readBytes(map, "private_key"));
-            return new SshKeyRecord(id, title, keyType, privateKey, publicKey, fingerprint, comment, hosts,
-                java.time.Instant.ofEpochSecond(createdEpoch), java.time.Instant.ofEpochSecond(updatedEpoch));
-        }
-        if ("project".equals(type)) {
-            String canonicalPath = readText(map, "canonical_path");
-            String gitRemote = readText(map, "git_remote");
-            Map<String, SecretBytes> variables = new LinkedHashMap<>();
-            CborValue.MapV variableMap = requireMap(map, "variables");
-            for (Map.Entry<String, CborValue> entry : variableMap.entries().entrySet()) {
-                variables.put(entry.getKey(), SecretBytes.takeOwnership(readBytesFromValue(entry.getValue())));
-            }
-            Map<String, String> config = new LinkedHashMap<>();
-            CborValue.MapV configMap = requireMap(map, "config");
-            for (Map.Entry<String, CborValue> entry : configMap.entries().entrySet()) {
-                config.put(entry.getKey(), readTextValue(entry.getValue()));
-            }
-            return new ProjectRecord(id, title, canonicalPath, gitRemote, variables, config,
-                java.time.Instant.ofEpochSecond(createdEpoch), java.time.Instant.ofEpochSecond(updatedEpoch));
-        }
-        throw new RecordException(RecordException.Code.SCHEMA, "unsupported record type: " + type);
+    private static CborValue seconds(Instant instant) {
+        return new CborValue.UInt(instant.getEpochSecond());
     }
 
-    private static String readText(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.Text text)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected text for " + key);
-        }
-        return text.value();
+    private static CborValue textArray(List<String> values) {
+        return new CborValue.Array(values.stream().<CborValue>map(CborValue.Text::new).toList());
     }
 
-    private static String readTextValue(CborValue value) throws RecordException {
-        if (!(value instanceof CborValue.Text text)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected text");
-        }
-        return text.value();
+    /** Copies the secret straight into a byte string of the tree; {@code encodePayload} wipes it. */
+    private static CborValue secretBytes(SecretBytes value) {
+        return value.apply(CborValue.Bytes::new);
     }
 
-    private static long readLong(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.UInt uint)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected uint for " + key);
-        }
-        return uint.value();
-    }
+    /**
+     * Secrets created for a record that is still being built. Unless the record is committed,
+     * closing this closes them, so a field that fails later cannot leave an open secret behind.
+     */
+    private static final class Pending implements AutoCloseable {
+        private final List<SecretBytes> secrets = new ArrayList<>();
 
-    private static boolean readBool(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.Bool bool)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected bool for " + key);
+        /** Wraps {@code raw} in a secret tracked by this scope and zero-fills {@code raw}. */
+        SecretBytes own(byte[] raw) {
+            SecretBytes owned = SecretBytes.takeOwnership(raw);
+            secrets.add(owned);
+            return owned;
         }
-        return bool.value();
-    }
 
-    private static byte[] readBytes(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.Bytes bytes)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected bytes for " + key);
+        /** Hands the secrets over to the finished record. */
+        <T> T commit(T built) {
+            secrets.clear();
+            return built;
         }
-        return java.util.Arrays.copyOf(bytes.value(), bytes.value().length);
-    }
 
-    private static byte[] readBytesFromValue(CborValue value) throws RecordException {
-        if (!(value instanceof CborValue.Bytes bytes)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected bytes");
+        @Override
+        public void close() {
+            secrets.forEach(SecretBytes::close);
+            secrets.clear();
         }
-        return java.util.Arrays.copyOf(bytes.value(), bytes.value().length);
-    }
-
-    private static List<String> readStrings(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.Array array)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected array for " + key);
-        }
-        List<String> strings = new ArrayList<>();
-        for (CborValue item : array.items()) {
-            strings.add(readTextValue(item));
-        }
-        return List.copyOf(strings);
-    }
-
-    private static CborValue.MapV requireMap(CborValue.MapV map, String key) throws RecordException {
-        CborValue value = map.entries().get(key);
-        if (!(value instanceof CborValue.MapV nested)) {
-            throw new RecordException(RecordException.Code.SCHEMA, "expected map for " + key);
-        }
-        return nested;
     }
 }

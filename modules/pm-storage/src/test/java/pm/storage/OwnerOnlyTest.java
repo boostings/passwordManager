@@ -13,6 +13,7 @@ import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.UserPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -53,6 +54,21 @@ final class OwnerOnlyTest {
         assertEquals(view.getOwner(), entries.getFirst().principal());
         assertEquals(AclEntryType.ALLOW, entries.getFirst().type());
         assertTrue(entries.getFirst().flags().isEmpty());
+        assertTrue(OwnerOnly.isOwnerOnly(file));
+    }
+
+    // The Windows counterpart of the shared-mode check above: a new file inherits entries for
+    // other principals (SYSTEM, Administrators) until the store restricts it.
+    @Test
+    void detectsAclEntriesForOtherPrincipals() throws IOException, StorageException {
+        assumeTrue(root.getFileSystem().supportedFileAttributeViews().contains("acl"));
+        Path file = Files.createFile(root.resolve("inherited"));
+        AclFileAttributeView view = Files.getFileAttributeView(file, AclFileAttributeView.class);
+        UserPrincipal owner = view.getOwner();
+        assumeTrue(view.getAcl().stream().anyMatch(entry -> !entry.principal().equals(owner)),
+                "the directory passes on no entry for another principal");
+        assertFalse(OwnerOnly.isOwnerOnly(file));
+        OwnerOnly.apply(file);
         assertTrue(OwnerOnly.isOwnerOnly(file));
     }
 

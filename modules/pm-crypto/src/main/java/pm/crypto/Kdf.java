@@ -80,14 +80,31 @@ public final class Kdf {
      * Benchmarks this machine and returns parameters near {@code target}, never below the floor
      * (ADR 0007): double memory first, then raise iterations up to 10. Memory stops at the lower of
      * 1 GiB and half the maximum heap, rounded down to a power of two and never below the floor.
+     *
+     * <p>If the free heap cannot hold even one run at the floor, nothing is timed and the floor is
+     * returned: timing it would end in {@link OutOfMemoryError}. {@link #argon2id} then refuses
+     * those parameters on this JVM with {@code BAD_PARAMS}, the clean failure ADR 0007 asks for.
      */
     public static Argon2Params tune(Duration target) {
-        return tune(target, Kdf::timeOnce, heapBudgetBytes());
+        return tune(target, Kdf::timeOnce, heapBudgetBytes(),
+                availableHeapFor(requiredHeapBytes(Argon2Params.FLOOR)));
     }
 
     /**
-     * {@link #tune(Duration)} with an injectable timer (nanoseconds per run) and memory budget
-     * (bytes), so tests need not run Argon2.
+     * {@link #tune(Duration)} with an injectable timer, memory budget and available-heap figure
+     * (bytes). The timer is never called when the floor needs more than {@code availableBytes}.
+     */
+    static Argon2Params tune(Duration target, ToLongFunction<Argon2Params> timer, long budgetBytes,
+                             long availableBytes) {
+        if (requiredHeapBytes(Argon2Params.FLOOR) > availableBytes) {
+            return Argon2Params.FLOOR;
+        }
+        return tune(target, timer, budgetBytes);
+    }
+
+    /**
+     * The timing loop of {@link #tune(Duration)} with an injectable timer (nanoseconds per run) and
+     * memory budget (bytes), so tests need not run Argon2.
      */
     static Argon2Params tune(Duration target, ToLongFunction<Argon2Params> timer, long budgetBytes) {
         long targetNanos = target.toNanos();

@@ -433,6 +433,7 @@ class MainArgsTest {
         m.put(VaultException.Code.ALREADY_EXISTS, 2);
         m.put(VaultException.Code.LOCKED, 4);
         m.put(VaultException.Code.STORAGE, 4);
+        m.put(VaultException.Code.INSUFFICIENT_MEMORY, 7);
         return m;
     }
 

@@ -22,7 +22,13 @@ public final class VaultException extends Exception {
         /** The vault was used after it was locked. */
         LOCKED,
         /** The storage layer failed; the cause carries the storage code. */
-        STORAGE
+        STORAGE,
+        /**
+         * The JVM heap cannot hold the Argon2id memory this vault's header asks for (ADR 0007).
+         * The vault and the credential may both be fine; the fix is a larger {@code -Xmx}, so
+         * this is never reported as {@link #CORRUPT}.
+         */
+        INSUFFICIENT_MEMORY
     }
 
     private final Code failure;

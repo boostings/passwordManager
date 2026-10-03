@@ -5,8 +5,9 @@ import pm.vault.VaultException;
 
 /**
  * Process exit codes (plan.md §5 E, SR-501): 0 ok, 1 wrong credential, 2 usage, 3 corrupt or
- * unsupported, 4 storage, 5 internal error, 6 recovery key not shown. Both mappings switch exhaustively over {@link VaultException.Code}, so a
- * new code is a compile error rather than a silent default.
+ * unsupported, 4 storage, 5 internal error, 6 recovery key not shown, 7 not enough memory. Both
+ * mappings switch exhaustively over {@link VaultException.Code}, so a new code is a compile error
+ * rather than a silent default.
  *
  * <p>{@code ALREADY_EXISTS} maps to 2 (usage): {@code init} was pointed at a path that already
  * holds a vault, and the fix is a different invocation ({@code --vault}), not repairing anything.
@@ -18,7 +19,9 @@ import pm.vault.VaultException;
  * printed, never the exception or a stack trace (SR-501, ERR01-J). {@link #RECOVERY_NOT_SHOWN} (6)
  * means {@code init} created the vault but writing the recovery key to stdout failed (closed pipe,
  * full disk): the key is gone, so the user must delete the new, still empty vault and re-run
- * {@code init} (ADR 0004).
+ * {@code init} (ADR 0004). {@link #INSUFFICIENT_MEMORY} (7) means the Java heap is too small for
+ * the Argon2id memory the vault header asks for (ADR 0007): the vault is intact and the passphrase
+ * was never tested, so it must not look like a corrupt vault (3) or a wrong passphrase (1).
  */
 final class ExitCodes {
     static final int OK = 0;
@@ -28,6 +31,7 @@ final class ExitCodes {
     static final int STORAGE = 4;
     static final int INTERNAL = 5;
     static final int RECOVERY_NOT_SHOWN = 6;
+    static final int INSUFFICIENT_MEMORY = 7;
 
     private ExitCodes() {
     }
@@ -39,6 +43,7 @@ final class ExitCodes {
             case CORRUPT, UNSUPPORTED_VERSION -> CORRUPT;
             case ALREADY_EXISTS -> USAGE;
             case LOCKED, STORAGE -> STORAGE;
+            case INSUFFICIENT_MEMORY -> INSUFFICIENT_MEMORY;
         };
     }
 
@@ -51,6 +56,7 @@ final class ExitCodes {
             case ALREADY_EXISTS -> Messages.ERR_ALREADY_EXISTS;
             case LOCKED -> Messages.ERR_LOCKED;
             case STORAGE -> isNotFound(e.getCause()) ? Messages.ERR_NOT_FOUND : Messages.ERR_STORAGE;
+            case INSUFFICIENT_MEMORY -> Messages.ERR_INSUFFICIENT_MEMORY;
         };
     }
 

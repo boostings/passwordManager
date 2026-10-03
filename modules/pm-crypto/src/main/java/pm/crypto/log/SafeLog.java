@@ -3,6 +3,7 @@ package pm.crypto.log;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.temporal.TemporalAccessor;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -43,10 +44,20 @@ import pm.crypto.Sensitive;
  * <p>The event code must match {@code [A-Z][A-Z0-9_]{0,63}}, so free text (and any secret
  * concatenated into it) cannot be passed as the event code. Refusal messages never echo the
  * rejected value.
+ *
+ * <p><b>One event, one line (IDS03-J).</b> A {@link String}, {@link Character} or {@link Path}
+ * argument can hold text the program did not write (a record title, a file name). Every control
+ * character in a rendered argument (CR, LF, TAB, ESC, NEL and the rest of C0/C1) and the Unicode
+ * line and paragraph separators U+2028/U+2029 is written as six plain characters instead: a
+ * backslash, the letter {@code u} and the four lower-case hex digits of the character (a line feed
+ * becomes backslash, {@code u000a}). So an argument cannot end the record and start a forged one,
+ * or drive the terminal the log is read on. All other text is logged unchanged.
  */
 public final class SafeLog {
     private static final Pattern EVENT_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
     private static final Module JAVA_BASE = Object.class.getModule();
+    private static final String ESCAPE_PREFIX = "\\u";
+    private static final HexFormat HEX = HexFormat.of();
 
     private final System.Logger logger;
 
@@ -96,10 +107,31 @@ public final class SafeLog {
                 }
             }
             for (Object arg : args) {
-                line.append(' ').append(render(arg));
+                line.append(' ');
+                appendNeutralised(line, render(arg));
             }
         }
         logger.log(level, line.toString());
+    }
+
+    /** IDS03-J: appends {@code text} with every record-breaking character replaced by its escape. */
+    private static void appendNeutralised(StringBuilder line, String text) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (recordBreaking(c)) {
+                line.append(ESCAPE_PREFIX).append(HEX.toHexDigits(c));
+            } else {
+                line.append(c);
+            }
+        }
+    }
+
+    /** Control characters (Unicode category Cc: C0, DEL and C1) and the U+2028/U+2029 separators. */
+    private static boolean recordBreaking(char c) {
+        int type = Character.getType(c);
+        return type == Character.CONTROL
+                || type == Character.LINE_SEPARATOR
+                || type == Character.PARAGRAPH_SEPARATOR;
     }
 
     private static boolean secret(Object arg) {
