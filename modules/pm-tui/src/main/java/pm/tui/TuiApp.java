@@ -10,8 +10,8 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
-import pm.domain.env.Env;
 import java.util.concurrent.locks.LockSupport;
+import pm.domain.env.Env;
 import pm.vault.VaultService;
 
 /**
@@ -28,6 +28,7 @@ public final class TuiApp {
 
     private final VaultPort port;
     private final Duration idleLock;
+    private final ApprovalHost host;
 
     /** §2 contract constructor; delegates through {@link VaultServiceAdapter}. */
     public TuiApp(VaultService service, Duration idleLock) {
@@ -36,21 +37,28 @@ public final class TuiApp {
 
     /** Port constructor, used by tests with an in-memory {@link VaultPort}. */
     public TuiApp(VaultPort port, Duration idleLock) {
+        this(port, idleLock, ApprovalHost.none());
+    }
+
+    /** Port constructor with an approval broker host, which {@link #run} closes when it returns. */
+    public TuiApp(VaultPort port, Duration idleLock, ApprovalHost host) {
         this.port = Objects.requireNonNull(port, "port");
         this.idleLock = Objects.requireNonNull(idleLock, "idleLock");
+        this.host = Objects.requireNonNull(host, "host");
     }
 
     /** Runs the UI on {@code terminal} until the user quits or the terminal reaches end of input. */
     public void run(Terminal terminal) throws IOException {
         Objects.requireNonNull(terminal, "terminal");
-        try (var scheduler = IdleLock.newDaemonScheduler();
+        try (ApprovalHost approvals = host;
+                var scheduler = IdleLock.newDaemonScheduler();
                 Screen screen = new TerminalScreen(terminal)) {
             screen.startScreen();
             PmTheme theme = PmTheme.forEnvironment(Env.system());
             MultiWindowTextGUI gui = newGui(screen, theme);
             TuiController controller = new TuiController(gui, port, idleLock,
                     (timeout, onLock) -> new IdleLockTimer(new IdleLock(timeout, onLock, scheduler)),
-                    Clock.systemUTC(), theme);
+                    Clock.systemUTC(), theme, approvals);
             try {
                 loop(gui.getGUIThread(), controller);
             } finally {

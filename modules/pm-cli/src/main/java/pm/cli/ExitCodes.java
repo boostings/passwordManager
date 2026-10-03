@@ -32,6 +32,8 @@ final class ExitCodes {
     static final int INTERNAL = 5;
     static final int RECOVERY_NOT_SHOWN = 6;
     static final int INSUFFICIENT_MEMORY = 7;
+    /** {@code env run}: the approval was denied, timed out or the vault was locked; nothing ran. */
+    static final int DENIED = 8;
 
     private ExitCodes() {
     }

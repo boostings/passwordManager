@@ -3,6 +3,7 @@ package pm.approval;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -48,6 +49,10 @@ public final class AuditLog implements AuditSink, AutoCloseable {
     private static final int MAX_LINE_BYTES = 8 * 1024;
     private static final CborLimits LIMITS = new CborLimits(4, 64, 1024, MAX_LINE_BYTES);
     private static final byte NEWLINE = '\n';
+    /** Conventional file name, in the vault directory (approval-model §7). */
+    public static final String FILE_NAME = "audit.log";
+    /** Serializes {@link #append} within this JVM; the file lock serializes processes. */
+    private static final ReentrantLock APPENDERS = new ReentrantLock();
     private static final Set<String> KINDS = Set.of("unlock", "lock", "approval", "prompt", "policy", "share",
             "pair", "revoke", "export", "slot");
 
@@ -91,6 +96,45 @@ public final class AuditLog implements AuditSink, AutoCloseable {
     }
 
     /**
+     * Verifies the chain and appends one event while holding an exclusive lock on the file, so the
+     * TUI's broker and short-lived CLI commands can share one log without breaking the chain:
+     * every writer re-reads the tail under the lock. Within this JVM appends are serialized too.
+     *
+     * @throws AuditException as for {@link #open}, or {@code IO} if the entry cannot be written
+     */
+    public static void append(Path file, Clock clock, AuditEvent event) throws AuditException {
+        Objects.requireNonNull(file, "file");
+        Objects.requireNonNull(clock, "clock");
+        checkKind(Objects.requireNonNull(event, "event"));
+        try {
+            withAppendLock(() -> {
+                try (FileChannel channel = openAppend(file); FileLock exclusive = channel.lock()) {
+                    Objects.requireNonNull(exclusive); // held until the try block ends
+                    Verified state = verify(file);
+                    new AuditLog(file, clock, channel, state.entries(), state.lastHash()).append(event);
+                }
+            });
+        } catch (IOException e) {
+            throw new AuditException(AuditException.Code.IO, 0, e);
+        }
+    }
+
+    /** One locked append step; it may fail verification or I/O. */
+    @FunctionalInterface
+    private interface AppendStep {
+        void run() throws IOException, AuditException;
+    }
+
+    private static void withAppendLock(AppendStep step) throws IOException, AuditException {
+        APPENDERS.lock();
+        try {
+            step.run();
+        } finally {
+            APPENDERS.unlock();
+        }
+    }
+
+    /**
      * Verifies {@code file} without opening it for writing.
      *
      * @return the number of entries
@@ -119,9 +163,7 @@ public final class AuditLog implements AuditSink, AutoCloseable {
     @Override
     public void record(AuditEvent event) {
         Objects.requireNonNull(event, "event");
-        if (!KINDS.contains(event.kind())) {
-            throw new IllegalArgumentException("BAD_KIND");
-        }
+        checkKind(event);
         try {
             locked(() -> {
                 append(event);
@@ -129,6 +171,12 @@ public final class AuditLog implements AuditSink, AutoCloseable {
             });
         } catch (IOException e) {
             throw new IllegalStateException("AUDIT_WRITE", e);
+        }
+    }
+
+    private static void checkKind(AuditEvent event) {
+        if (!KINDS.contains(event.kind())) {
+            throw new IllegalArgumentException("BAD_KIND");
         }
     }
 

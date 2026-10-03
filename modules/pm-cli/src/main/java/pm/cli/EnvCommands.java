@@ -20,7 +20,18 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.function.UnaryOperator;
+import java.time.Duration;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import pm.approval.ApprovalRequest;
 import pm.approval.AuditEvent;
+import pm.approval.ipc.BrokerClient;
+import pm.approval.ipc.IpcException;
+import pm.approval.ipc.Reply;
+import pm.approval.ipc.RunDir;
+import pm.approval.run.EnvRelease;
+import pm.approval.run.EnvRunner;
+import pm.domain.env.Env;
 import pm.approval.AuditException;
 import pm.approval.AuditLog;
 import pm.crypto.Csprng;
@@ -49,19 +60,28 @@ final class EnvCommands {
     static final String PROFILE_OPTION = "--profile";
     static final String DIR_OPTION = "--dir";
     static final String PLAINTEXT_OPTION = "--plaintext";
-    static final String AUDIT_FILE = "audit.log";
+    static final String ONLY_OPTION = "--only";
+    static final String END_OF_OPTIONS = "--";
+    static final String RUN_LABEL = "pm env run";
+    static final String CONFIRM = "y";
+    static final String AUDIT_FILE = AuditLog.FILE_NAME;
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
+    private final Env environment;
 
-    EnvCommands(UnaryOperator<String> properties, Clock clock) {
+    EnvCommands(UnaryOperator<String> properties, Clock clock, Env environment) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.environment = Objects.requireNonNull(environment, "environment");
     }
 
-    /** Parsed {@code [operand] [--project T] [--profile P] [--dir D] [--plaintext]}. */
+    /**
+     * Parsed {@code [operand] [--project T] [--profile P] [--dir D] [--only A,B] [--plaintext]
+     * [-- command...]}. Everything after {@code --} is the command, untouched.
+     */
     record Args(List<String> operands, Optional<String> project, String profile, Optional<String> dir,
-            boolean plaintext) {
+            boolean plaintext, Optional<SortedSet<String>> only, List<String> command) {
 
         static Args parse(List<String> raw) throws UsageException {
             Deque<String> in = new ArrayDeque<>(raw);
@@ -70,13 +90,21 @@ final class EnvCommands {
             Optional<String> profile = Optional.empty();
             Optional<String> dir = Optional.empty();
             boolean plaintext = false;
+            Optional<SortedSet<String>> only = Optional.empty();
+            List<String> command = List.of();
             while (!in.isEmpty()) {
                 String a = in.removeFirst();
+                if (END_OF_OPTIONS.equals(a)) {
+                    command = List.copyOf(in);
+                    in.clear();
+                    continue;
+                }
                 switch (a) {
                     case PROJECT_OPTION -> project = Optional.of(value(in, project));
                     case PROFILE_OPTION -> profile = Optional.of(value(in, profile));
                     case DIR_OPTION -> dir = Optional.of(value(in, dir));
                     case PLAINTEXT_OPTION -> plaintext = true;
+                    case ONLY_OPTION -> only = Optional.of(names(value(in, only.map(String::valueOf))));
                     default -> {
                         if (a.startsWith("-")) {
                             throw new UsageException(Messages.UNKNOWN_OPTION);
@@ -89,7 +117,18 @@ final class EnvCommands {
             if (!ProjectEnv.isValidProfile(p)) {
                 throw new UsageException(Messages.BAD_PROFILE);
             }
-            return new Args(List.copyOf(operands), project, p, dir, plaintext);
+            return new Args(List.copyOf(operands), project, p, dir, plaintext, only, command);
+        }
+
+        private static SortedSet<String> names(String list) throws UsageException {
+            SortedSet<String> out = new TreeSet<>();
+            for (String n : list.split(",", -1)) {
+                if (!DotEnv.isValidName(n.strip())) {
+                    throw new UsageException(Messages.BAD_VARIABLE_NAME);
+                }
+                out.add(n.strip());
+            }
+            return out;
         }
 
         private static String value(Deque<String> in, Optional<String> already) throws UsageException {
@@ -169,6 +208,7 @@ final class EnvCommands {
             case "list" -> envList(args, port, io);
             case "import" -> envImport(args, port, io);
             case "export" -> envExport(args, port, io, vaultPath);
+            case "run" -> envRun(args, port, io, vaultPath);
             default -> throw new UsageException(Messages.UNKNOWN_COMMAND);
         };
     }
@@ -244,6 +284,103 @@ final class EnvCommands {
         }
         warnPlaintext(io.err(), file);
         return ExitCodes.OK;
+    }
+
+    /**
+     * {@code pm env run [--project T] [--profile P] [--only A,B] -- command...}. With
+     * {@code --project} and a running TUI, the request goes to its approval broker and the user
+     * approves it there (approval-model §4). Otherwise pm unlocks the vault itself, shows the same
+     * summary here and asks for {@code y}: the passphrase plus that answer are the approval.
+     * Either way the argv in the request is the argv that runs (SR-102).
+     */
+    private int envRun(Args args, VaultPort port, ConsoleIo io, Path vaultPath) throws UsageException, VaultException {
+        arity(args, 0);
+        if (args.command().isEmpty()) {
+            throw new UsageException(Messages.RUN_NEEDS_COMMAND);
+        }
+        Path dir = cwd();
+        if (args.project().isPresent()) {
+            ApprovalRequest q = request(args.project().get(), args);
+            Path vaultDir = Objects.requireNonNull(vaultPath.toAbsolutePath().getParent(), "vault dir");
+            try (Reply reply = BrokerClient.call(RunDir.existing(RunDir.locate(environment, vaultDir)), q)) {
+                if (!reply.decision().allowed()) {
+                    io.err().println(Messages.RUN_DENIED.text() + reply.decision().name());
+                    return ExitCodes.DENIED;
+                }
+                io.err().flush();
+                return EnvRunner.run(q, reply.vars(), reply.vars().keySet(), dir);
+            } catch (IpcException e) {
+                if (e.code() != IpcException.Code.NO_BROKER) {
+                    io.err().println(Messages.BROKER_UNREACHABLE.text() + e.code().name());
+                    return ExitCodes.DENIED;
+                }
+                // No TUI running: fall through to the standalone path.
+            }
+        }
+        return standaloneRun(args, port, io, vaultPath, dir);
+    }
+
+    private int standaloneRun(Args args, VaultPort port, ConsoleIo io, Path vaultPath, Path dir)
+            throws UsageException, VaultException {
+        ApprovalRequest q;
+        SortedMap<String, SecretBytes> vars;
+        java.util.Set<String> scrub;
+        try (Session session = Cli.unlock(port, io)) {
+            ProjectRecord project = target(session.records(), args);
+            q = request(project.title(), args);
+            SortedMap<String, SecretBytes> profile = ProjectEnv.variables(project, args.profile());
+            if (profile.isEmpty()) {
+                throw new UsageException(Messages.EMPTY_PROFILE);
+            }
+            scrub = new TreeSet<>(profile.keySet());
+            try {
+                vars = EnvRelease.copy(profile, q.scope());
+            } catch (IllegalArgumentException e) {
+                throw new UsageException(Messages.NO_SUCH_VARIABLE);
+            }
+        } // the vault locks before the command starts; only the copies remain
+        try {
+            PrintWriter out = io.out();
+            out.println(Messages.RUN_SUMMARY.text() + Cli.displaySafe(q.scope().project()) + "/" + q.scope().profile());
+            out.println(Messages.RUN_VARIABLES.text() + String.join(", ", vars.keySet()));
+            out.println(Messages.RUN_COMMAND.text());
+            q.display().argv().forEach(a -> out.println("  " + quoted(a)));
+            out.flush();
+            String answer = Cli.readText(io, Messages.RUN_CONFIRM);
+            if (!CONFIRM.equals(answer)) {
+                io.err().println(Messages.RUN_DENIED.text() + "DENIED");
+                return ExitCodes.DENIED;
+            }
+            auditRun(vaultPath, q);
+            io.err().flush();
+            return EnvRunner.run(q, vars, scrub, dir);
+        } finally {
+            vars.values().forEach(SecretBytes::close);
+        }
+    }
+
+    private ApprovalRequest request(String project, Args args) throws UsageException {
+        try {
+            return new ApprovalRequest(Csprng.uuid(), new ApprovalRequest.Requester(ApprovalRequest.Kind.CLI, RUN_LABEL),
+                    ApprovalRequest.Operation.ENV_INJECT,
+                    new ApprovalRequest.Scope(project, args.profile(), args.only(), List.of()), Duration.ZERO,
+                    new ApprovalRequest.Display(args.command(), Optional.empty(), ApprovalRequest.Effect.INJECT),
+                    clock.instant());
+        } catch (IllegalArgumentException e) {
+            throw new UsageException(Messages.INVALID_TEXT);
+        }
+    }
+
+    /** Shows one argv element exactly, quoted; control characters are made visible, not run. */
+    static String quoted(String arg) {
+        return "\"" + Cli.displaySafe(arg) + "\"";
+    }
+
+    private void auditRun(Path vaultPath, ApprovalRequest q) throws UsageException {
+        record(vaultPath, new AuditEvent("approval", Optional.of(q.requestId()), Optional.of("CLI"),
+                Optional.ofNullable(properties.apply("user.name")), Optional.of(q.scope().project()),
+                Optional.of(q.scope().profile()), q.scope().vars().map(java.util.Set::size).orElse(-1),
+                Optional.of("ALLOWED_ONCE"), Optional.of(q.argv0())));
     }
 
     // ---- helpers ---------------------------------------------------------------------------
@@ -340,12 +477,17 @@ final class EnvCommands {
 
     /** Records the export before any byte is written; no audit, no export. */
     private void audit(Path vaultPath, ProjectRecord project, String profile, int count) throws UsageException {
+        record(vaultPath, new AuditEvent("export", Optional.empty(), Optional.of("CLI"),
+                Optional.ofNullable(properties.apply("user.name")), Optional.of(project.title()),
+                Optional.of(profile), count, Optional.of("ALLOWED_ONCE"), Optional.of("pm")));
+    }
+
+    /** Appends to the vault's audit log; an audit failure stops the operation (approval-model §7). */
+    private void record(Path vaultPath, AuditEvent event) throws UsageException {
         Path dir = Objects.requireNonNull(vaultPath.toAbsolutePath().getParent(), "vault dir");
-        try (AuditLog log = AuditLog.open(dir.resolve(AUDIT_FILE), clock)) {
-            log.record(new AuditEvent("export", Optional.empty(), Optional.of("CLI"),
-                    Optional.ofNullable(properties.apply("user.name")), Optional.of(project.title()),
-                    Optional.of(profile), count, Optional.of("ALLOWED_ONCE"), Optional.of("pm")));
-        } catch (AuditException | IllegalStateException e) {
+        try {
+            AuditLog.append(dir.resolve(AUDIT_FILE), clock, event);
+        } catch (AuditException e) {
             throw new UsageException(Messages.AUDIT_UNAVAILABLE);
         }
     }

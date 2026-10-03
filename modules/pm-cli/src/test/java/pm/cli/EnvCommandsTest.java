@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +21,18 @@ import java.util.TreeMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.locks.LockSupport;
+import pm.approval.ApprovalBroker;
 import pm.approval.AuditException;
+import pm.approval.PendingApproval;
+import pm.approval.PolicyStore;
+import pm.approval.ipc.BrokerServer;
+import pm.approval.ipc.IpcException;
+import pm.approval.ipc.RunDir;
+import pm.approval.run.EnvRelease;
+import pm.domain.env.Env;
 import pm.approval.AuditLog;
 import pm.crypto.SecretBytes;
 import pm.domain.env.DotEnv;
@@ -67,9 +79,12 @@ class EnvCommandsTest {
     private int run(Path cwd, FakeConsoleIo io, String... args) {
         Map<String, String> props = Map.of(VaultPaths.OS_NAME, "Linux", VaultPaths.USER_HOME, home.toString(),
                 "user.dir", cwd.toString(), "user.name", "alice");
-        Cli cli = new Cli(props::get, Clock.fixed(NOW, ZoneOffset.UTC), p -> { });
+        Cli cli = new Cli(props::get, Clock.fixed(NOW, ZoneOffset.UTC), p -> { }).withEnvironment(environment);
         return cli.run(args, io, (path, creating) -> port);
     }
+
+    /** No XDG_RUNTIME_DIR: the run directory would be next to the vault, where no broker is running. */
+    private Env environment = Env.of(Map.of());
 
     private FakeConsoleIo unlocking() {
         return new FakeConsoleIo().secret(UNLOCK_PHRASE);
@@ -252,6 +267,103 @@ class EnvCommandsTest {
         } catch (DotEnvException e) {
             throw new IllegalStateException(e.code().name() + "@" + e.line(), e);
         }
+    }
+
+    // ---- env run ----------------------------------------------------------------------------
+
+    private static final String SH = "/bin/sh";
+    private static final String PRINT_DB = "printf '%s' \"$DB\" > \"$0\"";
+
+    private void importDev() throws IOException {
+        addProject();
+        Files.writeString(repo.resolve(".gitignore"), "*.env\n", StandardCharsets.UTF_8);
+        run(unlocking(), "env", "import", envFile("dev.env", "DB=from-vault\nOTHER=x\n").toString(), "--profile", "dev");
+    }
+
+    @Test
+    void standaloneRunShowsTheExactArgvAndRunsItAfterY() throws IOException {
+        assumeTrue(Files.isExecutable(Path.of(SH)), "needs /bin/sh as the child program");
+        importDev();
+        Path out = repo.resolve("db.txt");
+        FakeConsoleIo io = unlocking().line("y");
+        int code = run(io, "env", "run", "--profile", "dev", "--only", "DB", "--", SH, "-c", PRINT_DB, out.toString());
+        assertEquals(0, code, io.errText());
+        assertEquals("from-vault", Files.readString(out, StandardCharsets.UTF_8));
+        String shown = io.outText();
+        assertTrue(shown.contains("  \"" + SH + "\"\n  \"-c\"\n  \"" + PRINT_DB + "\"\n  \"" + out + "\""), shown);
+        assertTrue(shown.contains(Messages.RUN_VARIABLES.text() + "DB\n"));
+        assertFalse(shown.contains("from-vault"));
+    }
+
+    @Test
+    void standaloneRunWithoutYRunsNothing() throws IOException {
+        importDev();
+        Path out = repo.resolve("db.txt");
+        FakeConsoleIo io = unlocking().line("yes");
+        assertEquals(ExitCodes.DENIED, run(io, "env", "run", "--profile", "dev", "--", SH, "-c", PRINT_DB, out.toString()));
+        assertFalse(Files.exists(out));
+        assertEquals(ExitCodes.USAGE, run(new FakeConsoleIo(), "env", "run", "--profile", "dev"), "no command");
+        assertEquals(ExitCodes.USAGE, run(unlocking(), "env", "run", "--profile", "dev", "--only", "NOPE", "--", SH),
+                "--only names a missing variable");
+    }
+
+    @Test
+    void runThroughARunningBrokerUsesTheApprovedArgv() throws IOException, IpcException, UsageException {
+        assumeTrue(Files.isExecutable(Path.of(SH)), "needs /bin/sh as the child program");
+        importDev();
+        Path xdg = Files.createDirectory(tmp.resolve("xdg"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        environment = Env.of(Map.of("XDG_RUNTIME_DIR", xdg.toString()));
+        RunDir dir = RunDir.prepare(RunDir.locate(environment, vaultDir()));
+        ApprovalBroker broker = new ApprovalBroker(Clock.fixed(NOW, ZoneOffset.UTC), e -> { }, PolicyStore.inMemory(),
+                System.getProperty("user.name"));
+        Path out = repo.resolve("db.txt");
+        List<String> argv = List.of(SH, "-c", PRINT_DB, out.toString());
+        try (BrokerServer server = BrokerServer.start(dir, broker, g -> EnvRelease.release(g, List.copyOf(port.stored)))) {
+            server.unlocked();
+            FakeConsoleIo io = new FakeConsoleIo(); // no passphrase: the TUI holds the unlocked vault
+            List<String> args = new java.util.ArrayList<>(List.of("env", "run", "--project", "app", "--profile", "dev",
+                    "--"));
+            args.addAll(argv);
+            CompletableFuture<Integer> code = CompletableFuture.supplyAsync(() -> run(io, args.toArray(String[]::new)));
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+            while (broker.pending().isEmpty()) {
+                assertTrue(System.nanoTime() < deadline, "no prompt arrived");
+                LockSupport.parkNanos(java.time.Duration.ofMillis(10).toNanos());
+            }
+            PendingApproval prompt = broker.pending().get(0);
+            assertEquals(argv, prompt.request().display().argv(), "the prompt shows the command line as typed");
+            prompt.approveOnce();
+            assertEquals(0, code.join(), io.errText());
+        }
+        assertEquals("from-vault", Files.readString(out, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void deniedBrokerRequestRunsNothing() throws IOException, IpcException, UsageException {
+        importDev();
+        Path xdg = Files.createDirectory(tmp.resolve("xdg"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        environment = Env.of(Map.of("XDG_RUNTIME_DIR", xdg.toString()));
+        RunDir dir = RunDir.prepare(RunDir.locate(environment, vaultDir()));
+        ApprovalBroker broker = new ApprovalBroker(Clock.fixed(NOW, ZoneOffset.UTC), e -> { }, PolicyStore.inMemory(),
+                System.getProperty("user.name"));
+        Path out = repo.resolve("db.txt");
+        try (BrokerServer server = BrokerServer.start(dir, broker, g -> EnvRelease.release(g, List.copyOf(port.stored)))) {
+            server.unlocked();
+            FakeConsoleIo io = new FakeConsoleIo();
+            CompletableFuture<Integer> code = CompletableFuture.supplyAsync(() -> run(io, "env", "run", "--project", "app",
+                    "--profile", "dev", "--", SH, "-c", PRINT_DB, out.toString()));
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+            while (broker.pending().isEmpty()) {
+                assertTrue(System.nanoTime() < deadline, "no prompt arrived");
+                LockSupport.parkNanos(java.time.Duration.ofMillis(10).toNanos());
+            }
+            broker.pending().get(0).deny();
+            assertEquals(ExitCodes.DENIED, code.join());
+            assertEquals(Messages.RUN_DENIED.text() + "DENIED", io.errText().strip());
+        }
+        assertFalse(Files.exists(out));
     }
 
     @Test

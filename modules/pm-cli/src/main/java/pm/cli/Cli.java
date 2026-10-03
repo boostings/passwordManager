@@ -23,12 +23,14 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
+import pm.domain.env.Env;
 import pm.crypto.Argon2Params;
 import pm.crypto.Csprng;
 import pm.crypto.Kdf;
 import pm.crypto.SecretBoundary;
 import pm.crypto.SecretBytes;
 import pm.crypto.SecretChars;
+import pm.tui.ApprovalHost;
 import pm.tui.CreatedSession;
 import pm.tui.Session;
 import pm.tui.TuiApp;
@@ -63,10 +65,22 @@ final class Cli {
     private final Clock clock;
     private final TuiLauncher tuiLauncher;
     private final Predicate<Path> vaultExists;
+    /** Environment for the approval-broker run directory; replaced only by tests. */
+    private Env environment = Env.system();
 
     /** Production wiring: real system properties, UTC clock, Lanterna terminal, real file system. */
     Cli() {
-        this(System::getProperty, Clock.systemUTC(), Cli::launchLanterna, Files::exists);
+        this(System::getProperty, Clock.systemUTC(), new TuiLauncher() {
+            @Override
+            public void launch(VaultPort port) throws IOException {
+                throw new IllegalStateException("the production launcher needs the vault path");
+            }
+
+            @Override
+            public void launch(VaultPort port, Path vaultPath) throws IOException {
+                launchLanterna(port, vaultPath);
+            }
+        }, Files::exists);
     }
 
     /** Test wiring: injected property lookup, clock and TUI launcher; the real file system. */
@@ -83,6 +97,12 @@ final class Cli {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.tuiLauncher = Objects.requireNonNull(tuiLauncher, "tuiLauncher");
         this.vaultExists = Objects.requireNonNull(vaultExists, "vaultExists");
+    }
+
+    /** Test hook: the environment {@code env run} uses to find a running broker. */
+    Cli withEnvironment(Env env) {
+        this.environment = Objects.requireNonNull(env, "env");
+        return this;
     }
 
     /** Production entry: requires an interactive console (passphrases are never read from a pipe). */
@@ -200,7 +220,7 @@ final class Cli {
             return openApp(vaultPath, io, opener);
         }
         if (sub != null) {
-            EnvCommands env = new EnvCommands(properties, clock);
+            EnvCommands env = new EnvCommands(properties, clock, environment);
             VaultPort port = opener.open(vaultPath, false);
             return "project".equals(positional.get(0))
                     ? env.project(sub, port, io)
@@ -226,7 +246,7 @@ final class Cli {
             case "add-login" -> addLogin(port, io);
             case "list" -> list(port, io);
             case "search" -> search(port, io, query);
-            default -> tui(port);
+            default -> tui(port, vaultPath);
         };
     }
 
@@ -348,7 +368,7 @@ final class Cli {
     private int openApp(Path vaultPath, ConsoleIo io, VaultOpener opener)
             throws UsageException, VaultException, IOException {
         if (vaultExists.test(vaultPath)) {
-            return tui(opener.open(vaultPath, false));
+            return tui(opener.open(vaultPath, false), vaultPath);
         }
         io.out().println(Messages.FIRST_RUN.text());
         VaultPort port = opener.open(vaultPath, true);
@@ -359,20 +379,24 @@ final class Cli {
         if (io.readLine(Messages.PROMPT_OPEN_APP.text()) == null) {
             throw new UsageException(Messages.INPUT_CLOSED);
         }
-        return tui(port);
+        return tui(port, vaultPath);
     }
 
-    private int tui(VaultPort port) throws IOException {
-        tuiLauncher.launch(port);
+    private int tui(VaultPort port, Path vaultPath) throws IOException {
+        tuiLauncher.launch(port, vaultPath);
         return ExitCodes.OK;
     }
 
     /** Production TUI: a text terminal on stdin/stdout (FIO11-J: explicit UTF-8). */
-    private static void launchLanterna(VaultPort port) throws IOException {
+    private static void launchLanterna(VaultPort port, Path vaultPath) throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory(System.out, System.in, StandardCharsets.UTF_8)
                 .setForceTextTerminal(true);
-        try (Terminal terminal = factory.createTerminal()) {
-            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK).run(terminal);
+        Path vaultDir = Objects.requireNonNull(vaultPath.toAbsolutePath().getParent(), "vault dir");
+        // While the app is unlocked it hosts the approval broker that `pm env run` asks (M2).
+        try (ApprovalHost host = ApprovalHost.socket(vaultDir, Env.system(), Clock.systemUTC(),
+                        Objects.requireNonNull(System.getProperty("user.name"), "user.name"));
+                Terminal terminal = factory.createTerminal()) {
+            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host).run(terminal);
         }
     }
 
@@ -435,7 +459,7 @@ final class Cli {
      * Reads a line, strips surrounding whitespace, then rejects control and invisible formatting
      * characters (IDS01-J, IDS11-J).
      */
-    private static String readText(ConsoleIo io, Messages prompt) throws UsageException {
+    static String readText(ConsoleIo io, Messages prompt) throws UsageException {
         String line = io.readLine(prompt.text());
         if (line == null) {
             throw new UsageException(Messages.INPUT_CLOSED);

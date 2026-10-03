@@ -70,6 +70,11 @@ public final class ApprovalBroker {
         this.osUser = Objects.requireNonNull(osUser, "osUser");
     }
 
+    /** The OS user this broker serves; the transport verified every requester as this user. */
+    public String servedUser() {
+        return osUser;
+    }
+
     /** Called with no arguments, outside the lock, whenever a prompt is queued. */
     public void setPromptListener(Runnable listener) {
         Objects.requireNonNull(listener, "listener");

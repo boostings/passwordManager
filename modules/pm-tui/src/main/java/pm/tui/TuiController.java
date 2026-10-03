@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Optional;
+import pm.approval.PendingApproval;
 import pm.crypto.SecretChars;
 import pm.vault.VaultException;
 
@@ -49,6 +51,7 @@ final class TuiController {
     private final IdleTimerFactory timers;
     private final Clock timeSource;
     private final PmTheme pmTheme;
+    private final ApprovalHost host;
     private final ActivityListener activityListener = new ActivityListener();
     /** GUI-thread confined: forms shown and not yet cleared by the controller. */
     private final List<InputForm> openForms = new ArrayList<>();
@@ -60,9 +63,16 @@ final class TuiController {
     private Instant lastActivity;
     private long sessionGeneration;
     private boolean quitRequested;
+    private ApprovalDialog approvalDialog;
 
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
             IdleTimerFactory timers, Clock clock, PmTheme theme) {
+        this(gui, port, idleTimeout, timers, clock, theme, ApprovalHost.none());
+    }
+
+    TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
+            IdleTimerFactory timers, Clock clock, PmTheme theme, ApprovalHost host) {
+        this.host = Objects.requireNonNull(host, "host");
         this.gui = Objects.requireNonNull(gui, "gui");
         this.port = Objects.requireNonNull(port, "port");
         this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
@@ -143,7 +153,34 @@ final class TuiController {
         idleTimer = timers.start(idleTimeout, () -> postLock(generation));
         dashboard = new DashboardWindow(this, opened);
         show(dashboard.window());
+        host.unlocked(new GuiThreadReleaser(gui.getGUIThread(),
+                () -> Optional.ofNullable(session).map(Session::records)));
         tick();
+    }
+
+    /** Shows the oldest waiting approval prompt, one at a time (approval-model §4). */
+    private void showNextApproval(Instant now) {
+        if (session == null) {
+            return;
+        }
+        if (approvalDialog != null) {
+            boolean open = gui.getWindows().contains(approvalDialog.window());
+            if (open && !approvalDialog.prompt().isDone()) {
+                return;
+            }
+            if (open) {
+                gui.removeWindow(approvalDialog.window()); // timed out or answered elsewhere
+            }
+            approvalDialog = null;
+        }
+        host.broker().ifPresent(b -> {
+            List<PendingApproval> waiting = b.pending();
+            if (!waiting.isEmpty()) {
+                approvalDialog = new ApprovalDialog(pmTheme, waiting.get(0), b.servedUser(), now);
+                showForm(approvalDialog);
+                approvalDialog.animate(now);
+            }
+        });
     }
 
     /** Called from the idle timer's thread: hands the lock to the GUI thread. */
@@ -175,6 +212,7 @@ final class TuiController {
         }
         openForms.removeIf(f -> !gui.getWindows().contains(f.window()));
         openForms.forEach(f -> f.animate(now));
+        showNextApproval(now);
     }
 
     /** Locks: closes the session and returns to the unlock screen (SR-504). */
@@ -206,6 +244,8 @@ final class TuiController {
     }
 
     private void endSession() {
+        host.locked(); // before the session closes: pending prompts are denied, the token withdrawn
+        approvalDialog = null;
         clearForms();
         sessionGeneration++;
         if (idleTimer != null) {

@@ -35,7 +35,7 @@ final class TuiHarness implements AutoCloseable {
     final DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(COLUMNS, ROWS));
     final FakeVaultPort port;
     final FakeTimers timers = new FakeTimers();
-    final ManualClock clock = new ManualClock(FakeVaultPort.T0);
+    final ManualClock clock;
     final TuiController controller;
     final PmTheme theme = PmTheme.standard(); // as TuiApp
     private final TerminalScreen screen;
@@ -43,11 +43,21 @@ final class TuiHarness implements AutoCloseable {
     private final List<String> frames = new ArrayList<>();
 
     TuiHarness(FakeVaultPort port) throws IOException {
+        this(port, ApprovalHost.none());
+    }
+
+    TuiHarness(FakeVaultPort port, ApprovalHost host) throws IOException {
+        this(port, host, new ManualClock(FakeVaultPort.T0));
+    }
+
+    /** With an approval host whose broker shares {@code clock}. */
+    TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock) throws IOException {
         this.port = port;
+        this.clock = clock;
         screen = new TerminalScreen(terminal);
         screen.startScreen();
         gui = TuiApp.newGui(screen, theme);
-        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme);
+        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme, host);
         controller.start();
         pump();
     }

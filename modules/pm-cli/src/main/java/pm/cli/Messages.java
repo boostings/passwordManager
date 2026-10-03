@@ -7,7 +7,8 @@ package pm.cli;
 enum Messages {
     USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui"
             + " | project add <title> [--dir <path>] | project list"
-            + " | env list | env import <file> | env export <file> --plaintext]"
+            + " | env list | env import <file> | env export <file> --plaintext"
+            + " | env run [--only A,B] -- <command> [args...]]"
             + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
@@ -30,6 +31,10 @@ enum Messages {
     EMPTY_TITLE("title must not be empty"),
     EMPTY_QUERY("search query must not be empty"),
     INVALID_RECORD("record fields are out of bounds"),
+    BAD_VARIABLE_NAME("variable names use A-Z, a-z, 0-9 and _, and do not start with a digit"),
+    RUN_NEEDS_COMMAND("give the command after --, e.g. pm env run -- npm start"),
+    EMPTY_PROFILE("this profile has no variables; import a .env file first"),
+    NO_SUCH_VARIABLE("a variable named with --only is not in this profile"),
     BAD_PROFILE("profile names use a-z, 0-9, - and _, at most 32 characters"),
     PROJECT_EXISTS("a project with this title or directory already exists"),
     NO_SUCH_PROJECT("no project with this title"),
@@ -58,6 +63,12 @@ enum Messages {
     LOGIN_ADDED("login added: "),
     LIST_HEADER("id  type  title  updated"),
     PROJECT_ADDED("project added: "),
+    RUN_SUMMARY("no pm window is running, so approve here. Inject "),
+    RUN_VARIABLES("variables: "),
+    RUN_COMMAND("into exactly this command (one argument per line):"),
+    RUN_CONFIRM("Type y and press Enter to run it: "),
+    RUN_DENIED("not approved, nothing ran: "),
+    BROKER_UNREACHABLE("the pm window's approval service did not answer: "),
     PROJECT_HEADER("title  directory  profiles"),
     ENV_HEADER("variables in "),
     ENV_IMPORTED("variables imported: "),

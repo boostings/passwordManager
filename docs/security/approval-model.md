@@ -111,18 +111,33 @@ without `vars` (whole profile) does **not** match a policy that lists vars.
 
 ## 6. Injection (operation = env-inject)
 
-The broker itself spawns the child: `new ProcessBuilder(argv)` with
-`environment()` = parent env minus any variable named in the profile, plus the
-approved variables. `inheritIO()` for terminal passthrough. No shell. No temp
-file. Exit code is passed through. Variable values are `SecretBytes` until the
-moment of `environment().put`, which requires a `String`: this is a documented
-`@SecretBoundary` (R-009), and the `ProcessBuilder` object is discarded
-immediately after `start()`.
+The child is spawned by `pm.approval.run.EnvRunner`, the only class that builds processes:
+`new ProcessBuilder(argv)` where `argv` is `display.argv` of the approved request, with
+`environment()` = parent env minus the scrubbed names, plus the approved variables.
+`inheritIO()` for terminal passthrough. No shell. No temp file. Exit code is passed through
+(127 if the program cannot be started). Variable values are `SecretBytes` until the moment of
+`environment().put`, which requires a `String`: this is a documented `@SecretBoundary` (R-009),
+and the `ProcessBuilder` object is discarded immediately after `start()`.
+
+**Where it runs (M2.6).** The runner executes in the `pm env run` process, which owns the
+user's terminal; the broker lives in the TUI, which owns the screen. After the user approves, the
+broker sends the approved values over the authenticated socket (§5) in the reply, and the CLI
+runs exactly the argv it put in the request, so what was shown is what runs (SR-102). In that
+path the scrubbed names are the released ones.
+
+**Without a broker.** If no TUI is running (no token file), or `--project` was not given, `pm env
+run` unlocks the vault itself: the passphrase plus a typed `y` after the same summary (project,
+profile, variable names, argv one element per line) are the approval. The values are copied out
+and the vault is locked before the command starts; the profile's names are scrubbed from the
+inherited environment; an `approval` entry is appended to the audit log first, and no entry means
+no run.
 
 ## 7. Audit log
 
 Append-only file `audit.log` in the vault directory, 0600, one CBOR entry per
-line (base64), hash-chained:
+line (base64), hash-chained. The TUI's broker and CLI commands write the same file through
+`AuditLog.append`, which holds an exclusive file lock while it re-verifies the chain and appends,
+so concurrent writers cannot fork the chain:
 
 ```cddl
 audit-entry = {

@@ -1,5 +1,6 @@
 package pm.approval;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -14,12 +15,16 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /** approval-model §7: append-only, 0600, chained; tampering and truncation report the entry number. */
+@SuppressWarnings("PMD.DoNotUseThreads") // CE-002: TPS00-J executors; PMD 7 flags executors too
 class AuditLogTest {
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");
 
@@ -162,5 +167,30 @@ class AuditLogTest {
         try (AuditLog a = AuditLog.open(log(), new TestClock(T0))) {
             assertThrows(IllegalArgumentException.class, () -> a.record(AuditEvent.of("party")));
         }
+    }
+
+    @Test
+    void lockedAppendsFromManyWritersKeepOneValidChain() throws AuditException {
+        write(2); // an existing log, written by a long-lived instance
+        try (ExecutorService pool = Executors.newFixedThreadPool(4)) {
+            List<Future<?>> done = new ArrayList<>();
+            for (int t = 0; t < 4; t++) {
+                done.add(pool.submit(() -> {
+                    for (int i = 0; i < 10; i++) {
+                        try {
+                            AuditLog.append(log(), new TestClock(T0), AuditEvent.of("export"));
+                        } catch (AuditException e) {
+                            throw new IllegalStateException(e.code().name(), e);
+                        }
+                    }
+                }));
+            }
+            done.forEach(f -> assertDoesNotThrow(() -> f.get()));
+        }
+        assertEquals(42, AuditLog.check(log()));
+        AuditLog.append(dir.resolve("fresh.log"), new TestClock(T0), AuditEvent.of("export"));
+        assertEquals(1, AuditLog.check(dir.resolve("fresh.log")), "append creates a missing log");
+        assertThrows(IllegalArgumentException.class,
+                () -> AuditLog.append(log(), new TestClock(T0), AuditEvent.of("party")));
     }
 }

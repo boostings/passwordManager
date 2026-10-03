@@ -28,4 +28,10 @@
         <Method name="collectGarbage"/>
         <Bug pattern="DM_GC"/>
     </Match>
+    <!-- CE-007: the env runner executes the argv the user approved; that is its purpose. -->
+    <Match>
+        <Class name="pm.approval.run.EnvRunner"/>
+        <Method name="start"/>
+        <Bug pattern="COMMAND_INJECTION"/>
+    </Match>
 </FindBugsFilter>

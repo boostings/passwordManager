@@ -8,4 +8,5 @@ module pm.approval {
 
     exports pm.approval;
     exports pm.approval.ipc;
+    exports pm.approval.run;
 }
