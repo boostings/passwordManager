@@ -64,6 +64,27 @@ public final class Tls {
         }
     }
 
+    /**
+     * An {@code SSLContext} for the browser-only share listener (lan-share.md §7): it presents
+     * {@code web} and asks for no client certificate. Apply {@link #browserParameters()}.
+     */
+    public static SSLContext browserContext(WebIdentity web) throws CryptoException {
+        Objects.requireNonNull(web, "web");
+        try {
+            SSLContext context = SSLContext.getInstance(PROTOCOL);
+            context.init(new X509ExtendedKeyManager[] {new KeyManager(web.x509(), web.key(), WebIdentity.KEY_TYPE)},
+                    null, null);
+            return context;
+        } catch (GeneralSecurityException e) {
+            throw new CryptoException(CryptoException.Code.INTERNAL);
+        }
+    }
+
+    /** TLS 1.3 only, AEAD suites only, no client authentication: for browsers. */
+    public static SSLParameters browserParameters() {
+        return parameters(false);
+    }
+
     /** TLS 1.3 only, AEAD suites only, client authentication required. */
     public static SSLParameters parameters(boolean server) {
         SSLParameters p = new SSLParameters(CIPHER_SUITES.clone(), PROTOCOLS.clone());
@@ -89,14 +110,20 @@ public final class Tls {
         }
     }
 
-    /** Presents the device certificate, whatever the peer asks for. */
+    /** Presents one certificate, whatever the peer asks for. */
     static final class KeyManager extends X509ExtendedKeyManager {
         private final PrivateKey signer;
         private final X509Certificate certificate;
+        private final String algorithm;
 
         KeyManager(DeviceIdentity self) throws CryptoException {
-            this.signer = self.key();
-            this.certificate = self.x509();
+            this(self.x509(), self.key(), KEY_TYPE);
+        }
+
+        KeyManager(X509Certificate certificate, PrivateKey signer, String algorithm) {
+            this.signer = signer;
+            this.certificate = certificate;
+            this.algorithm = algorithm;
         }
 
         @Override
@@ -129,8 +156,8 @@ public final class Tls {
             return serverAlias(keyType);
         }
 
-        private static String serverAlias(String keyType) {
-            return KEY_TYPE.equals(keyType) ? KEY_ALIAS : null;
+        private String serverAlias(String keyType) {
+            return algorithm.equals(keyType) ? KEY_ALIAS : null;
         }
 
         @Override

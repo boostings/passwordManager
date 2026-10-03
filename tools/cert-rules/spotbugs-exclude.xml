@@ -45,9 +45,16 @@
         <Class name="pm.sharing.net.Lan"/>
         <Or>
             <Method name="listen"/>
+            <Method name="listenForBrowsers"/>
             <Method name="accept"/>
             <Method name="connect"/>
         </Or>
         <Bug pattern="BC_UNCONFIRMED_CAST_OF_RETURN_VALUE"/>
+    </Match>
+    <!-- CE-013: test-only; runs the page script under the node found on PATH with fixed arguments. -->
+    <Match>
+        <Class name="pm.sharing.web.NodePageTest"/>
+        <Method name="node"/>
+        <Bug pattern="COMMAND_INJECTION"/>
     </Match>
 </FindBugsFilter>

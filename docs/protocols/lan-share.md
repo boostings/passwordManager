@@ -134,24 +134,36 @@ Implementation notes (M3.4, `pm.sharing.share`):
 
 ## 7. Browser-only receiving (SR-209, SR-210)
 
-1. S generates `k_web` (32 B random) and `share_id`; encrypts the payload with
-   AES-256-GCM(k_web, nonce random 12 B, AAD = share_id).
-2. S starts an HTTPS listener with its device cert and serves
-   `https://<ip>:<port>/s/<share_id>` for the share lifetime, one fetch only.
-   Response headers: `Cache-Control: no-store`, `Content-Security-Policy:
-   default-src 'none'; script-src 'sha256-<inline>'; style-src 'unsafe-inline'`,
-   `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`.
-3. The URL shown/QR-encoded is `https://<ip>:<port>/s/<share_id>#<base64url k_web>`.
+1. S generates `k_web` (32 B random) and `share_id` (16 B); encrypts the
+   payload (UTF-8 text, ≤ 1 MiB) with AES-256-GCM(k_web, nonce = 12 zero bytes,
+   AAD = share_id). `k_web` encrypts exactly one message (ADR 0005).
+2. S starts an HTTPS listener with a throwaway ECDSA P-256 certificate made
+   for this share (browsers do not accept Ed25519; ADR 0010 Amendment 2), TLS 1.3
+   only, no client certificate. It serves the page `https://<ip>:<port>/s/<share_id hex>`
+   (nothing secret; repeatable, so link previews cannot burn the share) and
+   `/d/<share_id hex>` once, only after the page, then closes; it also closes at
+   expiry or on revocation, cutting off any request in flight. Each connection
+   is closed 5 s after accept. Anything else: 404, 405 or 410. Every response carries
+   `Cache-Control: no-store`, `Content-Security-Policy: default-src 'none';
+   script-src 'sha256-<inline>'; style-src 'unsafe-inline'; connect-src 'self';
+   base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+   `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`,
+   `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`,
+   `Cross-Origin-Resource-Policy: same-origin`, `Connection: close`.
+3. The URL shown/QR-encoded is `https://<ip>:<port>/s/<share_id hex>#<base64url k_web>`.
    The fragment never leaves the browser.
-4. The page's inline script fetches `/d/<share_id>` (ciphertext), decrypts
-   with WebCrypto using `k_web` from `location.hash`, renders once, wipes
-   `location.hash`, offers copy and an encrypted-package download, and clears
-   the DOM on a visible countdown or on unload. No storage APIs are used.
+4. The page's inline script removes the fragment from the address bar and the
+   session history entry (the browser's history database keeps the full URL;
+   ADR 0010 Amendment 2), fetches `/d/<share_id>` (ciphertext ‖ tag) with `cache: no-store`,
+   decrypts with WebCrypto, shows the text with `textContent`, offers Copy, and
+   clears it after 120 s or on `pagehide`. No storage APIs, cookies or service
+   workers are used.
 5. The recipient sees a browser certificate warning for the self-signed cert;
-   the page explains this, and the TUI shows the fingerprint so the recipient
-   can compare. Confidentiality does not depend on the recipient's diligence
-   here because of `k_web`; integrity of the page itself (a MITM substituting
-   a malicious page) is the residual risk and is documented to the sender.
+   the page explains this, and the TUI shows the certificate's SHA-256
+   fingerprint (as browsers display it) so the recipient can compare.
+   Confidentiality against a passive observer does not depend on that check
+   because of `k_web`; an active attacker who substitutes the page can read the
+   fragment, which is the residual risk documented to the sender.
 
 ## 8. Revocation (SR-205)
 

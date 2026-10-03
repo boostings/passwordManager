@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
+import java.net.InetAddress;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.nio.ByteBuffer;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -26,6 +29,7 @@ import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManagerFactory;
 import org.junit.jupiter.api.Test;
 
 /** Mutual TLS 1.3 with pinned Ed25519 device certificates, driven in memory through SSLEngine. */
@@ -122,6 +126,31 @@ class TlsTest {
             assertEquals(a.x509(), km.getCertificateChain("device")[0]);
             assertNotNull(km.getPrivateKey("device"));
         }
+    }
+
+    @Test
+    void browserContextServesTheWebCertificateWithoutClientAuth() throws CryptoException, SSLException,
+            GeneralSecurityException, java.io.IOException {
+        WebIdentity web = WebIdentity.generate(NOW, Duration.ofMinutes(10), InetAddress.getLoopbackAddress());
+        SSLEngine server = Tls.browserContext(web).createSSLEngine();
+        server.setUseClientMode(false);
+        server.setSSLParameters(Tls.browserParameters());
+        KeyStore trust = KeyStore.getInstance(KeyStore.getDefaultType());
+        trust.load(null, null);
+        trust.setCertificateEntry("web", web.x509());
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(trust);
+        SSLContext browser = SSLContext.getInstance("TLS");
+        browser.init(null, tmf.getTrustManagers(), null);
+        SSLEngine client = browser.createSSLEngine();
+        client.setUseClientMode(true);
+        handshake(client, server);
+        assertEquals(Tls.PROTOCOL, client.getSession().getProtocol());
+        assertEquals(web.x509(), client.getSession().getPeerCertificates()[0]);
+        assertFalse(Tls.browserParameters().getNeedClientAuth());
+        Tls.KeyManager km = new Tls.KeyManager(web.x509(), web.key(), "EC");
+        assertEquals("device", km.chooseServerAlias("EC", null, null));
+        assertNull(km.chooseServerAlias("EdDSA", null, null));
     }
 
     @Test

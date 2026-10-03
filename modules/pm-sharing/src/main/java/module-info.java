@@ -7,5 +7,6 @@ module pm.sharing {
     exports pm.sharing.net;
     exports pm.sharing.pair;
     exports pm.sharing.share;
+    exports pm.sharing.web;
     exports pm.sharing.wire;
 }

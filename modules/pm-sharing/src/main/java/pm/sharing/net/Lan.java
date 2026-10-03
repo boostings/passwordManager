@@ -13,6 +13,7 @@ import javax.net.ssl.SSLSocket;
 import pm.crypto.CryptoException;
 import pm.crypto.DeviceIdentity;
 import pm.crypto.Tls;
+import pm.crypto.WebIdentity;
 
 /**
  * Opens LAN listeners and connections (lan-share.md §3). TLS 1.3 only, mutual authentication, and
@@ -45,6 +46,28 @@ public final class Lan {
         try {
             server.setReuseAddress(false);
             server.setSSLParameters(Tls.parameters(true));
+            server.bind(new InetSocketAddress(address, 0), BACKLOG);
+            return server;
+        } catch (IOException e) {
+            server.close();
+            throw e;
+        }
+    }
+
+    /**
+     * An HTTPS listener for browser-only receiving (lan-share.md §7) on an ephemeral port of
+     * {@code address}: it presents {@code web}, asks for no client certificate, and has
+     * {@code SO_REUSEADDR} off. {@code accept} waits at most {@code acceptTimeout}.
+     */
+    public static SSLServerSocket listenForBrowsers(WebIdentity web, InetAddress address, Duration acceptTimeout)
+            throws IOException, CryptoException {
+        Objects.requireNonNull(address, "address");
+        SSLServerSocket server = (SSLServerSocket) Tls.browserContext(web).getServerSocketFactory()
+                .createServerSocket();
+        try {
+            server.setReuseAddress(false);
+            server.setSSLParameters(Tls.browserParameters());
+            server.setSoTimeout(Math.toIntExact(acceptTimeout.toMillis()));
             server.bind(new InetSocketAddress(address, 0), BACKLOG);
             return server;
         } catch (IOException e) {

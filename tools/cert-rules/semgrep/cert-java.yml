@@ -39,7 +39,7 @@ rules:
     languages: [java]
     severity: ERROR
     message: "SR-100/SR-102: only pm.approval.run.EnvRunner (and platform adapters) may spawn processes."
-    paths: { exclude: ["/modules/pm-approval/src/main/java/pm/approval/run/EnvRunner.java", "/modules/pm-platform-*/**"] }
+    paths: { exclude: ["/modules/pm-approval/src/main/java/pm/approval/run/EnvRunner.java", "/modules/pm-platform-*/**", "/modules/pm-sharing/src/test/java/pm/sharing/web/NodePageTest.java"] }  # CE-013
     pattern: new ProcessBuilder(...)
   - id: cert.ERR09-J.system-exit
     languages: [java]
@@ -181,7 +181,7 @@ rules:
     languages: [java]
     severity: ERROR
     message: "ENV02-J: read env through the validating accessor in pm-domain."
-    paths: { exclude: ["/modules/pm-domain/src/main/java/pm/domain/env/**", "/modules/pm-approval/**"] }
+    paths: { exclude: ["/modules/pm-domain/src/main/java/pm/domain/env/**", "/modules/pm-approval/**", "/modules/pm-sharing/src/test/java/pm/sharing/web/NodePageTest.java"] }  # CE-013
     pattern: System.getenv(...)
   - id: cert.ENV04-J.verify-none
     languages: [generic]
