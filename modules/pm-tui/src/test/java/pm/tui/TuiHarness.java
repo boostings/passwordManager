@@ -37,6 +37,7 @@ final class TuiHarness implements AutoCloseable {
     final FakeTimers timers = new FakeTimers();
     final ManualClock clock = new ManualClock(FakeVaultPort.T0);
     final TuiController controller;
+    final PmTheme theme = PmTheme.standard(); // as TuiApp
     private final TerminalScreen screen;
     private final MultiWindowTextGUI gui;
     private final List<String> frames = new ArrayList<>();
@@ -45,8 +46,8 @@ final class TuiHarness implements AutoCloseable {
         this.port = port;
         screen = new TerminalScreen(terminal);
         screen.startScreen();
-        gui = new MultiWindowTextGUI(screen);
-        controller = new TuiController(gui, port, TIMEOUT, timers, clock);
+        gui = TuiApp.newGui(screen, theme);
+        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme);
         controller.start();
         pump();
     }
@@ -81,6 +82,12 @@ final class TuiHarness implements AutoCloseable {
     /** Runs the controller's status tick, then pumps. */
     void tick() {
         controller.tick();
+        pump();
+    }
+
+    /** Presses Ctrl plus {@code letter}, then pumps. */
+    void ctrl(char letter) {
+        terminal.addInput(new KeyStroke(letter, true, false));
         pump();
     }
 

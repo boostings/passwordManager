@@ -398,10 +398,10 @@ class DashboardTest {
     }
 
     @Test
-    void lockButtonLocks() throws IOException {
+    void ctrlLLocks() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // table, Add, Lock
+            h.ctrl('l');
             assertTrue(h.port.last().isLocked());
             assertTrue(h.screenText().contains(UnlockWindow.TITLE));
         }
@@ -428,12 +428,19 @@ class DashboardTest {
     }
 
     @Test
-    void quitButtonLocksAndStops() throws IOException {
+    void ctrlXLocksAndStops() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
+            h.ctrl('x');
             assertTrue(h.controller.isQuit());
             assertTrue(h.port.last().isLocked());
+        }
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            Window unlock = h.activeWindow();
+            h.type(CANARY);
+            h.ctrl('x'); // works on the unlock screen too, and wipes the box
+            assertTrue(h.controller.isQuit());
+            assertAllEmpty(unlock);
         }
     }
 
@@ -486,7 +493,7 @@ class DashboardTest {
     }
 
     private static void openAddLogin(TuiHarness h) {
-        h.press(KeyType.Tab, KeyType.Tab, KeyType.Enter); // search -> table -> Add login
+        h.ctrl('n');
     }
 
     private static void typeIntoAddLogin(TuiHarness h) {

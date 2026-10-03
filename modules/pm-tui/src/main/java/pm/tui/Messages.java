@@ -16,6 +16,12 @@ final class Messages {
     static final String TITLE_REQUIRED = "A title is required.";
     static final String INVALID_INPUT = "The entry could not be saved: a field is invalid.";
     static final String UNSAFE_CHARACTER = "Control and formatting characters are not allowed.";
+    static final String UNLOCKING = "Unlocking…";
+    static final String SAVED = "Login saved";
+    static final String EMPTY_VAULT = "Your vault is empty";
+    static final String EMPTY_VAULT_HINT = "Press Ctrl+N to add your first login.";
+    static final String NO_MATCHES = "No matches";
+    static final String NO_MATCHES_HINT = "Try a shorter search, or press Esc to clear it.";
 
     private static final long SECONDS_PER_MINUTE = 60;
 
@@ -33,6 +39,14 @@ final class Messages {
             case STORAGE -> "The vault file could not be read or written.";
             case INSUFFICIENT_MEMORY -> "This vault needs more memory than the app was given. Restart with a larger -Xmx.";
         };
+    }
+
+    /** Header count: {@code "3 items"}, or {@code "1 of 3"} while a search filters the list. */
+    static String items(int shown, int total) {
+        if (shown != total) {
+            return String.format(Locale.ROOT, "%d of %d", shown, total);
+        }
+        return total == 1 ? "1 item" : String.format(Locale.ROOT, "%d items", total);
     }
 
     /** Status bar text, {@code "Locked in m:ss"} (SR-504). Negative input shows {@code 0:00}. */

@@ -1,6 +1,7 @@
 package pm.tui;
 
 import com.googlecode.lanterna.gui2.Window;
+import java.time.Instant;
 
 /**
  * A window whose text boxes can hold typed input, including masked secrets. {@link TuiController}
@@ -13,4 +14,9 @@ interface InputForm {
 
     /** Empties every text box of the form, masked or not (ADR 0008). Idempotent. */
     void clearInputs();
+
+    /** Advances the form's animations to {@code now}; called on every UI tick. */
+    default void animate(Instant now) {
+        // most forms are static
+    }
 }

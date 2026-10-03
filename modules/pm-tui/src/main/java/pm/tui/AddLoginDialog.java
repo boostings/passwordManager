@@ -2,7 +2,8 @@ package pm.tui;
 
 import com.googlecode.lanterna.TerminalSize;
 import com.googlecode.lanterna.gui2.BasicWindow;
-import com.googlecode.lanterna.gui2.Button;
+import com.googlecode.lanterna.gui2.Component;
+import com.googlecode.lanterna.gui2.EmptySpace;
 import com.googlecode.lanterna.gui2.Direction;
 import com.googlecode.lanterna.gui2.GridLayout;
 import com.googlecode.lanterna.gui2.Label;
@@ -33,9 +34,12 @@ final class AddLoginDialog implements InputForm {
     static final String OK = "OK";
     static final String CANCEL = "Cancel";
     static final String TAGS_LABEL = "Tags (comma-separated):";
+    static final String REQUIRED = " *";
+    static final String HINT = "⇥ next field   esc cancel";
 
     private static final int FIELD_COLUMNS = 40;
     private static final int GRID_COLUMNS = 2;
+    private static final int SIDE_MARGIN = 3;
     private static final Pattern COMMA = Pattern.compile(",");
 
     private final Session session;
@@ -47,41 +51,65 @@ final class AddLoginDialog implements InputForm {
     private final TextBox passwordBox = MaskedInput.newBox(FIELD_COLUMNS);
     private final TextBox urlsBox = textBox();
     private final TextBox tagsBox = textBox();
-    private final Label errorLabel = new Label("");
+    private final Notice notice;
 
-    AddLoginDialog(Session session, Clock clock, Runnable onSaved) {
+    AddLoginDialog(Session session, Clock clock, PmTheme theme, Runnable onSaved) {
         this.session = session;
         this.clock = clock;
         this.onSaved = onSaved;
+        this.notice = new Notice(theme);
 
-        Panel grid = new Panel(new GridLayout(GRID_COLUMNS));
-        grid.addComponent(new Label("Title:"));
-        grid.addComponent(titleBox);
-        grid.addComponent(new Label("Username:"));
-        grid.addComponent(usernameBox);
-        grid.addComponent(new Label("Password:"));
-        grid.addComponent(passwordBox);
-        grid.addComponent(new Label("URLs (comma-separated):"));
-        grid.addComponent(urlsBox);
-        grid.addComponent(new Label(TAGS_LABEL));
-        grid.addComponent(tagsBox);
+        GridLayout layout = new GridLayout(GRID_COLUMNS);
+        layout.setHorizontalSpacing(2);
+        layout.setVerticalSpacing(1);
+        layout.setLeftMarginSize(SIDE_MARGIN);
+        layout.setRightMarginSize(SIDE_MARGIN);
+        layout.setTopMarginSize(1);
+        Panel grid = new Panel(layout);
+        Panel titleLabel = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(0));
+        titleLabel.addComponent(UnlockWindow.dim(theme, "Title:"));
+        Label required = new Label(REQUIRED);
+        required.setForegroundColor(theme.color(PmTheme.Tone.RED));
+        titleLabel.addComponent(required);
+        addRow(grid, titleLabel, titleBox);
+        addRow(grid, UnlockWindow.dim(theme, "Username:"), usernameBox);
+        addRow(grid, UnlockWindow.dim(theme, "Password:"), passwordBox);
+        addRow(grid, UnlockWindow.dim(theme, "URLs (comma-separated):"), urlsBox);
+        addRow(grid, UnlockWindow.dim(theme, TAGS_LABEL), tagsBox);
         for (TextBox visible : List.of(titleBox, usernameBox, urlsBox, tagsBox)) {
             visible.setInputFilter(DisplaySafe.rejectUnsafe(
-                    () -> errorLabel.setText(Messages.UNSAFE_CHARACTER)));
+                    () -> notice.error(Messages.UNSAFE_CHARACTER, clock.instant())));
         }
 
-        Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL));
-        buttons.addComponent(new Button(OK, this::submit));
-        buttons.addComponent(new Button(CANCEL, this::dismiss));
+        Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(2));
+        buttons.addComponent(PmTheme.pill(OK, this::submit));
+        buttons.addComponent(PmTheme.pill(CANCEL, this::dismiss));
+
+        GridLayout footerLayout = new GridLayout(1);
+        footerLayout.setLeftMarginSize(SIDE_MARGIN);
+        footerLayout.setRightMarginSize(SIDE_MARGIN);
+        footerLayout.setBottomMarginSize(1);
+        Panel footer = new Panel(footerLayout);
+        footer.addComponent(new EmptySpace());
+        footer.addComponent(buttons, UnlockWindow.centered());
+        footer.addComponent(notice.label(), UnlockWindow.centered());
+        footer.addComponent(UnlockWindow.dim(theme, HINT), UnlockWindow.centered());
 
         Panel content = new Panel(new LinearLayout(Direction.VERTICAL));
         content.addComponent(grid);
-        content.addComponent(buttons);
-        content.addComponent(errorLabel);
+        content.addComponent(footer, LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
 
+        basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
         basicWindow.setComponent(content);
         basicWindow.setFocusedInteractable(titleBox);
+        basicWindow.addWindowListener(TuiController.closeOnEscape(this::dismiss));
+    }
+
+    private static void addRow(Panel grid, Component label, TextBox box) {
+        grid.addComponent(label, GridLayout.createLayoutData(
+                GridLayout.Alignment.END, GridLayout.Alignment.CENTER));
+        grid.addComponent(box);
     }
 
     /** The Lanterna window. */
@@ -99,7 +127,12 @@ final class AddLoginDialog implements InputForm {
         for (TextBox box : List.of(titleBox, usernameBox, passwordBox, urlsBox, tagsBox)) {
             box.setText("");
         }
-        errorLabel.setText("");
+        notice.clear();
+    }
+
+    @Override
+    public void animate(Instant now) {
+        notice.animate(now);
     }
 
     private static TextBox textBox() {
@@ -168,7 +201,7 @@ final class AddLoginDialog implements InputForm {
     }
 
     private void showError(String message, TextBox focus) {
-        errorLabel.setText(message);
+        notice.error(message, clock.instant());
         basicWindow.setFocusedInteractable(focus);
     }
 }

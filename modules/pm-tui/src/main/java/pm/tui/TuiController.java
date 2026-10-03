@@ -4,6 +4,9 @@ import com.googlecode.lanterna.gui2.Window;
 import com.googlecode.lanterna.gui2.WindowBasedTextGUI;
 import com.googlecode.lanterna.gui2.WindowListenerAdapter;
 import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -45,6 +48,7 @@ final class TuiController {
     private final Duration idleTimeout;
     private final IdleTimerFactory timers;
     private final Clock timeSource;
+    private final PmTheme pmTheme;
     private final ActivityListener activityListener = new ActivityListener();
     /** GUI-thread confined: forms shown and not yet cleared by the controller. */
     private final List<InputForm> openForms = new ArrayList<>();
@@ -58,12 +62,13 @@ final class TuiController {
     private boolean quitRequested;
 
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
-            IdleTimerFactory timers, Clock clock) {
+            IdleTimerFactory timers, Clock clock, PmTheme theme) {
         this.gui = Objects.requireNonNull(gui, "gui");
         this.port = Objects.requireNonNull(port, "port");
         this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
         this.timers = Objects.requireNonNull(timers, "timers");
         this.timeSource = Objects.requireNonNull(clock, "clock");
+        this.pmTheme = Objects.requireNonNull(theme, "theme");
     }
 
     /** Shows the unlock screen. */
@@ -84,6 +89,42 @@ final class TuiController {
     /** Clock used for record timestamps and the lock countdown. */
     Clock clock() {
         return timeSource;
+    }
+
+    /** Colors and styles shared by every window. */
+    PmTheme theme() {
+        return pmTheme;
+    }
+
+    /**
+     * Draws pending changes now, before a long call on this thread (key derivation) blocks the
+     * loop, so the user sees why the screen is still.
+     */
+    void repaintNow() {
+        try {
+            gui.updateScreen();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Whether {@code key} is Ctrl plus the letter {@code letter}. */
+    static boolean isCtrl(KeyStroke key, char letter) {
+        return key.getKeyType() == KeyType.Character && key.isCtrlDown()
+                && Character.toLowerCase(key.getCharacter()) == letter;
+    }
+
+    /** A listener that runs {@code close} on Esc, for dialogs. */
+    static WindowListenerAdapter closeOnEscape(Runnable close) {
+        return new WindowListenerAdapter() {
+            @Override
+            public void onInput(Window basePane, KeyStroke key, AtomicBoolean deliverEvent) {
+                if (key.getKeyType() == KeyType.Escape) {
+                    deliverEvent.set(false);
+                    close.run();
+                }
+            }
+        };
     }
 
     /** Unlocks through the passphrase or recovery-key slot and opens the dashboard. */
@@ -122,12 +163,18 @@ final class TuiController {
         }
     }
 
-    /** Refreshes the "Locked in m:ss" status bar. */
+    /**
+     * Runs once per UI loop: refreshes the "Locked in m:ss" countdown (SR-504) and advances every
+     * animation to the clock's current instant.
+     */
     void tick() {
+        Instant now = timeSource.instant();
         if (dashboard != null) {
-            Duration idle = Duration.between(lastActivity, timeSource.instant());
-            dashboard.setStatus(Messages.lockedIn(idleTimeout.minus(idle)));
+            Duration idle = Duration.between(lastActivity, now);
+            dashboard.animate(now, idleTimeout.minus(idle), idleTimeout);
         }
+        openForms.removeIf(f -> !gui.getWindows().contains(f.window()));
+        openForms.forEach(f -> f.animate(now));
     }
 
     /** Locks: closes the session and returns to the unlock screen (SR-504). */
@@ -191,6 +238,10 @@ final class TuiController {
         @Override
         public void onInput(Window basePane, KeyStroke keyStroke, AtomicBoolean deliverEvent) {
             activity();
+            if (isCtrl(keyStroke, 'x')) { // quit from any screen
+                deliverEvent.set(false);
+                quit();
+            }
         }
     }
 }

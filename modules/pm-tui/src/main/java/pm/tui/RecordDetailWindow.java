@@ -2,6 +2,7 @@ package pm.tui;
 
 import com.googlecode.lanterna.gui2.BasicWindow;
 import com.googlecode.lanterna.gui2.Button;
+import com.googlecode.lanterna.gui2.EmptySpace;
 import com.googlecode.lanterna.gui2.GridLayout;
 import com.googlecode.lanterna.gui2.Label;
 import com.googlecode.lanterna.gui2.Panel;
@@ -20,24 +21,56 @@ import pm.vault.record.WifiRecord;
  */
 final class RecordDetailWindow {
     static final String CLOSE = "Close";
+    static final String HINT = "esc close";
 
+    private static final String TYPE_LABEL = "Type:";
     private static final int GRID_COLUMNS = 2;
+    private static final int SIDE_MARGIN = 3;
+    private static final int GAP = 3;
 
     private final BasicWindow basicWindow;
 
-    RecordDetailWindow(VaultRecord shownRecord) {
+    RecordDetailWindow(VaultRecord shownRecord, PmTheme theme) {
         basicWindow = new BasicWindow(DisplaySafe.text(shownRecord.title()));
-        Panel grid = new Panel(new GridLayout(GRID_COLUMNS));
+        GridLayout layout = new GridLayout(GRID_COLUMNS);
+        layout.setHorizontalSpacing(GAP);
+        layout.setLeftMarginSize(SIDE_MARGIN);
+        layout.setRightMarginSize(SIDE_MARGIN);
+        layout.setTopMarginSize(1);
+        layout.setBottomMarginSize(1);
+        Panel grid = new Panel(layout);
         for (List<String> field : fields(shownRecord)) {
-            grid.addComponent(new Label(DisplaySafe.text(field.get(0))));
-            grid.addComponent(new Label(DisplaySafe.text(field.get(1))));
+            Label name = UnlockWindow.dim(theme, DisplaySafe.text(field.get(0)));
+            grid.addComponent(name, GridLayout.createLayoutData(
+                    GridLayout.Alignment.END, GridLayout.Alignment.BEGINNING));
+            grid.addComponent(value(theme, field));
         }
-        Button close = new Button(CLOSE, basicWindow::close);
-        grid.addComponent(close);
+        Button close = PmTheme.pill(CLOSE, basicWindow::close);
+        grid.addComponent(new EmptySpace(), GridLayout.createHorizontallyFilledLayoutData(GRID_COLUMNS));
+        grid.addComponent(UnlockWindow.dim(theme, HINT), GridLayout.createLayoutData(
+                GridLayout.Alignment.END, GridLayout.Alignment.CENTER));
+        grid.addComponent(close, GridLayout.createLayoutData(
+                GridLayout.Alignment.END, GridLayout.Alignment.CENTER));
 
+        basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
         basicWindow.setComponent(grid);
         basicWindow.setFocusedInteractable(close);
+        basicWindow.addWindowListener(TuiController.closeOnEscape(basicWindow::close));
+    }
+
+    /** The value cell: masked secrets recede, the type gets its color, the rest is plain text. */
+    private static Label value(PmTheme theme, List<String> field) {
+        String text = DisplaySafe.text(field.get(1));
+        Label label = new Label(text);
+        if (text.contains(Messages.SECRET_MASK)) {
+            label.setForegroundColor(theme.color(PmTheme.Tone.MUTED));
+        } else if (TYPE_LABEL.equals(field.get(0))) {
+            label.setForegroundColor(theme.color(PmTheme.Tone.CYAN));
+        } else {
+            label.setForegroundColor(theme.color(PmTheme.Tone.BRIGHT));
+        }
+        return label;
     }
 
     /** The Lanterna window. */

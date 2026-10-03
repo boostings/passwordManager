@@ -127,6 +127,23 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | `tui` | Opens the full-screen Lanterna UI (unlock window, dashboard, search, add login, idle lock) |
 | `--help`, `-h`, `help` | Prints the usage line |
 
+### Keys in the app
+
+| Key | Where | Does |
+| --- | --- | --- |
+| Enter | Unlock | Unlocks with the passphrase (Tab reaches "Use recovery key") |
+| Type | Dashboard | Filters the list live |
+| ↑ ↓, Enter | Dashboard | Selects a record and opens its detail card (secrets stay masked) |
+| Ctrl+N | Dashboard | New login |
+| Ctrl+L | Dashboard | Locks now |
+| Esc | Dashboard, cards | Clears the search, or closes the detail card or the add-login dialog (cancel) |
+| Ctrl+X | Everywhere | Locks and quits |
+
+The header counts down to the idle lock: its meter drains from green through amber to red and
+pulses in the last 30 seconds. Colors use the 256-color palette, which macOS Terminal and other
+common terminals support. Ctrl+X quits rather than Ctrl+Q, because many terminals
+use Ctrl+Q and Ctrl+S for flow control.
+
 **A real terminal is required.** Passphrases are read only through `System.console()`. When stdin
 or stdout is not a terminal (a pipe, CI, an IDE run window), every command, including `--help`,
 prints `interactive terminal required` and exits with 2. To test from a script, run the command
@@ -172,7 +189,7 @@ file. The full gate (`check certReport`, nothing excluded) is green with 0 findi
 | pm-cli | 128 |
 | pm-storage | 59 |
 | pm-vault | 258 |
-| pm-tui | 41 |
+| pm-tui | 57 |
 | pm-arch-tests | 15 |
 | pm-fuzz | 20 |
 

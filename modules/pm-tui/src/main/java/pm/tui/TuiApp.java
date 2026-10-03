@@ -45,16 +45,24 @@ public final class TuiApp {
         try (var scheduler = IdleLock.newDaemonScheduler();
                 Screen screen = new TerminalScreen(terminal)) {
             screen.startScreen();
-            MultiWindowTextGUI gui = new MultiWindowTextGUI(screen);
+            PmTheme theme = PmTheme.standard();
+            MultiWindowTextGUI gui = newGui(screen, theme);
             TuiController controller = new TuiController(gui, port, idleLock,
                     (timeout, onLock) -> new IdleLockTimer(new IdleLock(timeout, onLock, scheduler)),
-                    Clock.systemUTC());
+                    Clock.systemUTC(), theme);
             try {
                 loop(gui.getGUIThread(), controller);
             } finally {
                 controller.quit(); // closes the session and cancels the timer before scheduler.close()
             }
         }
+    }
+
+    /** The window GUI over {@code screen}, themed; shared with the test harness. */
+    static MultiWindowTextGUI newGui(Screen screen, PmTheme theme) {
+        MultiWindowTextGUI gui = new MultiWindowTextGUI(screen);
+        gui.setTheme(theme.cards());
+        return gui;
     }
 
     private static void loop(TextGUIThread guiThread, TuiController controller) throws IOException {
