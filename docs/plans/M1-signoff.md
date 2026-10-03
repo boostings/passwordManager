@@ -10,8 +10,9 @@ Lane commits are authored by the lane owner (see memory lane-authors); no AI att
 - [x] **S2** Lane C fix: Argon2 heap refusal maps to `VaultException.Code.INSUFFICIENT_MEMORY`, not CORRUPT,
   in `VaultService.create` and `unlockWithPassphrase`; tests for both paths. Accept: gate green. Commit `M1.4 C:`.
   - Result: VaultService.passphraseKek maps BAD_PARAMS→INSUFFICIENT_MEMORY; 2 tests fail with CORRUPT without the fix; gate green, 680 tests, 0 findings.
-- [ ] **S3** Security owner (A): CE-001..CE-005 reviewed against the code and marked signed off; plan.md
+- [x] **S3** Security owner (A): CE-001..CE-005 reviewed against the code and marked signed off; plan.md
   "Project status" updated with M1 done. Commit `M1.4 A:`.
+  - Result: inventory of all suppressions; CE-001..005 re-checked against code; unledgered Error Prone suppression on CborValue.Bytes added as CE-006; all 6 signed off; plan.md status table.
 - [ ] **S4** `docs/security/milestone-signoff.md` `## M1`: headers `### A`..`### E` (E first), then each lane's
   criteria, proving test, and the real result line from CI run on all 3 OSes. One `M1.4 <lane>:` commit per lane.
 - [ ] **S5** Full gate, push, CI green on ubuntu/macos/windows for the final commit, tag `m1` (tagger Jacob),
