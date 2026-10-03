@@ -6,4 +6,5 @@ module pm.browser {
     requires transitive pm.approval;
 
     exports pm.browser.host;
+    exports pm.browser.bridge;
 }

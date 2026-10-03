@@ -70,6 +70,8 @@ desktop application.
 | SR-303 | Native messaging JSON is size-bounded (Chrome limit 1 MiB) and schema-validated; the parser is fuzzed | T-FUZZ-NM | V5.1 | MSC05-J |
 | SR-304 | Autofill happens only on explicit user action in the extension UI, never automatically on page load | T-EXT-04 | — | — |
 | SR-305 | Native messaging requests are one JSON object whose member names are exactly the set for its `type`, each of the listed type and range; the caller's extension origin is checked against the host's own allowlist before stdin is read (ADR 0014 §3, §4) | T-EXT-05, T-EXT-02 | V5.1 | IDS00-J, MSC05-J |
+| SR-306 | Origins are canonicalised before any comparison: scheme and host lowercased (ASCII only), hosts accepted only as ASCII/A-label (`xn--`) LDH names with no IDNA mapping (non-ASCII refused), default port elided; userinfo, trailing dots, IPv6 and non-canonical IPv4 literals are refused (ADR 0014 §5) | T-EXT-01 | V5.1 | IDS01-J |
+| SR-307 | Fill, save and generate each submit one broker request scoped to one canonical origin and one action (fills: one login, named in the prompt); generate stores the new login before releasing the password; a password reaches the bridge only through a single-use `Grant` it cannot construct (ADR 0014 §6) | T-EXT-03 | V4.1 | MET03-J |
 
 ## Passkeys (SR-4xx)
 
