@@ -115,6 +115,23 @@ also authenticates exactly the keys that are then pinned.
    S regardless of T. Audit entries on both sides (no values).
 7. Listener closes when no active share window remains (SR-207).
 
+Implementation notes (M3.4, `pm.sharing.share`):
+
+- A one-use share is consumed when S releases `SHARE_DATA`, before it is sent,
+  so a lost `SHARE_ACK` can never lead to a second copy. A failed apply on T
+  therefore also consumes it; S opens a new window to retry.
+- T keeps the ids it has applied and refuses an offer that repeats one
+  (`REPLAY`). T also refuses an offer whose `expires` is not after its own
+  clock, independently of S.
+- S accepts a TLS client only if it is trusted **and** has an open window, so
+  a revoked device or one with nothing offered fails at the handshake. Each
+  such refusal is reported for the audit log.
+- `ERROR` codes: 1 protocol, 2 expired, 3 used, 4 revoked, 5 unknown share,
+  6 not applied, 7 replay. Any other code is treated as an abort.
+- The listener polls every 100 ms for expiry and closes itself, releasing the
+  port, when no window is open: after the last one-use send, at expiry, or on
+  revocation.
+
 ## 7. Browser-only receiving (SR-209, SR-210)
 
 1. S generates `k_web` (32 B random) and `share_id`; encrypts the payload with
