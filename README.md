@@ -75,13 +75,30 @@ same JDK flags).
 
 ## Running the CLI
 
+### One command: `pm`
+
+Install once, then `pm` opens the whole app from any directory:
+
+```sh
+scripts/install-pm   # links scripts/pm to ~/.local/bin/pm and builds; pass another bin dir if you like
+pm                   # opens the full-screen app
+```
+
+On the first run there is no vault yet, so `pm` asks for a new passphrase twice, creates the
+vault, prints the recovery key once, and waits for Enter so you can write the key down. Then it
+opens the full-screen app, which asks you to unlock. After that, `pm` goes straight to the unlock
+screen. `pm --vault <path>` does the same for a vault file elsewhere. The subcommands below still
+work for scripting and quick lookups.
+
+### How it is launched
+
 There is no Gradle `application` plugin and no `run` task. The `pm-cli` module has an
 `installModules` task that copies the pm-cli jar and all of its runtime jars (pm-tui, pm-vault,
 pm-crypto, pm-storage, lanterna-3.1.3, bcprov-jdk18on-1.86) into `modules/pm-cli/build/modules`.
 `scripts/pm` runs that task and then launches the CLI on the module path:
 
 ```sh
-scripts/pm [--vault <path>] [--] init | add-login | list | search <query> | tui
+scripts/pm [--vault <path>] [--] [init | add-login | list | search <query> | tui]
 ```
 
 `scripts/pm` uses the following environment variables:
@@ -102,6 +119,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 
 | Command | What it does |
 | --- | --- |
+| (none) | Opens the app: the full-screen UI, after creating the vault first if none exists |
 | `init` | Asks for a new passphrase twice, creates the vault, and prints the recovery key once |
 | `add-login` | Unlocks the vault and prompts for title, username, password, URLs and tags |
 | `list` | Prints `id  type  title  updated` for each record. Secret fields are never printed. |

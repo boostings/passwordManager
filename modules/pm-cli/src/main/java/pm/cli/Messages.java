@@ -5,9 +5,9 @@ package pm.cli;
  * ever written: no exception message, path, passphrase or secret field.
  */
 enum Messages {
-    USAGE("usage: pm [--vault <path>] [--] init | add-login | list | search <query> | tui"),
+    USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui];"
+            + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
-    MISSING_COMMAND("missing command"),
     UNKNOWN_COMMAND("unknown command"),
     UNKNOWN_OPTION("unknown option"),
     WRONG_ARG_COUNT("wrong number of arguments for this command"),
@@ -36,7 +36,9 @@ enum Messages {
     PROMPT_LOGIN_PASSWORD("Password: "),
     PROMPT_URLS("URLs (comma-separated): "),
     PROMPT_TAGS("Tags (comma-separated): "),
+    PROMPT_OPEN_APP("Press Enter to open pm: "),
 
+    FIRST_RUN("no vault yet; create one to get started"),
     VAULT_CREATED("vault created"),
     RECOVERY_KEY_NOTICE("recovery key (shown once; write it down and store it offline):"),
     LOGIN_ADDED("login added: "),

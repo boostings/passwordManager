@@ -1,0 +1,34 @@
+#!/bin/sh
+# Puts `pm` on PATH by linking scripts/pm into a bin directory (default ~/.local/bin), then
+# builds once so the first `pm` starts quickly. Re-running is safe; it replaces only its own link.
+#
+#   scripts/install-pm [bin-dir]
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+bin=${1:-$HOME/.local/bin}
+target=$bin/pm
+
+mkdir -p "$bin"
+if [ -e "$target" ] && [ ! -L "$target" ]; then
+    echo "install-pm: $target exists and is not a link; remove it or pass another directory" >&2
+    exit 1
+fi
+ln -sfn "$root/scripts/pm" "$target"
+
+jdk=${PM_JAVA_HOME:-/opt/homebrew/opt/openjdk@21}
+if [ ! -x "$jdk/bin/java" ]; then
+    jdk=${JAVA_HOME:-}
+fi
+if [ -z "$jdk" ] || [ ! -x "$jdk/bin/java" ]; then
+    echo "install-pm: linked $target, but no JDK 21 found; set PM_JAVA_HOME before running pm" >&2
+    exit 2
+fi
+JAVA_HOME="$jdk" "$root/gradlew" -q -p "$root" "-Dorg.gradle.java.installations.paths=$jdk" \
+    :modules:pm-cli:installModules </dev/null
+
+echo "installed: $target -> $root/scripts/pm"
+case ":$PATH:" in
+    *":$bin:"*) echo "run: pm" ;;
+    *) echo "add $bin to PATH (for example in ~/.zshrc: export PATH=\"$bin:\$PATH\"), then run: pm" ;;
+esac

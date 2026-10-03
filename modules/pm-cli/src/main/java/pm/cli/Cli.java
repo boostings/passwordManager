@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -39,7 +41,8 @@ import pm.vault.record.WifiRecord;
 
 /**
  * The CLI behind {@link Main} (plan.md §13 M1): hand-rolled argument parsing, the {@code init},
- * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, and the mapping from
+ * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, the bare {@code pm}
+ * that opens the whole app (creating the vault first when there is none), and the mapping from
  * failures to {@link ExitCodes}. Every line printed comes from {@link Messages} or is non-secret
  * record metadata (SR-501); passphrases live only in {@link SecretChars} and are zeroed after use
  * (SR-500, ADR 0008).
@@ -57,17 +60,27 @@ final class Cli {
     private final UnaryOperator<String> properties;
     private final Clock clock;
     private final TuiLauncher tuiLauncher;
+    private final Predicate<Path> vaultExists;
 
-    /** Production wiring: real system properties, UTC clock, Lanterna terminal. */
+    /** Production wiring: real system properties, UTC clock, Lanterna terminal, real file system. */
     Cli() {
-        this(System::getProperty, Clock.systemUTC(), Cli::launchLanterna);
+        this(System::getProperty, Clock.systemUTC(), Cli::launchLanterna, Files::exists);
     }
 
-    /** Test wiring: injected property lookup, clock and TUI launcher. */
+    /** Test wiring: injected property lookup, clock and TUI launcher; the real file system. */
     Cli(UnaryOperator<String> properties, Clock clock, TuiLauncher tuiLauncher) {
+        this(properties, clock, tuiLauncher, Files::exists);
+    }
+
+    /**
+     * Test wiring with an injected vault-existence check, used only by the bare {@code pm} command
+     * to choose between first-run setup and opening the app.
+     */
+    Cli(UnaryOperator<String> properties, Clock clock, TuiLauncher tuiLauncher, Predicate<Path> vaultExists) {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.tuiLauncher = Objects.requireNonNull(tuiLauncher, "tuiLauncher");
+        this.vaultExists = Objects.requireNonNull(vaultExists, "vaultExists");
     }
 
     /** Production entry: requires an interactive console (passphrases are never read from a pipe). */
@@ -172,9 +185,11 @@ final class Cli {
                 }
             }
         }
+        Path vaultPath = vaultArg == null
+                ? VaultPaths.defaultPath(properties)
+                : VaultPaths.fromArgument(vaultArg);
         if (positional.isEmpty()) {
-            io.err().println(Messages.USAGE.text());
-            throw new UsageException(Messages.MISSING_COMMAND);
+            return openApp(vaultPath, io, opener);
         }
         String command = positional.get(0);
         List<String> operands = positional.subList(1, positional.size());
@@ -190,9 +205,6 @@ final class Cli {
             throw new UsageException(Messages.WRONG_ARG_COUNT);
         }
         String query = arity == 0 ? null : validQuery(operands.get(0));
-        Path vaultPath = vaultArg == null
-                ? VaultPaths.defaultPath(properties)
-                : VaultPaths.fromArgument(vaultArg);
         VaultPort port = opener.open(vaultPath, INIT_COMMAND.equals(command));
         return switch (command) {
             case INIT_COMMAND -> init(port, io);
@@ -311,6 +323,28 @@ final class Cli {
             printRecords(io.out(), session.search(query));
         }
         return ExitCodes.OK;
+    }
+
+    /**
+     * Bare {@code pm}: the whole app in one command. With no vault at {@code vaultPath} it runs the
+     * {@code init} flow first, waits for Enter so the recovery key can be written down before the
+     * full-screen UI covers it (ADR 0004), then opens the TUI, which unlocks on its own.
+     */
+    private int openApp(Path vaultPath, ConsoleIo io, VaultOpener opener)
+            throws UsageException, VaultException, IOException {
+        if (vaultExists.test(vaultPath)) {
+            return tui(opener.open(vaultPath, false));
+        }
+        io.out().println(Messages.FIRST_RUN.text());
+        VaultPort port = opener.open(vaultPath, true);
+        int status = init(port, io);
+        if (status != ExitCodes.OK) {
+            return status;
+        }
+        if (io.readLine(Messages.PROMPT_OPEN_APP.text()) == null) {
+            throw new UsageException(Messages.INPUT_CLOSED);
+        }
+        return tui(port);
     }
 
     private int tui(VaultPort port) throws IOException {

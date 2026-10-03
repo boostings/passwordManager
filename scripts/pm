@@ -1,14 +1,26 @@
 #!/bin/sh
 # Builds (incrementally) and runs the pm CLI from its JPMS module path.
 #
-#   scripts/pm [--vault <path>] init | add-login | list | search <query> | tui
+#   scripts/pm [--vault <path>] [init | add-login | list | search <query> | tui]
+#
+# With no command it opens the whole app (first run creates the vault). scripts/install-pm
+# links this script into ~/.local/bin as `pm`, so `pm` alone works from any directory.
 #
 # PM_JAVA_HOME  JDK 21 home (default /opt/homebrew/opt/openjdk@21, else $JAVA_HOME)
 # PM_JAVA_OPTS  extra JVM options, e.g. -Xmx1200m for 1 GiB Argon2 vaults (ADR 0007)
 # PM_SKIP_BUILD=1 skips the Gradle step and runs the last built jars
 set -eu
 
-root=$(cd "$(dirname "$0")/.." && pwd)
+# Follow symlinks (scripts/install-pm links this file onto PATH) to find the repository.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+root=$(cd "$(dirname "$self")/.." && pwd)
 
 jdk=${PM_JAVA_HOME:-/opt/homebrew/opt/openjdk@21}
 if [ ! -x "$jdk/bin/java" ]; then

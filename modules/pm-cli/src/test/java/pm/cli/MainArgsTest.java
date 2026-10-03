@@ -44,9 +44,10 @@ class MainArgsTest {
     private final List<Boolean> creating = new ArrayList<>();
     private final List<VaultPort> launched = new ArrayList<>();
     private TuiLauncher launcher = launched::add;
+    private boolean vaultOnDisk;
 
     private int run(FakeConsoleIo io, FakeVaultPort port, String... args) {
-        Cli cli = new Cli(props::get, Clock.fixed(NOW, ZoneOffset.UTC), p -> launcher.launch(p));
+        Cli cli = new Cli(props::get, Clock.fixed(NOW, ZoneOffset.UTC), p -> launcher.launch(p), p -> vaultOnDisk);
         return cli.run(args, io, (path, forCreate) -> {
             opened.add(path);
             creating.add(forCreate);
@@ -301,11 +302,74 @@ class MainArgsTest {
         assertTrue(opened.isEmpty());
     }
 
+    // ---- bare pm: the whole app ----------------------------------------------------------------
+
     @Test
-    void missingCommandIsUsage() {
+    void bareCommandWithAVaultOpensTheTuiWithoutTuningOrPrompting() {
+        vaultOnDisk = true;
+        FakeVaultPort port = new FakeVaultPort();
         FakeConsoleIo io = new FakeConsoleIo();
-        assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort()));
-        assertTrue(io.errText().contains(Messages.MISSING_COMMAND.text()));
+
+        assertEquals(ExitCodes.OK, run(io, port));
+
+        assertEquals(List.of(port), launched);
+        assertEquals(List.of(false), creating, "unlock reads Argon2 parameters from the header");
+        assertEquals(List.of(Path.of(HOME, ".local", "share", "pm", "vault.pmv")), opened);
+        assertEquals(0, io.secretsRead(), "the TUI does its own unlock");
+        assertEquals("", io.outText());
+    }
+
+    @Test
+    void bareCommandWithoutAVaultCreatesOneShowsTheKeyThenOpensTheTui() {
+        FakeVaultPort port = new FakeVaultPort();
+        FakeConsoleIo io = new FakeConsoleIo().secret(CANARY).secret(CANARY).line("");
+
+        assertEquals(ExitCodes.OK, run(io, port, "--vault", "/tmp/new.pmv"));
+
+        assertTrue(port.exists());
+        assertEquals(List.of(true), creating, "a new vault is tuned to this machine");
+        assertEquals(1, count(io.outText(), FakeVaultPort.RECOVERY_KEY));
+        assertTrue(io.outText().indexOf(FakeVaultPort.RECOVERY_KEY) > io.outText().indexOf(Messages.FIRST_RUN.text()));
+        assertTrue(port.recoveryKey().isClosed(), "recovery key closed before the TUI opens");
+        assertTrue(port.session().isLocked(), "the TUI unlocks on its own");
+        assertEquals(List.of(port), launched);
+        assertTrue(io.allSecretsZeroed());
+        assertFalse(io.outText().contains(CANARY));
+    }
+
+    @Test
+    void bareCommandFirstRunWithMismatchedPassphrasesNeverOpensTheTui() {
+        FakeVaultPort port = new FakeVaultPort();
+        FakeConsoleIo io = new FakeConsoleIo().secret(CANARY).secret(CANARY + "x");
+
+        assertEquals(ExitCodes.USAGE, run(io, port));
+
+        assertFalse(port.exists());
+        assertTrue(launched.isEmpty());
+        assertTrue(io.errText().contains(Messages.PASSPHRASE_MISMATCH.text()));
+    }
+
+    @Test
+    void bareCommandFirstRunWithInputClosedAtTheKeyPromptKeepsTheVaultButSkipsTheTui() {
+        FakeVaultPort port = new FakeVaultPort();
+        FakeConsoleIo io = new FakeConsoleIo().secret(CANARY).secret(CANARY);
+
+        assertEquals(ExitCodes.USAGE, run(io, port));
+
+        assertTrue(port.exists(), "the vault and its shown key stand");
+        assertTrue(launched.isEmpty());
+        assertTrue(io.errText().contains(Messages.INPUT_CLOSED.text()));
+    }
+
+    @Test
+    void bareCommandWithABadVaultPathIsUsageAndTouchesNothing() {
+        FakeConsoleIo io = new FakeConsoleIo();
+
+        assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort(), "--vault", "~/v.pmv"));
+
+        assertTrue(opened.isEmpty());
+        assertTrue(launched.isEmpty());
+        assertTrue(io.errText().contains(Messages.VAULT_PATH_TILDE.text()));
     }
 
     @Test
