@@ -23,5 +23,5 @@ Gate: `./gradlew --rerun-tasks check certReport` (JDK 21 toolchain path) → BUI
   - Result: 5 branches merged; cold-cache gate green, 678 tests, 0 findings, no leaks. Fuzz 3x5 min, 0 crashes (docs/security/fuzz/M1-fuzz-runs.md).
 - [x] **I8** Phase 0 docs: ADR 0002/0003/0004/0006 Accepted, ADR 0006 Amendment 1, docs/schemas/records.cddl; push
   - Result: ADRs ratified with Implementation notes listing code/ADR differences; CDDL and Amendment 1 already existed (05eeb8a), checked against code.
-- [ ] **I9** CI actually runs: ci.yml parses, action pins exist, dependency verification works on a cold cache; 3-OS gate green on GitHub
-  - Fixed so far: YAML, checkout pin, metadata check, 158 checksums, committed signing keyring. Cold-cache local gate green.
+- [x] **I9** CI actually runs: ci.yml parses, action pins exist, dependency verification works on a cold cache; 3-OS gate green on GitHub
+  - Result: run 37136437530 on b481651 green on ubuntu-22.04, macos-14, windows-2022 + dependency scan (first CI run ever to execute). Windows: VaultPermissionsTest 1/1, OwnerOnlyTest 5 (POSIX case skipped), AtomicWriteCrashTest 10/10.

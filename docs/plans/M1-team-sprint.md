@@ -684,7 +684,8 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
   - Result: all five lanes' contracts on main; gate green.
 - [x] **Phase 2 Implementation:** 15 implementation commits merged (3 per lane), gate green
   - Result: all lanes merged by d4f6c36; jqwik round trips in CborWriterReaderTest/RecordCodecTest; gate green, 668 tests.
-- [ ] **Phase 3 Integration:** end-to-end test green, tamper/permission/constant-time/fuzz tests green on 3 OSes
+- [x] **Phase 3 Integration:** end-to-end test green, tamper/permission/constant-time/fuzz tests green on 3 OSes
+  - Result: CI run 37136437530 green on ubuntu/macos/windows (678 tests, 0 findings); fuzz 3x5 min, 0 crashes.
 - [ ] **Phase 4 Sign-off:** milestone-signoff M1 written by all five, tag `m1` pushed
 
 ## 10. Explicitly out of scope for this sprint (do not start)
