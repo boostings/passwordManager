@@ -1,0 +1,71 @@
+# M1.3 E: manual end-to-end run of the installed CLI (2026-10-03, macOS, JDK 21)
+#
+# Commands:
+#   JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew -Dorg.gradle.java.installations.paths=/opt/homebrew/opt/openjdk@21 :modules:pm-cli:installModules
+#   expect run.exp "$PWD" <tmp>/v/vault.pmv transcript.txt
+#
+# run.exp sets PM_SKIP_BUILD=1, spawns `scripts/pm --vault <tmp>/v/vault.pmv <command>` on a
+# pseudo-terminal for each step, answers each prompt with `send`, and logs the terminal output
+# (log_file) plus each process's exit status. <tmp>/v did not exist beforehand; the store created
+# it as drwx------ and wrote vault.pmv, vault.pmv.bak.1 and vault.pmv.lock as -rw-------.
+#
+# Passphrase prompts are read with Console.readPassword (echo off), so the typed passphrase,
+# login password and wrong passphrase do not appear below: `grep -c` for all three over the raw
+# log returned 0. Title, username, URLs and tags are echoed because they are not secret.
+# The recovery key of this throwaway vault (deleted after the run) is redacted to keep secret
+# scanners quiet; the CLI printed a 56-character key as 8 dash-separated groups of 7.
+#
+# run.exp (passphrases here are throwaway test values):
+#   set timeout 120
+#   set root [lindex $argv 0]; set vault [lindex $argv 1]
+#   log_file -noappend [lindex $argv 2]
+#   set env(PM_SKIP_BUILD) 1
+#   set pass "manual-e2e-passphrase-4c2f"
+#   proc pm {args} { global root vault spawn_id
+#       send_log "\n\$ scripts/pm --vault <tmp>/v/vault.pmv [join $args { }]\n"
+#       eval spawn -noecho $root/scripts/pm --vault $vault $args }
+#   proc done {} { global spawn_id; expect eof
+#       lassign [wait] pid spawnid oserr code; send_log "\[exit code $code\]\n" }
+#   pm init
+#   expect "New passphrase: " ; send "$pass\r"
+#   expect "Repeat passphrase: " ; send "$pass\r" ; done
+#   pm add-login
+#   expect "Passphrase: " ; send "$pass\r"
+#   expect "Title: " ; send "GitHub\r"
+#   expect "Username: " ; send "alice\r"
+#   expect "Password: " ; send "manual-login-secret-91aa\r"
+#   expect "URLs (comma-separated): " ; send "https://github.com\r"
+#   expect "Tags (comma-separated): " ; send "dev\r" ; done
+#   pm list
+#   expect "Passphrase: " ; send "$pass\r" ; done
+#   pm list
+#   expect "Passphrase: " ; send "wrong-passphrase\r" ; done
+
+$ scripts/pm --vault <tmp>/v/vault.pmv init
+New passphrase:
+Repeat passphrase:
+vault created
+recovery key (shown once; write it down and store it offline):
+XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX
+[exit code 0]
+
+$ scripts/pm --vault <tmp>/v/vault.pmv add-login
+Passphrase:
+Title: GitHub
+Username: alice
+Password:
+URLs (comma-separated): https://github.com
+Tags (comma-separated): dev
+login added: 39d4c7ed-5f91-4910-a153-b1b628f36ef3
+[exit code 0]
+
+$ scripts/pm --vault <tmp>/v/vault.pmv list
+Passphrase:
+id  type  title  updated
+39d4c7ed-5f91-4910-a153-b1b628f36ef3  login  GitHub  2026-10-03T15:31:34Z
+[exit code 0]
+
+$ scripts/pm --vault <tmp>/v/vault.pmv list
+Passphrase:
+wrong passphrase or recovery key
+[exit code 1]
