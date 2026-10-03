@@ -43,12 +43,12 @@ Status: Planned until the test exists and passes in CI.
 | TM-53 | SR-303 | MSC05-J | T-FUZZ-NM | M5 | Planned |
 | TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
 | TM-61 | SR-017 | — | ArchUnit | M4 | Planned |
-| TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Planned |
-| — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Planned |
-| — | SR-062 | IDS00-J, NUM00-J, MSC05-J | `SshKeyTest`, `SshAgentClientTest` | M4 | Planned |
-| — | SR-063 | FIO01-J, FIO16-J | `SshKeyExportTest` | M4 | Planned |
-| — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Planned |
-| TM-70 | — | — | T-HEALTH-01 (network capture) | M4 | Planned |
+| TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |
+| — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Implemented (M4.3) |
+| — | SR-062 | IDS00-J, NUM00-J, MSC05-J | `SshKeyTest`, `SshAgentClientTest` | M4 | Implemented (M4.3) |
+| — | SR-063 | FIO01-J, FIO16-J | `SshKeyExportTest` | M4 | Implemented (M4.3) |
+| — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Implemented (M4.3) |
+| TM-70 | SR-074 | MSC00-J | T-HEALTH-01 (`BreachClientTest`, network capture) | M4 | Implemented (M4.2) |
 | TM-71 | SR-602 | — | T-UPD-01 | M7 | Planned |
 | TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01 | M1 | Planned |
 | TM-81 | SR-105 | MSC05-J | T-FUZZ-ENV | M2 | Planned |
@@ -63,6 +63,11 @@ Status: Planned until the test exists and passes in CI.
 
 | Threat | SR | CERT | Test / check | Milestone | Status |
 | --- | --- | --- | --- | --- | --- |
-| — (weak or biased generated secret) | SR-060, SR-061 | MSC02-J | `UniformTest`, `PasswordGeneratorTest`, `PassphraseGeneratorTest` | M4 | Implemented (M4.1) |
-| — (generated secret left in memory) | SR-062 | MSC03-J | `PasswordGeneratorTest.resultIsOwnedAndZeroedOnClose`, R | M4 | Implemented (M4.1) |
-| — (corrupt wordlist) | SR-063 | IDS00-J | `PassphraseGeneratorTest.wordlistValidationRejectsCorruptLists` | M4 | Implemented (M4.1) |
+| — (weak or biased generated secret) | SR-070, SR-071 | MSC02-J | `UniformTest`, `PasswordGeneratorTest`, `PassphraseGeneratorTest` | M4 | Implemented (M4.1) |
+| — (generated secret left in memory) | SR-072 | MSC03-J | `PasswordGeneratorTest.resultIsOwnedAndZeroedOnClose`, R | M4 | Implemented (M4.1) |
+| — (corrupt wordlist) | SR-073 | IDS00-J | `PassphraseGeneratorTest.wordlistValidationRejectsCorruptLists` | M4 | Implemented (M4.1) |
+| TM-70 (breach check leaks full password hash) | SR-074 | MSC00-J | T-HEALTH-01 `BreachClientTest` (fake loopback server sees only a 5-char prefix) | M4 | Implemented (M4.2) |
+| — (unrequested network use) | SR-078 | MSC00-J, IDS01-J | `BreachClientTest.offlineHealthCheckNeverTouchesTheNetwork`, `.baseUriValidation`, `.strictRangeParsing` | M4 | Implemented (M4.2) |
+| — (weak password undetected) | SR-075 | IDS00-J | `StrengthMeterTest` | M4 | Implemented (M4.2) |
+| — (plaintext password map in memory) | SR-076 | MSC03-J | `ReuseAndAgeTest`, R | M4 | Implemented (M4.2) |
+| — (stale password undetected) | SR-077 | — | `ReuseAndAgeTest`, `HealthCheckTest` | M4 | Implemented (M4.2) |

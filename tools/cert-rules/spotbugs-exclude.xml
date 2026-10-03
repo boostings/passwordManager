@@ -57,4 +57,10 @@
         <Method name="node"/>
         <Bug pattern="COMMAND_INJECTION"/>
     </Match>
+    <!-- CE-015: the breach range protocol is keyed by SHA-1; it is a lookup key there, not a security primitive. -->
+    <Match>
+        <Class name="pm.crypto.Hash"/>
+        <Method name="~lambda\$sha1ForBreachRange\$\d+"/>
+        <Bug pattern="WEAK_MESSAGE_DIGEST_SHA1"/>
+    </Match>
 </FindBugsFilter>
