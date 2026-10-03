@@ -69,3 +69,6 @@ recovery/
 
 # jqwik example database (per-machine)
 .jqwik-database
+
+# Jazzer local fuzzing corpus (JAZZER_FUZZ=1 runs)
+.cifuzz-corpus/
