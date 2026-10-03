@@ -34,4 +34,10 @@
         <Method name="start"/>
         <Bug pattern="COMMAND_INJECTION"/>
     </Match>
+    <!-- CE-011: a pinning trust manager for self-signed peers has no CA list to advertise; the check methods enforce the pin. -->
+    <Match>
+        <Class name="pm.crypto.Tls$PinningTrustManager"/>
+        <Method name="getAcceptedIssuers"/>
+        <Bug pattern="WEAK_TRUST_MANAGER"/>
+    </Match>
 </FindBugsFilter>

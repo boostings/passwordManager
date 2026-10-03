@@ -46,6 +46,9 @@ Unknown `t` closes the session. All bodies are validated against
 ```
 HELLO        {t:"hello", seq, v:1, device_id, name, caps:[..]}
 PAIR_REQ     {t:"pair_req", seq}
+PAIR_COMMIT  {t:"pair_commit", seq, commit(32B)}   ; initiator → responder, see §5
+PAIR_NONCE   {t:"pair_nonce", seq, nonce(32B)}     ; responder → initiator
+PAIR_REVEAL  {t:"pair_reveal", seq, nonce(32B)}    ; initiator → responder
 PAIR_SAS_OK  {t:"pair_sas_ok", seq, mac}          ; see §5
 PAIR_DONE    {t:"pair_done", seq}
 SHARE_OFFER  {t:"share_offer", seq, share_id(16B), kind:"secret"/"project", summary, expires, one_use:bool}
@@ -60,17 +63,21 @@ BYE          {t:"bye", seq}
 ## 5. Pairing ceremony (SR-201, SR-203)
 
 1. Both users open "Pair" in the TUI. Initiator I connects to responder R.
-2. TLS 1.3 mutual handshake with candidate certs. Both sides now have
-   `pk_I`, `pk_R`, and the TLS exporter secret
-   `es = exportKeyingMaterial("EXPORTER-pm-pair-v1", ctx=∅, 32)`.
-   (Java: `SSLEngine`/`SSLSocket` exporter via the JDK 21 `ExtendedSSLSession`
-   when available; if the JDK build lacks exporter support, the fallback
-   binds to the TLS `Finished` messages' transcript hash obtained from the
-   session's `getPeerCertificates` + a fresh X25519 ECDH performed inside the
-   tunnel — decision deferred to implementation spike, recorded in ADR 0010.)
-3. Each side computes `sas_key = HKDF(es, salt=∅, info="pm/sas/v1" ‖ min(pk_I,pk_R) ‖ max(pk_I,pk_R), 32)`
-   and `SAS = decimal(first 20 bits of sas_key) mod 1_000_000`, zero-padded to
-   6 digits. Both screens display it.
+2. TLS 1.3 mutual handshake with candidate certs. Both sides now have the
+   authenticated `pk_I` and `pk_R`. (JDK 21 has no TLS exporter; ADR 0010
+   Amendment 1 explains why none is needed and why the earlier construction was
+   unsafe.)
+3. Commit, then reveal (ADR 0010 Amendment 1):
+   - I draws a 32-byte random `n_I` and sends `PAIR_COMMIT` with
+     `commit = SHA-256("pm/pair/commit/v1" ‖ pk_I ‖ n_I)`.
+   - R draws `n_R` and sends `PAIR_NONCE`. R sends it only after it has received the commitment.
+   - I sends `PAIR_REVEAL` with `n_I`. R checks, in constant time, that it opens
+     the commitment under `pk_I`. Otherwise the ceremony fails and counts toward the
+     lockout.
+   Each side computes `sas_key = HKDF-SHA256(ikm = n_I ‖ n_R, salt = "pm/pair/v1",
+   info = "pm/sas/v1" ‖ min(pk_I,pk_R) ‖ max(pk_I,pk_R), 32)`, ordering keys by
+   unsigned bytes, and `SAS = (first 8 bytes of sas_key, unsigned big-endian) mod
+   1_000_000`, zero-padded to 6 digits. Both screens display it.
 4. Each user confirms "the other screen shows the same 6 digits". Only then
    does each side send `PAIR_SAS_OK` with `mac = HMAC-SHA256(sas_key, "ok" ‖ own pk)`.
    The MAC proves the peer derived the same `sas_key` (i.e. same tunnel, no MITM)
@@ -82,10 +89,13 @@ BYE          {t:"bye", seq}
    SAS match on both screens has a 1-in-10^6 chance per attempt; with lockout,
    brute force is impractical (SR-203).
 
-Why this is safe without a PAKE: the security rests on the human comparison
-of a value derived from the *authenticated TLS session*. An attacker in the
-middle terminates two different TLS sessions, so the exporter secrets and the
-public keys differ, so the two screens show different digits.
+Why this is safe without a PAKE: an attacker in the middle runs two sessions.
+In each one it must fix its own nonce before it learns a random nonce from the
+victim (the commitment does this when it plays the initiator, and the message
+order does it when it plays the responder). So it cannot steer the two screens
+to the same digits; they match with probability 10^-6, and the lockout bounds
+the attempts. Both certificate keys are in the derivation, so a matching SAS
+also authenticates exactly the keys that are then pinned.
 
 ## 6. Share transfer (SR-204, SR-208)
 
