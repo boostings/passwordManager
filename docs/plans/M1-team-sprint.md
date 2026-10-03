@@ -686,7 +686,8 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
   - Result: all lanes merged by d4f6c36; jqwik round trips in CborWriterReaderTest/RecordCodecTest; gate green, 668 tests.
 - [x] **Phase 3 Integration:** end-to-end test green, tamper/permission/constant-time/fuzz tests green on 3 OSes
   - Result: CI run 37136437530 green on ubuntu/macos/windows (678 tests, 0 findings); fuzz 3x5 min, 0 crashes.
-- [ ] **Phase 4 Sign-off:** milestone-signoff M1 written by all five, tag `m1` pushed
+- [x] **Phase 4 Sign-off:** milestone-signoff M1 written by all five, tag `m1` pushed
+  - Result: `## M1` in milestone-signoff.md signed by lanes A–E; CE-001..CE-006 signed off; manual CI run 37138856846 green on ubuntu/macos/windows at b34a32a (0 CERT findings); annotated tag `m1` (tagger Jacob) pushed at b34a32a.
 
 ## 10. Explicitly out of scope for this sprint (do not start)
 

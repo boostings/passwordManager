@@ -16,6 +16,7 @@ Lane commits are authored by the lane owner (see memory lane-authors); no AI att
 - [x] **S4** `docs/security/milestone-signoff.md` `## M1`: headers `### A`..`### E` (E first), then each lane's
   criteria, proving test, and the real result line from CI run on all 3 OSes. One `M1.4 <lane>:` commit per lane.
   - Result: ## M1 with A..E; result lines from run 37138093559 (80e0895) artifacts on 3 OSes; E headers first, then one sign-off commit per lane.
-- [ ] **S5** Full gate, push, then ONE manual CI run (`gh workflow run ci.yml --ref main`, user directive
+- [x] **S5** Full gate, push, then ONE manual CI run (`gh workflow run ci.yml --ref main`, user directive
   2026-10-03: CI is manual-only) green on ubuntu/macos/windows for the final commit; tag `m1` (tagger Jacob),
   push tag; tick sprint Phase 4.
+  - Result: cold-cache gate BUILD SUCCESSFUL, 680 tests 0 failures, 0 findings, no leaks; manual run 37138856846 green on 3 OSes at b34a32a; tag m1 → b34a32a pushed; sprint Phase 4 ticked.
