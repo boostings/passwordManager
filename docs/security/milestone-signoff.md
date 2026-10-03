@@ -57,3 +57,23 @@ Fixed: rule references corrected (`codestyle.xml/EmptyControlStatement`,
 `if (x > 5)` in pm-crypto now fails `pmdMain` with `AvoidLiteralsInIfCondition`; the first
 real PMD run found one genuine violation (`AvoidFieldNameMatchingMethodName` in
 `CryptoException`), which is fixed; `semgrep --verbose` lists no files skipped by `.semgrepignore`.
+
+## M1 — Local vault foundation
+
+Evidence run: CI run 37138093559 on commit 80e0895, which holds all M1 code and passed `gate` on
+ubuntu-22.04, macos-14 and windows-2022 plus `dependency vulnerabilities (SR-600)`. Commits after
+80e0895 change only documentation and the CI trigger. Result lines below are copied from the
+Gradle test reports in that run's `reports-<os>` artifacts, in the form
+`<os>: N tests, F failures, S skipped`. The CERT compliance report in all three artifacts reads
+`**Result: 0 findings.**` with `Semgrep cert pack 0`. Each lane signs its own section in a commit
+`M1.4 <lane>: sign off <lane> exit criteria`.
+
+### A
+
+### B
+
+### C
+
+### D
+
+### E
