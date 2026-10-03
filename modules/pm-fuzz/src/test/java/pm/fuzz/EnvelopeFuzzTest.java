@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.code_intelligence.jazzer.junit.FuzzTest;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import pm.crypto.Argon2Params;
@@ -48,6 +50,27 @@ class EnvelopeFuzzTest {
 
         assertEquals(header(), parsed.header());
         assertArrayEquals(filled(TAG_LENGTH, 0x55), parsed.ciphertext());
+    }
+
+    /**
+     * Each seed is codec output (generated once with {@link EnvelopeCodec#encode}) and still parses
+     * to the slot count and ciphertext length its file name implies.
+     */
+    @Test
+    void seedCorpusIsAccepted() throws IOException, VaultException {
+        Map<String, List<Integer>> seeds = Map.of(
+                "valid-envelope.bin", List.of(2, 42),
+                "passphrase-only.bin", List.of(1, 64),
+                "max-kdf-recovery-first.bin", List.of(2, TAG_LENGTH),
+                "large-ciphertext.bin", List.of(2, 1024));
+        for (Map.Entry<String, List<Integer>> seed : seeds.entrySet()) {
+            byte[] file = Seeds.read(EnvelopeFuzzTest.class, seed.getKey());
+            ParsedEnvelope parsed = EnvelopeCodec.decode(file);
+            assertEquals(seed.getValue(), List.of(parsed.header().slots().size(), parsed.ciphertext().length),
+                    seed.getKey());
+            assertArrayEquals(file, EnvelopeCodec.encode(parsed.header(), parsed.dataSalt(), parsed.ciphertext()),
+                    seed.getKey());
+        }
     }
 
     @Test
