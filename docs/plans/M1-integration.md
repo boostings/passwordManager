@@ -19,5 +19,9 @@ Gate: `./gradlew --rerun-tasks check certReport` (JDK 21 toolchain path) → BUI
 
 - [x] **I6** Integrate teammates' Lane B (Ra1ny1) and Lane D (M0hayan) plus Ben's cleanup; push so main builds
   - Result: pushed 3173a81..d4f6c36; full gate green, 668 tests, 0 findings, no leaks. B/D fix commits authored by their owners.
-- [ ] **I7** Phase 3 tests: EndToEndTest (E), VaultPermissionsTest (B), ConstantTimeReviewTest (A), EnvelopeFuzzTest + fuzz runs + property tests (D); full gate green; push
-- [ ] **I8** Phase 0 docs: ADR 0002/0003/0004/0006 Accepted, ADR 0006 Amendment 1, docs/schemas/records.cddl; push
+- [x] **I7** Phase 3 tests: EndToEndTest (E), VaultPermissionsTest (B), ConstantTimeReviewTest (A), EnvelopeFuzzTest + fuzz runs + property tests (D); full gate green; push
+  - Result: 5 branches merged; cold-cache gate green, 678 tests, 0 findings, no leaks. Fuzz 3x5 min, 0 crashes (docs/security/fuzz/M1-fuzz-runs.md).
+- [x] **I8** Phase 0 docs: ADR 0002/0003/0004/0006 Accepted, ADR 0006 Amendment 1, docs/schemas/records.cddl; push
+  - Result: ADRs ratified with Implementation notes listing code/ADR differences; CDDL and Amendment 1 already existed (05eeb8a), checked against code.
+- [ ] **I9** CI actually runs: ci.yml parses, action pins exist, dependency verification works on a cold cache; 3-OS gate green on GitHub
+  - Fixed so far: YAML, checkout pin, metadata check, 158 checksums, committed signing keyring. Cold-cache local gate green.

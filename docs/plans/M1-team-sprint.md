@@ -679,8 +679,11 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 ## 9. Progress (tick as phases close; each line gets a one-line result)
 
 - [ ] **Phase 0 Setup:** deps merged, ADRs 0003–0008 Accepted, CODEOWNERS real, both CDDL files present
-- [ ] **Phase 1 Contracts:** all §2 stubs on main, gate green
-- [ ] **Phase 2 Implementation:** 15 implementation commits merged (3 per lane), gate green
+  - 2026-10-03: all done except CODEOWNERS, which still needs Lane E's GitHub handle (pm-cli, pm-tui).
+- [x] **Phase 1 Contracts:** all §2 stubs on main, gate green
+  - Result: all five lanes' contracts on main; gate green.
+- [x] **Phase 2 Implementation:** 15 implementation commits merged (3 per lane), gate green
+  - Result: all lanes merged by d4f6c36; jqwik round trips in CborWriterReaderTest/RecordCodecTest; gate green, 668 tests.
 - [ ] **Phase 3 Integration:** end-to-end test green, tamper/permission/constant-time/fuzz tests green on 3 OSes
 - [ ] **Phase 4 Sign-off:** milestone-signoff M1 written by all five, tag `m1` pushed
 
