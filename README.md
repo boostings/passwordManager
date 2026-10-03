@@ -62,16 +62,6 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 The report is written to `build/reports/cert-compliance.md` and also printed. A green gate shows
 `**Result: 0 findings.**` followed by `BUILD SUCCESSFUL`.
 
-**The full gate is red at the moment**: `:modules:pm-vault:test` fails 66 of 87 tests (see
-[Current state](#current-state)). Until Lanes B and D land, run the gate with that one task
-excluded:
-
-```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
-  -Dorg.gradle.java.installations.paths=/opt/homebrew/opt/openjdk@21 \
-  check certReport -x :modules:pm-vault:test
-```
-
 `check` does not run the secret scan. Run it separately (CI runs it as its own step):
 
 ```sh
@@ -152,77 +142,33 @@ Defined in `modules/pm-cli/src/main/java/pm/cli/ExitCodes.java`:
 | 5 | Internal error (a bug; only "internal error" is printed, never a stack trace) |
 | 6 | `init` created the vault but could not show the recovery key: delete the new vault file and run `init` again |
 
-### What you will see today
-
-The commands below were run on macOS (JDK 21.0.12.1) against commit `a995556`. They show the
-current state:
-
-```text
-$ script -q /dev/null scripts/pm --help
-usage: pm [--vault <path>] [--] init | add-login | list | search <query> | tui
-(exit 0)
-
-$ script -q /dev/null scripts/pm frob
-usage: pm [--vault <path>] [--] init | add-login | list | search <query> | tui
-unknown command
-(exit 2)
-
-$ scripts/pm --help            # stdout not a terminal
-interactive terminal required
-(exit 2)
-
-$ scripts/pm --vault /tmp/x/vault.pmv init      # under expect, both passphrases typed
-New passphrase:
-Repeat passphrase:
-internal error
-(exit 5)
-```
-
-`list`, `search foo` and `add-login` against that path each ask for `Passphrase:`, then print
-`internal error` and exit with 5. `tui` draws the "Unlock vault" window
-(`Passphrase or recovery key`, `<Unlock> <Use recovery key> < Quit >`). After you submit a
-passphrase it exits the UI, prints `internal error`, and exits with 5. No vault file is created.
-
 ## Current state
 
-M1 is **not finished**: no vault can be created or opened yet.
+All five lanes (A crypto, B storage, C vault core, D CBOR and records, E CLI and TUI) are
+implemented and merged. `init`, `add-login`, `list`, `search` and `tui` work against a real vault
+file. The full gate (`check certReport`, nothing excluded) is green with 0 findings.
 
-- **Lane B (`pm-storage`)**: `VaultFileStore` is still a stub. Every method throws
-  `UnsupportedOperationException("M1 stub")`.
-- **Lane D (`pm.vault.cbor`, `pm.vault.record`)**: `CborReader`, `CborWriter`, `RecordCodec` and
-  `RecordSearch` are still stubs that throw the same exception.
-- So `init` and every other vault operation fail. Per the integration notes
-  ([M1-integration.md](docs/plans/M1-integration.md) I4), `VaultService.create` first hits the
-  `VaultFileStore.open` stub and then the `CborWriter.encode`/`RecordCodec` stubs. The CLI maps the
-  unexpected exception to exit 5, `internal error`, as shown above.
-- Tests, as of `a995556`:
+| Module | Tests |
+| --- | --- |
+| pm-crypto | 144 |
+| pm-cli | 127 |
+| pm-storage | 40 (1 skipped) |
+| pm-vault | 115 |
+| pm-tui | 41 |
+| pm-arch-tests | 15 |
+| pm-fuzz | 9 |
 
-  | Module | Tests | Failed |
-  | --- | --- | --- |
-  | pm-crypto | 144 | 0 |
-  | pm-cli | 127 | 0 |
-  | pm-tui | 41 | 0 |
-  | pm-arch-tests | 15 | 0 |
-  | pm-vault | 87 | **66**, all because of the Lane B and D stubs |
+Run commands that prompt from a real terminal. Under automation, use `expect`; plain
+`script -q /dev/null` works for `--help` but loses typed-ahead input.
 
-- Lanes A (crypto), C (vault core) and E (CLI/TUI) are implemented and merged to `main`. The CLI and
-  TUI tests run against an in-memory fake vault port, not the real vault.
+Lane B refuses a vault whose parent directory already exists and is readable by group or others,
+so `--vault ~/x.pmv init` with a 755 home directory exits 4 ("vault storage error"). Use a fresh
+subdirectory (B creates it owner-only), or the default path.
 
 ## Remaining work
 
-Lanes B and D:
+M1 sprint plan, Phase 3 and 4 (docs/plans/M1-team-sprint.md):
 
-- [ ] Lane B: implement `VaultFileStore` (symlink refusal, owner-only parent dir, lock file,
-      atomic write with fsync, `.bak.1..3` rotation) and `OwnerOnly`. Add `OwnerOnlyTest`,
-      `AtomicWriteCrashTest`, and `VaultPermissionsTest` in pm-vault.
-- [ ] Lane D: implement `CborReader`/`CborWriter` (a hand-rolled deterministic subset, per ADR 0006
-      Amendment 1), `RecordCodec` and `RecordSearch`. Add `RecordCodecTest` (including
-      `truncationNeverPartial`), `docs/schemas/records.cddl`, and `EnvelopeFuzzTest` in pm-fuzz,
-      with recorded fuzz runs.
-
-After B and D land:
-
-- [ ] The 66 failing pm-vault tests pass, so the full gate (`check certReport`, nothing excluded) is green.
 - [ ] E3: `EndToEndTest` in pm-cli: init with the canary passphrase, add-login, list, reopen,
       list, and a wrong passphrase gives exit 1. Then a manual terminal transcript of a real run.
 - [ ] Lane A: `ConstantTimeReviewTest` (M1.3). The wrong-passphrase full-Argon2 proof (A3b) is
