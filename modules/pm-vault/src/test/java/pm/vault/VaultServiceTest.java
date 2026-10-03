@@ -249,6 +249,38 @@ final class VaultServiceTest {
     }
 
     @Test
+    void createNeedingMoreArgon2MemoryThanTheHeapIsInsufficientMemory() {
+        assertHeapSmallerThanMaxArgon2();
+        VaultService big = new VaultService(store, Fixtures.CLOCK, maxMemoryParams());
+        try (SecretChars pw = Fixtures.chars(Fixtures.PHRASE)) {
+            VaultException e = assertThrows(VaultException.class, () -> createVia(big, pw));
+            assertEquals(VaultException.Code.INSUFFICIENT_MEMORY, e.code());
+            assertInstanceOf(CryptoException.class, e.getCause());
+        }
+        assertFalse(store.exists());
+    }
+
+    @Test
+    void unlockOfHeaderNeedingMoreArgon2MemoryThanTheHeapIsInsufficientMemory() throws VaultException {
+        assertHeapSmallerThanMaxArgon2();
+        Argon2Params max = maxMemoryParams();
+        EnvelopeHeader bigKdf = new EnvelopeHeader(
+                new KdfHeader(EnvelopeCodec.KDF_ALG, max.memoryKiB(), max.iterations(), max.parallelism(),
+                        new byte[EnvelopeCodec.SALT_LENGTH]),
+                List.of(new SlotHeader(new UUID(1L, 1L), SlotHeader.MASTER,
+                        new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH])),
+                1L, 1L, 0L);
+        try (SecretBytes vk = SecretBytes.copyOf(new byte[Vault.KEY_LENGTH]);
+             Vault v = new Vault(store, Fixtures.CLOCK, PayloadCodec.RECORDS, bigKdf, vk, List.of())) {
+            v.save();
+        }
+        try (SecretChars pw = Fixtures.chars(Fixtures.PHRASE)) {
+            VaultException e = assertThrows(VaultException.class, () -> unlock(pw));
+            assertEquals(VaultException.Code.INSUFFICIENT_MEMORY, e.code());
+        }
+    }
+
+    @Test
     void recoveryUnlockOfVaultWithoutRecoverySlotIsWrongCredential() throws VaultException {
         Argon2Params f = Argon2Params.FLOOR;
         EnvelopeHeader masterOnly = new EnvelopeHeader(
@@ -320,6 +352,22 @@ final class VaultServiceTest {
 
     private static CreatedVault createVia(VaultService s, SecretChars pw) throws VaultException {
         return s.create(pw);
+    }
+
+    /** The ADR 0007 ceiling: 1 GiB of Argon2 memory, which Kdf needs 1.1 GiB of free heap to run. */
+    private static Argon2Params maxMemoryParams() {
+        Argon2Params f = Argon2Params.FLOOR;
+        return new Argon2Params(EnvelopeCodec.MAX_MEMORY_KIB, f.iterations(), f.parallelism());
+    }
+
+    /**
+     * The insufficient-memory tests rely on Gradle's default 512 MiB test heap. If the test heap is
+     * ever raised past 1.1 GiB, Argon2 would really run at 1 GiB; fail loudly instead.
+     */
+    private static void assertHeapSmallerThanMaxArgon2() {
+        long needed = EnvelopeCodec.MAX_MEMORY_KIB * 1024L * 11 / 10;
+        assertTrue(Runtime.getRuntime().maxMemory() < needed,
+                "test heap must be under 1.1 GiB for the INSUFFICIENT_MEMORY tests");
     }
 
     /** True if the recovery key chars are all zero, or access is refused because it is closed. */

@@ -78,7 +78,8 @@ public final class VaultService {
      * @param pw master passphrase; not closed by this method
      * @return the unlocked vault and the formatted recovery key, both owned by the caller
      * @throws VaultException {@code ALREADY_EXISTS} if a vault file exists, {@code STORAGE}
-     *                        if the write fails
+     *                        if the write fails, {@code INSUFFICIENT_MEMORY} if the heap cannot
+     *                        hold the Argon2id run
      */
     public CreatedVault create(SecretChars pw) throws VaultException {
         Objects.requireNonNull(pw, "pw");
@@ -100,7 +101,7 @@ public final class VaultService {
                 Csprng.bytes(EnvelopeCodec.SALT_LENGTH));
         try (SecretBytes vk = Csprng.secretBytes(Vault.KEY_LENGTH);
              SecretBytes rk = RecoveryKey.generate();
-             SecretBytes kekP = SlotCrypto.kekFromPassphrase(pw, kdfHeader, masterSlot);
+             SecretBytes kekP = passphraseKek(pw, kdfHeader, masterSlot);
              SecretBytes kekR = SlotCrypto.kekFromRecovery(rk, recoverySlot)) {
             List<SlotHeader> slots = List.of(
                     new SlotHeader(masterSlot, SlotHeader.MASTER, KeyWrap.wrap(kekP, vk)),
@@ -119,7 +120,9 @@ public final class VaultService {
      * @param pw master passphrase; not closed by this method
      * @return the unlocked vault, owned by the caller
      * @throws VaultException {@code WRONG_CREDENTIAL}, {@code CORRUPT},
-     *                        {@code UNSUPPORTED_VERSION} or {@code STORAGE}
+     *                        {@code UNSUPPORTED_VERSION}, {@code STORAGE}, or
+     *                        {@code INSUFFICIENT_MEMORY} if the heap cannot hold the header's
+     *                        Argon2id memory
      */
     public Vault unlockWithPassphrase(SecretChars pw) throws VaultException {
         Objects.requireNonNull(pw, "pw");
@@ -127,7 +130,7 @@ public final class VaultService {
         EnvelopeHeader header = env.header();
         // decode() guarantees exactly one passphrase slot.
         SlotHeader slot = header.firstSlot(SlotHeader.MASTER);
-        try (SecretBytes kek = SlotCrypto.kekFromPassphrase(pw, header.kdf(), slot.id());
+        try (SecretBytes kek = passphraseKek(pw, header.kdf(), slot.id());
              SecretBytes vk = unwrap(kek, slot)) {
             return open(env, vk);
         } catch (CryptoException e) {
@@ -208,6 +211,23 @@ public final class VaultService {
             return new CreatedVault(vault, RecoveryKey.format(rk));
         } catch (VaultException | RuntimeException e) {
             vault.close();
+            throw e;
+        }
+    }
+
+    /**
+     * Derives the passphrase KEK. {@code EnvelopeCodec.decode} and {@link Argon2Params} already
+     * bound m, t and p, so the only {@code BAD_PARAMS} left is {@code Kdf} refusing an Argon2id run
+     * larger than the free heap (ADR 0007). That is a JVM sizing problem, not a corrupt vault.
+     */
+    private static SecretBytes passphraseKek(SecretChars pw, KdfHeader kdfHeader, UUID slot)
+            throws VaultException, CryptoException {
+        try {
+            return SlotCrypto.kekFromPassphrase(pw, kdfHeader, slot);
+        } catch (CryptoException e) {
+            if (e.code() == CryptoException.Code.BAD_PARAMS) {
+                throw new VaultException(VaultException.Code.INSUFFICIENT_MEMORY, e);
+            }
             throw e;
         }
     }
