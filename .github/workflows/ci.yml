@@ -57,6 +57,6 @@ jobs:
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
         with: { distribution: temurin, java-version: '21' }
       - name: Dependency verification metadata must be present and strict
-        run: test -f gradle/verification-metadata.xml && grep -q 'verify-metadata="true"' gradle/verification-metadata.xml
+        run: test -f gradle/verification-metadata.xml && grep -q '<verify-metadata>true</verify-metadata>' gradle/verification-metadata.xml
       - name: OWASP Dependency-Check
         run: ./gradlew --no-daemon dependencyCheckAggregate || echo "::warning::dependencyCheck task not yet wired (Phase 8 follow-up)"
