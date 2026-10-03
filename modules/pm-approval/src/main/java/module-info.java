@@ -4,6 +4,8 @@
  */
 module pm.approval {
     requires transitive pm.domain;
+    requires jdk.net;
 
     exports pm.approval;
+    exports pm.approval.ipc;
 }
