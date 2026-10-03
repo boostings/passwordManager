@@ -1,0 +1,36 @@
+; LAN share protocol v1 message bodies (docs/protocols/lan-share.md §4).
+; Normative for pm.sharing.wire.Messages. Every body is ONE map in the deterministic CBOR
+; subset of ADR 0006 Amendment 1 (shortest forms, keys sorted bytewise, no tags, no floats,
+; no indefinite lengths), inside a frame of u32 big-endian length (1 .. 1 MiB) || body.
+; A map must have exactly the keys listed for its t: a missing, extra or mistyped key,
+; an unknown t, or a value out of range closes the session before dispatch (SR-206).
+; seq starts at 0 per direction and increases by exactly 1 (SR-202).
+
+message = hello / pair_req / pair_commit / pair_nonce / pair_reveal / pair_sas_ok /
+          pair_done / share_offer / share_accept / share_data / share_ack / revoke /
+          error / bye
+
+seq = uint .le 9223372036854775807
+device_id = bstr .size 16            ; first 16 bytes of SHA-256(id_pk)
+share_id = bstr .size 16
+pairing_value = bstr .size 32
+; shown text: 1..max UTF-16 units, no Unicode control (Cc) or format (Cf) characters
+label32 = tstr                       ; 1..32 units
+label512 = tstr                      ; 1..512 units
+cap = tstr .regexp "[a-z0-9_-]{1,32}"
+
+hello        = { t: "hello", seq: seq, v: 1, device_id: device_id, name: label32, caps: [* cap] }  ; caps ≤ 16
+pair_req     = { t: "pair_req", seq: seq }
+pair_commit  = { t: "pair_commit", seq: seq, commit: pairing_value }   ; ADR 0010 Amendment 1
+pair_nonce   = { t: "pair_nonce", seq: seq, nonce: pairing_value }
+pair_reveal  = { t: "pair_reveal", seq: seq, nonce: pairing_value }
+pair_sas_ok  = { t: "pair_sas_ok", seq: seq, mac: pairing_value }
+pair_done    = { t: "pair_done", seq: seq }
+share_offer  = { t: "share_offer", seq: seq, share_id: share_id, kind: "secret" / "project",
+                 summary: label512, expires: 1..9223372036854775807, one_use: bool }  ; expires: epoch seconds
+share_accept = { t: "share_accept", seq: seq, share_id: share_id }
+share_data   = { t: "share_data", seq: seq, share_id: share_id, payload: bstr .size (1..1048320) }
+share_ack    = { t: "share_ack", seq: seq, share_id: share_id, applied: bool }
+revoke       = { t: "revoke", seq: seq, device_id: device_id }
+error        = { t: "error", seq: seq, code: 0..65535 }
+bye          = { t: "bye", seq: seq }

@@ -1,3 +1,8 @@
-/** pm-sharing. Tier and boundaries per plan.md §10. */
+/**
+ * pm-sharing: the LAN share protocol (docs/protocols/lan-share.md, ADR 0010). Tier 1.
+ */
 module pm.sharing {
+    requires transitive pm.vault;
+
+    exports pm.sharing.wire;
 }

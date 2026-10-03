@@ -14,5 +14,5 @@ module pm.vault {
     exports pm.vault.record;
     // The codec is shared, never public: the audit log and the LAN wire format use the same
     // deterministic subset and limits.
-    exports pm.vault.cbor to pm.approval;
+    exports pm.vault.cbor to pm.approval, pm.sharing;
 }
