@@ -94,6 +94,21 @@ Signed off: Lane A (@boostings), security owner.
 
 ### B
 
+Owner: Lane B, pm-storage (@Ra1ny1).
+
+| Exit criterion | Proving test | Result (run 37138093559) |
+| --- | --- | --- |
+| Killing mid-save never corrupts (step-injected; real kill test in M7) | `AtomicWriteCrashTest.failedReplacementLeavesExactlyAnOldOrNewVault`, `stagingFileIsPrivateBeforeAnyBytesAreWritten` (parameterised over every `VaultFileStore.Step`) | `AtomicWriteCrashTest` ubuntu-22.04: 10 tests, 0 failures, 0 skipped<br>`AtomicWriteCrashTest` macos-14: 10 tests, 0 failures, 0 skipped<br>`AtomicWriteCrashTest` windows-2022: 10 tests, 0 failures, 0 skipped |
+| File permissions on all 3 OSes | `OwnerOnlyTest`, `VaultPermissionsTest` on the CI matrix | `OwnerOnlyTest` ubuntu-22.04: 5 tests, 0 failures, 2 skipped<br>`OwnerOnlyTest` macos-14: 5 tests, 0 failures, 2 skipped<br>`OwnerOnlyTest` windows-2022: 5 tests, 0 failures, 1 skipped<br>`VaultPermissionsTest` ubuntu-22.04: 1 tests, 0 failures, 0 skipped<br>`VaultPermissionsTest` macos-14: 1 tests, 0 failures, 0 skipped<br>`VaultPermissionsTest` windows-2022: 1 tests, 0 failures, 0 skipped |
+| No secret in a String outside `@SecretBoundary` (pm-storage share) | Semgrep `cert.MSC03-J.secret-in-string` | Semgrep cert pack 0 on all 3 OSes |
+
+Notes:
+- The `OwnerOnlyTest` skips are by design: the two ACL tests run only where the file system
+  supports ACLs (Windows) and the POSIX-mode test runs only on POSIX (Linux, macOS). Every OS ran
+  the platform-specific checks that apply to it, and `restrictsFilesAndDirectories` ran everywhere.
+
+Signed off: Lane B (@Ra1ny1).
+
 ### C
 
 ### D
