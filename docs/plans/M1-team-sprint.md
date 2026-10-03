@@ -678,8 +678,8 @@ Each lane opens 2–3 PRs here. Each bullet group below is one commit.
 
 ## 9. Progress (tick as phases close; each line gets a one-line result)
 
-- [ ] **Phase 0 Setup:** deps merged, ADRs 0003–0008 Accepted, CODEOWNERS real, both CDDL files present
-  - 2026-10-03: all done except CODEOWNERS, which still needs Lane E's GitHub handle (pm-cli, pm-tui).
+- [x] **Phase 0 Setup:** deps merged, ADRs 0003–0008 Accepted, CODEOWNERS real, both CDDL files present
+  - Result: ADRs 0002–0008 Accepted; records.cddl + vault-header.cddl present; CODEOWNERS has all five handles (Lane E = @Jstacs78).
 - [x] **Phase 1 Contracts:** all §2 stubs on main, gate green
   - Result: all five lanes' contracts on main; gate green.
 - [x] **Phase 2 Implementation:** 15 implementation commits merged (3 per lane), gate green

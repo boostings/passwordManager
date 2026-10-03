@@ -1,4 +1,4 @@
-# Review routing. Lane E's GitHub handle remains to be supplied before M1.
+# Review routing.
 # Tier 1 (security-critical) paths require two approving reviews (branch protection).
 
 # Security owner: signs off milestone security exit criteria and CERT exceptions.
@@ -12,9 +12,9 @@ modules/pm-approval/                @boostings @Ra1ny1
 modules/pm-sharing/                 @boostings @M0hayan
 modules/pm-browser/                 @boostings @M0hayan
 
-# Add Lane E to these two paths when their GitHub handle is confirmed.
-modules/pm-tui/                     @boostings
-modules/pm-cli/                     @boostings
+# Lane E (CLI and TUI)
+modules/pm-tui/                     @boostings @Jstacs78
+modules/pm-cli/                     @boostings @Jstacs78
 
 # Security documentation, rule packs, and CI
 docs/security/                      @boostings
