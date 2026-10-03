@@ -14,3 +14,10 @@ Gate: `./gradlew --rerun-tasks check certReport` (JDK 21 toolchain path) → BUI
   - Result: A3b done (ba49de6, slot-level proof, no early return in VaultService unlock). E3 BLOCKED: real FileVaultPort → VaultService.create fails at `pm.storage.VaultFileStore.open` (Lane B stub) and then `CborWriter.encode`/`RecordCodec` (Lane D stubs); same cause as the 66 failing pm-vault tests.
 - [x] **I5** Re-author E commits to Jacob, final gate, push to origin/main (no force), verify remote == local
   - Result: pushed aaac981..9230701 fast-forward; 15 E commits authored by Jacob; gate green except 66 pm-vault tests on Lane B/D stubs (user accepted).
+
+## Round 2 (2026-10-03): Lanes B/D landed, finish M1-team-sprint Phases 0 and 3
+
+- [x] **I6** Integrate teammates' Lane B (Ra1ny1) and Lane D (M0hayan) plus Ben's cleanup; push so main builds
+  - Result: pushed 3173a81..d4f6c36; full gate green, 668 tests, 0 findings, no leaks. B/D fix commits authored by their owners.
+- [ ] **I7** Phase 3 tests: EndToEndTest (E), VaultPermissionsTest (B), ConstantTimeReviewTest (A), EnvelopeFuzzTest + fuzz runs + property tests (D); full gate green; push
+- [ ] **I8** Phase 0 docs: ADR 0002/0003/0004/0006 Accepted, ADR 0006 Amendment 1, docs/schemas/records.cddl; push
