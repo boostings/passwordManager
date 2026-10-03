@@ -293,10 +293,10 @@ final class VaultServiceTest {
     }
 
     @Test
-    void rejectsParallelismTheHeaderCannotStore() {
-        Argon2Params tooWide = new Argon2Params(Argon2Params.FLOOR.memoryKiB(), Argon2Params.FLOOR.iterations(),
-                EnvelopeCodec.MAX_PARALLELISM + 1);
-        assertThrows(IllegalArgumentException.class, () -> new VaultService(store, Fixtures.CLOCK, tooWide));
+    void argon2ParamsRejectParallelismBeyondHeaderLimit() {
+        assertThrows(IllegalArgumentException.class, () -> new Argon2Params(
+                Argon2Params.FLOOR.memoryKiB(), Argon2Params.FLOOR.iterations(),
+                EnvelopeCodec.MAX_PARALLELISM + 1));
     }
 
     @Test

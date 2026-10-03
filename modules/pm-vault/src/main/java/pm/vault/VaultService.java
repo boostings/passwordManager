@@ -82,8 +82,15 @@ public final class VaultService {
      */
     public CreatedVault create(SecretChars pw) throws VaultException {
         Objects.requireNonNull(pw, "pw");
-        if (store.exists()) {
-            throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
+        try {
+            if (store.exists()) {
+                throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
+            }
+        } catch (IllegalStateException ex) {
+            if (ex.getCause() instanceof StorageException storageFailure) {
+                throw new VaultException(VaultException.Code.STORAGE, storageFailure);
+            }
+            throw ex;
         }
         long now = epochSeconds(clock);
         UUID masterSlot = Csprng.uuid();

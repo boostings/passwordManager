@@ -176,7 +176,16 @@ public final class Vault implements AutoCloseable {
                         new StorageException(StorageException.Code.TOO_LARGE, null));
             }
             try {
-                if (store.exists()) {
+                boolean exists;
+                try {
+                    exists = store.exists();
+                } catch (IllegalStateException ex) {
+                    if (ex.getCause() instanceof StorageException storageFailure) {
+                        throw new VaultException(VaultException.Code.STORAGE, storageFailure);
+                    }
+                    throw ex;
+                }
+                if (exists) {
                     store.backup();
                 }
                 store.writeAtomically(file);
