@@ -1303,7 +1303,9 @@ Exit gate: no unverified dependency; scan clean at Critical/High.
 
 ## Phase 6 — Secure build and CI
 
-Required pipeline stages (all required to pass on every PR):
+Required pipeline stages (all required to pass before merge and before a milestone tag).
+CI is triggered manually (`workflow_dispatch`), not on every push or PR: run
+`gh workflow run ci.yml --ref <branch>` and attach the run to the PR or sign-off.
 
 1. Compile with `-Werror`, `-Xlint:all`, and the Error Prone compiler plugin.
 2. Static analysis: SpotBugs with Find Security Bugs, PMD with the project CERT

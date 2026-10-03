@@ -1,8 +1,7 @@
 name: ci
+# Manual only: run from the Actions tab or `gh workflow run ci.yml --ref <branch>`.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
 
