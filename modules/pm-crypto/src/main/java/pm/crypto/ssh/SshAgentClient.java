@@ -3,10 +3,15 @@ package pm.crypto.ssh;
 import java.io.IOException;
 import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.InterruptedByTimeoutException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.attribute.UserPrincipal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -21,8 +26,11 @@ import java.util.Objects;
  * {@value #MAX_MESSAGE} bytes, a truncated frame, an unexpected message type, a field whose length
  * runs past the frame and trailing bytes are all {@code BAD_REPLY}. After a transport error or a
  * bad frame the connection is closed, since the stream can no longer be trusted to be in step.
- * The socket is blocking; a hung agent hangs the call (the agent is the user's own process, ADR
- * 0013). Not thread-safe.
+ * The socket is non-blocking after connecting: each request, from its first byte written to its
+ * last reply byte read, must finish within the client's deadline ({@link #DEFAULT_TIMEOUT} unless
+ * given), or the call fails with {@code TIMEOUT} and the connection is closed, so a stalled agent
+ * cannot hang the caller. Connecting is a local Unix-domain connect, which completes or fails at
+ * once unless the listener's backlog is full. Not thread-safe.
  */
 public final class SshAgentClient implements AutoCloseable {
     /** Largest reply accepted (and far above any request this client sends). */
@@ -37,12 +45,16 @@ public final class SshAgentClient implements AutoCloseable {
     static final int REMOVE_IDENTITY = 18;
     static final int REMOVE_ALL_IDENTITIES = 19;
     static final int ADD_ID_CONSTRAINED = 25;
+    /** How long one request may take, write and reply together, unless a deadline is given. */
+    public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
     private static final int U32_BYTES = 4;
 
     private final SocketChannel channel;
+    private final long timeoutNanos;
 
-    private SshAgentClient(SocketChannel channel) {
+    private SshAgentClient(SocketChannel channel, Duration timeout) {
         this.channel = channel;
+        this.timeoutNanos = timeout.toNanos();
     }
 
     /**
@@ -52,8 +64,17 @@ public final class SshAgentClient implements AutoCloseable {
      *     {@code UNSAFE_SOCKET} if a path check fails
      */
     public static SshAgentClient connect(Path socket) throws SshException {
+        return connect(socket, DEFAULT_TIMEOUT);
+    }
+
+    /**
+     * {@link #connect(Path)} with a per-request deadline.
+     *
+     * @throws IllegalArgumentException if {@code timeout} is zero or negative
+     */
+    public static SshAgentClient connect(Path socket, Duration timeout) throws SshException {
         Objects.requireNonNull(socket, "socket");
-        return connect(socket, AgentSocket.currentUser(socket));
+        return connect(socket, AgentSocket.currentUser(socket), timeout);
     }
 
     /**
@@ -63,15 +84,27 @@ public final class SshAgentClient implements AutoCloseable {
      * user.
      */
     static SshAgentClient connect(Path socket, UserPrincipal owner) throws SshException {
+        return connect(socket, owner, DEFAULT_TIMEOUT);
+    }
+
+    static SshAgentClient connect(Path socket, UserPrincipal owner, Duration timeout) throws SshException {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("BAD_TIMEOUT");
+        }
         Path real = AgentSocket.check(socket, owner);
         SshAgentClient client;
         try {
-            client = new SshAgentClient(SocketChannel.open(UnixDomainSocketAddress.of(real)));
+            client = new SshAgentClient(SocketChannel.open(UnixDomainSocketAddress.of(real)), timeout);
         } catch (IOException e) {
             throw new SshException(SshException.Code.NO_AGENT);
         }
         try {
             AgentSocket.checkPeer(client.channel, owner);
+            client.channel.configureBlocking(false);
+        } catch (IOException e) {
+            client.close();
+            throw new SshException(SshException.Code.IO);
         } catch (SshException e) {
             client.close();
             throw e;
@@ -105,7 +138,8 @@ public final class SshAgentClient implements AutoCloseable {
         List<AgentIdentity> out = new ArrayList<>();
         for (long i = 0; i < n; i++) {
             byte[] blob = r.string(SshKey.MAX_BLOB_BYTES);
-            String keyType = SshKey.ascii(WireReader.over(blob, SshException.Code.BAD_REPLY).string(SshKey.MAX_NAME_BYTES));
+            String keyType = displayable(SshKey.ascii(
+                    WireReader.over(blob, SshException.Code.BAD_REPLY).string(SshKey.MAX_NAME_BYTES)));
             String comment = displayable(new String(r.string(SshKey.MAX_COMMENT_BYTES), StandardCharsets.UTF_8));
             out.add(new AgentIdentity(blob, keyType, comment));
         }
@@ -190,19 +224,27 @@ public final class SshAgentClient implements AutoCloseable {
         return out.toString();
     }
 
-    /** Sends one framed request and returns the reply body; closes the connection on any failure. */
+    /**
+     * Sends one framed request and returns the reply body, all within one deadline; closes the
+     * connection on any failure.
+     */
     private byte[] call(WireWriter request) throws SshException {
-        try {
-            request.writeFramed(channel);
+        long deadline = System.nanoTime() + timeoutNanos;
+        try (Selector selector = Selector.open();
+                Deadline io = new Deadline(channel.register(selector, 0), deadline)) {
+            request.writeFramed(io);
             ByteBuffer header = ByteBuffer.allocate(U32_BYTES);
-            fill(header);
+            fill(io, header);
             long n = Integer.toUnsignedLong(header.getInt(0));
             if (n == 0 || n > MAX_MESSAGE) {
                 throw new SshException(SshException.Code.BAD_REPLY);
             }
             ByteBuffer body = ByteBuffer.allocate((int) n);
-            fill(body);
+            fill(io, body);
             return body.array();
+        } catch (InterruptedByTimeoutException e) {
+            close();
+            throw new SshException(SshException.Code.TIMEOUT);
         } catch (IOException e) {
             close();
             throw new SshException(SshException.Code.IO);
@@ -212,11 +254,53 @@ public final class SshAgentClient implements AutoCloseable {
         }
     }
 
-    private void fill(ByteBuffer b) throws IOException, SshException {
+    private void fill(Deadline io, ByteBuffer b) throws IOException, SshException {
         while (b.hasRemaining()) {
+            io.await(SelectionKey.OP_READ);
             if (channel.read(b) < 0) {
                 throw new SshException(SshException.Code.BAD_REPLY);
             }
+        }
+    }
+
+    /**
+     * The non-blocking channel seen as a blocking one with a deadline: every write and read first
+     * waits until the socket is ready, and fails with {@link InterruptedByTimeoutException} once
+     * the deadline has passed.
+     */
+    private final class Deadline implements WritableByteChannel {
+        private final SelectionKey key;
+        private final long deadline;
+
+        Deadline(SelectionKey key, long deadline) {
+            this.key = key;
+            this.deadline = deadline;
+        }
+
+        void await(int ops) throws IOException {
+            key.interestOps(ops);
+            long millis = Math.max(1, Duration.ofNanos(deadline - System.nanoTime()).toMillis());
+            if (key.selector().select(millis) == 0) {
+                throw new InterruptedByTimeoutException();
+            }
+            key.selector().selectedKeys().clear();
+        }
+
+        @Override
+        public int write(ByteBuffer src) throws IOException {
+            await(SelectionKey.OP_WRITE);
+            return channel.write(src);
+        }
+
+        @Override
+        public boolean isOpen() {
+            return channel.isOpen();
+        }
+
+        /** Leaves the channel open: the client owns it. */
+        @Override
+        public void close() {
+            key.cancel();
         }
     }
 

@@ -52,6 +52,7 @@ final class TuiController {
     private final Clock timeSource;
     private final PmTheme pmTheme;
     private final ApprovalHost host;
+    private final SshActions sshActions;
     private final ActivityListener activityListener = new ActivityListener();
     /** GUI-thread confined: forms shown and not yet cleared by the controller. */
     private final List<InputForm> openForms = new ArrayList<>();
@@ -72,6 +73,12 @@ final class TuiController {
 
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
             IdleTimerFactory timers, Clock clock, PmTheme theme, ApprovalHost host) {
+        this(gui, port, idleTimeout, timers, clock, theme, host, SshActions.none());
+    }
+
+    TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
+            IdleTimerFactory timers, Clock clock, PmTheme theme, ApprovalHost host, SshActions ssh) {
+        this.sshActions = Objects.requireNonNull(ssh, "ssh");
         this.host = Objects.requireNonNull(host, "host");
         this.gui = Objects.requireNonNull(gui, "gui");
         this.port = Objects.requireNonNull(port, "port");
@@ -99,6 +106,11 @@ final class TuiController {
     /** Clock used for record timestamps and the lock countdown. */
     Clock clock() {
         return timeSource;
+    }
+
+    /** ssh-agent actions for SSH key items (M4.4); {@link SshActions#none()} when not wired. */
+    SshActions ssh() {
+        return sshActions;
     }
 
     /** Colors and styles shared by every window. */

@@ -216,6 +216,39 @@ class SshAgentClientTest {
         }
     }
 
+    @Test
+    void agentKeyTypesAreMadeSafeToPrint() throws IOException, SshException {
+        byte[] blob = new KeyFixtures.W().str("ssh-\u001b[2J\u001b]0;PWNED\u0007").str(new byte[32]).bytes();
+        byte[] reply = TestAgent.frame(new KeyFixtures.W().u8(SshAgentClient.IDENTITIES_ANSWER).u32(1).str(blob)
+                .str("c").bytes());
+        try (SshAgentClient c = scripted(req -> reply)) {
+            assertEquals("ssh-?[2J?]0;PWNED?", c.list().get(0).type());
+        }
+    }
+
+    @Test
+    void aStalledAgentTimesOutAndTheConnectionIsClosed() throws IOException, SshException {
+        // A listener that never accepts: connect completes from the backlog, nothing ever answers.
+        try (ServerSocketChannel silent = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+            silent.bind(UnixDomainSocketAddress.of(sock));
+            try (SshAgentClient c = SshAgentClient.connect(sock, AgentSocket.currentUser(sock), Duration.ofMillis(200))) {
+                long start = System.nanoTime();
+                assertEquals(SshException.Code.TIMEOUT, assertThrows(SshException.class, c::list).code());
+                assertTrue(Duration.ofNanos(System.nanoTime() - start).compareTo(Duration.ofSeconds(5)) < 0);
+                assertEquals(SshException.Code.IO, assertThrows(SshException.class, c::removeAll).code(),
+                        "closed after the timeout");
+            }
+        }
+    }
+
+    @Test
+    void timeoutsMustBePositive() {
+        assertThrows(IllegalArgumentException.class, () -> SshAgentClient.connect(sock, Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> SshAgentClient.connect(sock, Duration.ofSeconds(-1)));
+        assertThrows(NullPointerException.class, () -> SshAgentClient.connect(sock, (Duration) null));
+        assertEquals(Duration.ofSeconds(10), SshAgentClient.DEFAULT_TIMEOUT);
+    }
+
     private SshException.Code badSimpleReply(byte[] raw) throws IOException, SshException {
         try (SshAgentClient c = hangingUp(req -> raw)) {
             return assertThrows(SshException.class, c::removeAll).code();

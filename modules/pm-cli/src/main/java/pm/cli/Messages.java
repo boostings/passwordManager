@@ -8,7 +8,12 @@ enum Messages {
     USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui"
             + " | project add <title> [--dir <path>] | project list"
             + " | env list | env import <file> | env export <file> --plaintext"
-            + " | env run [--only A,B] -- <command> [args...]]"
+            + " | env run [--only A,B] -- <command> [args...]"
+            + " | generate [--length N] [--classes lower,upper,digit,symbol] [--exclude-ambiguous]"
+            + " | generate --passphrase [--words N] [--separator C]"
+            + " | health [--max-age-days N] [--breach]"
+            + " | ssh import <file> [--title T] | ssh list | ssh add <item> [--lifetime 1h] [--confirm]"
+            + " | ssh remove <item> | ssh remove --all | ssh export <item> <file>]"
             + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
@@ -46,6 +51,65 @@ enum Messages {
     EXPORT_UNREPRESENTABLE("a value holds control characters a .env file cannot carry; nothing was exported"),
     EXPORT_FAILED("the export file could not be written"),
     AUDIT_UNAVAILABLE("the audit log could not be written, so nothing was exported"),
+
+    // ---- M4.4: generate, health, ssh ----
+    DUPLICATE_OPTION("an option was given more than once"),
+    GENERATE_MIXED_OPTIONS("--passphrase takes --words and --separator; --length, --classes and"
+            + " --exclude-ambiguous are for passwords"),
+    BAD_GENERATE_POLICY("password length is 4 to 1024 and at least the number of classes; classes are"
+            + " lower, upper, digit, symbol; passphrases have 3 to 64 words and a one-character"
+            + " printable separator that is not a lowercase letter"),
+    GENERATED_ENTROPY("entropy (bits): "),
+    BAD_MAX_AGE("--max-age-days takes a whole number of days, at least 1"),
+    HEALTH_CHECKED("passwords checked: "),
+    HEALTH_CLEAN("no weak, reused or old passwords"),
+    HEALTH_WEAK("weak: "),
+    HEALTH_REUSED("reused (groups sharing one password): "),
+    HEALTH_OLD("not changed in more than "),
+    BREACH_NOTICE("--breach looks each password up in the Pwned Passwords range API"
+            + " (api.pwnedpasswords.com, HTTPS). Only the first 5 hex characters of each password's"
+            + " SHA-1 hash leave this machine; the password, the full hash and record titles never do."),
+    BREACH_COUNT("hash prefixes to send, one per distinct password: "),
+    BREACH_CONFIRM("Type y and press Enter to send them: "),
+    BREACH_SKIPPED("breach check not confirmed; nothing was sent"),
+    BREACH_NOTHING("breach check: no passwords to look up; nothing was sent"),
+    BREACH_FOUND("found in known breaches: "),
+    BREACH_SUMMARY("breach check: distinct passwords found in known breaches: "),
+    BREACH_TIMEOUT("breach check timed out; the offline report above is complete"),
+    BREACH_MALFORMED("the breach service sent an invalid reply; nothing was concluded from it"),
+    BREACH_HTTP_STATUS("the breach service answered with an error status"),
+    BREACH_NETWORK("could not reach the breach service; check the network connection"),
+    BREACH_FAILED("breach check failed"),
+    SSH_TIMEOUT("ssh-agent did not answer within 10 seconds; the connection was dropped"),
+    SSH_NO_AGENT("no ssh-agent found: SSH_AUTH_SOCK is unset or nothing listens there; start ssh-agent first"),
+    SSH_UNSAFE_SOCKET("the ssh-agent socket failed its owner, permission or link checks; nothing was sent"),
+    SSH_AGENT_REFUSED("ssh-agent refused the request"),
+    SSH_BAD_REPLY("ssh-agent sent an invalid reply"),
+    SSH_IO("ssh-agent or key file input/output failed"),
+    SSH_MALFORMED_KEY("not a valid unencrypted OpenSSH private key"),
+    SSH_ENCRYPTED_KEY("the key is passphrase-protected; remove the passphrase with 'ssh-keygen -p'"
+            + " on a copy, import that, then delete the copy"),
+    SSH_UNSUPPORTED_KEY("only Ed25519 and ECDSA P-256 keys are supported"),
+    SSH_KEY_FILE_UNREADABLE("key file is missing, a link, not a regular file, unreadable or larger than 64 KiB"),
+    SSH_KEY_FILE_SHARED("warning: the key file can be read by other users; it may already have been copied"),
+    SSH_DELETE_ORIGINAL("the key is now in the vault; delete the plaintext original (for example with 'rm')"
+            + " once you have checked it works"),
+    SSH_EXPORT_NO_DIR("the export file's folder does not exist; nothing was written"),
+    SSH_KEY_EXISTS("an SSH key with this fingerprint is already in the vault"),
+    SSH_NO_SUCH_KEY("no SSH key item with this title or id"),
+    SSH_AMBIGUOUS_KEY("several SSH key items have this title; use the id from 'pm list'"),
+    SSH_BAD_LIFETIME("--lifetime is a number of seconds, or a number with s, m, h or d, up to 2147483647 seconds"),
+    SSH_NOT_IN_AGENT("ssh-agent does not hold this key"),
+    SSH_EXPORT_EXISTS("the export file already exists; pm never overwrites it"),
+    SSH_UNSAFE_TARGET("the export file cannot be made owner-only (0600) there; nothing was written"),
+    SSH_IMPORTED("ssh key imported: "),
+    SSH_LIST_HEADER("fingerprint  type  comment"),
+    SSH_AGENT_EMPTY("(ssh-agent holds no keys)"),
+    SSH_ADDED("added to ssh-agent: "),
+    SSH_REMOVED("removed from ssh-agent: "),
+    SSH_REMOVED_ALL("all keys removed from ssh-agent"),
+    SSH_EXPORTED("private key exported; the file is owner-only (0600). It is a plaintext key: delete it"
+            + " when it is no longer needed"),
 
     PROMPT_PASSPHRASE("Passphrase: "),
     PROMPT_NEW_PASSPHRASE("New passphrase: "),

@@ -34,7 +34,7 @@ import pm.vault.record.WifiRecord;
  * search box that filters the record table live through {@link Session#search(String)}, empty
  * states, and a footer of key hints with a toast slot. Only non-secret fields ever reach the
  * table (SR-503, ADR 0008), and each cell passes through {@link DisplaySafe#text(String)} first
- * (SR-501). Shortcuts: Ctrl+N add login, Ctrl+L lock, Esc clears the search; Ctrl+X quits
+ * (SR-501). Shortcuts: Ctrl+N add login, Ctrl+T tools (generator, health, ssh-agent; M4.4), Ctrl+L lock, Esc clears the search; Ctrl+X quits
  * everywhere (see {@link TuiController}).
  */
 final class DashboardWindow {
@@ -43,7 +43,7 @@ final class DashboardWindow {
     static final String SEARCH_LABEL = "Search";
     static final List<List<String>> KEY_HINTS = List.of(
             List.of("↑↓", "select"), List.of("⏎", "open"), List.of("^N", "new login"),
-            List.of("^L", "lock"), List.of("esc", "clear search"), List.of("^X", "quit"));
+            List.of("^T", "tools"), List.of("^L", "lock"), List.of("esc", "clear search"), List.of("^X", "quit"));
     private static final String[] COLUMNS = {"Type", "Title", "Username/SSID", "Updated"};
     private static final String SEPARATOR = "  ·  ";
     private static final String CHECK = "✓ ";
@@ -284,6 +284,15 @@ final class DashboardWindow {
         }));
     }
 
+    /** Opens the tools menu over the dashboard; SSH actions apply to the selected row (M4.4). */
+    private void openTools() {
+        controller.show(new ToolsMenu(controller, session, () -> {
+            int index = table.getSelectedRow();
+            return index >= 0 && index < shown.size() ? java.util.Optional.of(shown.get(index))
+                    : java.util.Optional.empty();
+        }).window());
+    }
+
     /** Dashboard keys; consumed so they never reach the search box as text. */
     private final class Shortcuts extends WindowListenerAdapter {
         @Override
@@ -291,6 +300,9 @@ final class DashboardWindow {
             if (TuiController.isCtrl(key, 'n')) {
                 deliverEvent.set(false);
                 openAddLogin();
+            } else if (TuiController.isCtrl(key, 't')) {
+                deliverEvent.set(false);
+                openTools();
             } else if (TuiController.isCtrl(key, 'l')) {
                 deliverEvent.set(false);
                 controller.lock();

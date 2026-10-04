@@ -125,6 +125,15 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | `list` | Prints `id  type  title  updated` for each record. Secret fields are never printed. |
 | `search <query>` | Same output as `list`, filtered by the query |
 | `tui` | Opens the full-screen Lanterna UI (unlock window, dashboard, search, add login, idle lock) |
+| `generate [--length N] [--classes lower,upper,digits,symbols] [--exclude-ambiguous]` | Prints one random password on stdout and its entropy on stderr. Needs no vault and no terminal, so `pm generate \| pbcopy` works |
+| `generate --passphrase [--words N] [--separator C]` | Same, as a word passphrase |
+| `health [--max-age-days N]` | Reports weak, reused and old passwords by title only, offline |
+| `health --breach` | Also checks passwords against the Pwned Passwords range API, after you type exactly `y`; only 5-character SHA-1 prefixes are sent, one per distinct password |
+| `ssh import <file> [--title T]` | Stores an unencrypted OpenSSH Ed25519 or ECDSA P-256 key; warns if others can read the file, and tells you to delete the plaintext original |
+| `ssh list` | Lists the identities your `ssh-agent` holds |
+| `ssh add <item> [--lifetime 1h] [--confirm]` | Sends a stored key to `ssh-agent` (audited first) |
+| `ssh remove <item>` or `ssh remove --all` | Removes a key, or every key, from `ssh-agent` |
+| `ssh export <item> <file>` | Writes the key to a new owner-only (0600) file; never overwrites (audited first) |
 | `--help`, `-h`, `help` | Prints the usage line |
 
 ### Keys in the app
@@ -136,6 +145,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | ↑ ↓, Enter | Dashboard | Selects a record and opens its detail card (secrets stay masked) |
 | Ctrl+N | Dashboard | New login |
 | Ctrl+L | Dashboard | Locks now |
+| Ctrl+T | Dashboard | Tools: password generator, health report, ssh-agent actions on the selected SSH key |
 | Esc | Dashboard, cards | Clears the search, or closes the detail card or the add-login dialog (cancel) |
 | Ctrl+X | Everywhere | Locks and quits |
 
@@ -145,8 +155,9 @@ common terminals support. Ctrl+X quits rather than Ctrl+Q, because many terminal
 use Ctrl+Q and Ctrl+S for flow control.
 
 **A real terminal is required.** Passphrases are read only through `System.console()`. When stdin
-or stdout is not a terminal (a pipe, CI, an IDE run window), every command, including `--help`,
-prints `interactive terminal required` and exits with 2. To test from a script, run the command
+or stdout is not a terminal (a pipe, CI, an IDE run window), every command except `generate`,
+including `--help`, prints `interactive terminal required` and exits with 2. `generate` reads
+nothing, so it also runs without a terminal. To test from a script, run the command
 under a pseudo-terminal, for example `script -q /dev/null scripts/pm --help` or `expect`.
 
 ### Default vault path
@@ -176,6 +187,9 @@ Defined in `modules/pm-cli/src/main/java/pm/cli/ExitCodes.java`:
 | 4 | Storage error, or the vault is locked by another process |
 | 5 | Internal error (a bug; only "internal error" is printed, never a stack trace) |
 | 6 | `init` created the vault but could not show the recovery key: delete the new vault file and run `init` again |
+| 7 | Not enough Java heap for the vault's Argon2id memory: restart with a larger `-Xmx` (the vault is intact) |
+| 8 | `env run`: the approval was denied, timed out, or the vault was locked; nothing ran |
+| 9 | A service outside pm failed: no `ssh-agent` (`SSH_AUTH_SOCK` unset or nothing listening), an unsafe agent socket, the agent refused, sent a bad reply or did not answer within 10 seconds; or the `health --breach` service failed |
 
 ## Current state
 

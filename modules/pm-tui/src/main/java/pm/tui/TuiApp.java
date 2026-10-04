@@ -29,6 +29,7 @@ public final class TuiApp {
     private final VaultPort port;
     private final Duration idleLock;
     private final ApprovalHost host;
+    private final SshActions ssh;
 
     /** §2 contract constructor; delegates through {@link VaultServiceAdapter}. */
     public TuiApp(VaultService service, Duration idleLock) {
@@ -42,6 +43,12 @@ public final class TuiApp {
 
     /** Port constructor with an approval broker host, which {@link #run} closes when it returns. */
     public TuiApp(VaultPort port, Duration idleLock, ApprovalHost host) {
+        this(port, idleLock, host, SshActions.none());
+    }
+
+    /** As above, with the ssh-agent actions the CLI provides for SSH key items (M4.4, ADR 0013). */
+    public TuiApp(VaultPort port, Duration idleLock, ApprovalHost host, SshActions ssh) {
+        this.ssh = Objects.requireNonNull(ssh, "ssh");
         this.port = Objects.requireNonNull(port, "port");
         this.idleLock = Objects.requireNonNull(idleLock, "idleLock");
         this.host = Objects.requireNonNull(host, "host");
@@ -58,7 +65,7 @@ public final class TuiApp {
             MultiWindowTextGUI gui = newGui(screen, theme);
             TuiController controller = new TuiController(gui, port, idleLock,
                     (timeout, onLock) -> new IdleLockTimer(new IdleLock(timeout, onLock, scheduler)),
-                    Clock.systemUTC(), theme, approvals);
+                    Clock.systemUTC(), theme, approvals, ssh);
             try {
                 loop(gui.getGUIThread(), controller);
             } finally {

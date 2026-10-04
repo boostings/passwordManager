@@ -52,12 +52,21 @@ final class TuiHarness implements AutoCloseable {
 
     /** With an approval host whose broker shares {@code clock}. */
     TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock) throws IOException {
+        this(port, host, clock, SshActions.none());
+    }
+
+    /** With ssh-agent actions (M4.4). */
+    TuiHarness(FakeVaultPort port, SshActions ssh) throws IOException {
+        this(port, ApprovalHost.none(), new ManualClock(FakeVaultPort.T0), ssh);
+    }
+
+    private TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, SshActions ssh) throws IOException {
         this.port = port;
         this.clock = clock;
         screen = new TerminalScreen(terminal);
         screen.startScreen();
         gui = TuiApp.newGui(screen, theme);
-        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme, host);
+        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme, host, ssh);
         controller.start();
         pump();
     }

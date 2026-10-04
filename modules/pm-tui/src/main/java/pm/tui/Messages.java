@@ -23,6 +23,36 @@ final class Messages {
     static final String NO_MATCHES = "No matches";
     static final String NO_MATCHES_HINT = "Try a shorter search, or press Esc to clear it.";
 
+    // M4.4: tools menu, generator, health view, ssh-agent actions.
+    static final String BAD_POLICY = "Length is 4 to 1024; a passphrase has 3 to 64 words.";
+    static final String GENERATED_HINT = "Shown here only; it is not saved. Close or lock to clear it.";
+    static final String HEALTH_CLEAN = "No weak, reused or old passwords.";
+    static final String BREACH_HINT = "Breach check: run 'pm health --breach' in a terminal;"
+            + " it sends a 5-character hash prefix per password, so it never runs on its own.";
+    static final String SELECT_SSH_KEY = "Select an SSH key in the list first.";
+    static final String SSH_WORKING = "Talking to ssh-agent...";
+
+    /** Entropy line under a generated secret. */
+    static String entropy(double bits) {
+        return String.format(Locale.ROOT, "%.1f bits of entropy", bits);
+    }
+
+    /** The message for an ssh-agent action's outcome (SR-501: fixed text only). */
+    static String of(SshActions.Outcome outcome) {
+        return switch (outcome) {
+            case ADDED -> "Added to ssh-agent.";
+            case REMOVED -> "Removed from ssh-agent.";
+            case NOT_IN_AGENT -> "ssh-agent does not hold this key.";
+            case NO_AGENT -> "No ssh-agent found. Start one and set SSH_AUTH_SOCK.";
+            case UNSAFE_SOCKET -> "The ssh-agent socket failed its safety checks; nothing was sent.";
+            case AGENT_FAILED -> "ssh-agent refused the request or sent an invalid reply.";
+            case AGENT_TIMEOUT -> "ssh-agent did not answer in time; nothing more was sent.";
+            case BAD_KEY -> "This item is not a usable unencrypted Ed25519 or ECDSA P-256 key.";
+            case AUDIT_FAILED -> "The audit log could not be written, so the key was not sent.";
+            case UNAVAILABLE -> "SSH agent actions are not available here.";
+        };
+    }
+
     private static final long SECONDS_PER_MINUTE = 60;
 
     private Messages() {

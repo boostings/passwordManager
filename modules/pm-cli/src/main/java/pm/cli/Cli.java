@@ -6,6 +6,7 @@ import java.io.Console;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +25,7 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import pm.domain.env.Env;
+import pm.domain.health.BreachClient;
 import pm.crypto.Argon2Params;
 import pm.crypto.Csprng;
 import pm.crypto.Kdf;
@@ -44,7 +46,9 @@ import pm.vault.record.WifiRecord;
 /**
  * The CLI behind {@link Main} (plan.md §13 M1): hand-rolled argument parsing, the {@code init},
  * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, the M2
- * {@code project} and {@code env} groups ({@link EnvCommands}), the bare {@code pm}
+ * {@code project} and {@code env} groups ({@link EnvCommands}), the M4 {@code generate},
+ * {@code health} and {@code ssh} groups ({@link GenerateCommand}, {@link HealthCommand},
+ * {@link SshCommands}), the bare {@code pm}
  * that opens the whole app (creating the vault first when there is none), and the mapping from
  * failures to {@link ExitCodes}. Every line printed comes from {@link Messages} or is non-secret
  * record metadata (SR-501); passphrases live only in {@link SecretChars} and are zeroed after use
@@ -59,7 +63,11 @@ final class Cli {
     private static final String END_OF_OPTIONS = "--";
     private static final String OPTION_PREFIX = "-";
     private static final String INIT_COMMAND = "init";
-    private static final java.util.Set<String> GROUPS = java.util.Set.of("project", "env");
+    private static final String GENERATE_GROUP = "generate";
+    private static final String HEALTH_GROUP = "health";
+    private static final String SSH_GROUP = "ssh";
+    private static final java.util.Set<String> GROUPS =
+            java.util.Set.of("project", "env", GENERATE_GROUP, HEALTH_GROUP, SSH_GROUP);
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
@@ -67,6 +75,8 @@ final class Cli {
     private final Predicate<Path> vaultExists;
     /** Environment for the approval-broker run directory; replaced only by tests. */
     private Env environment = Env.system();
+    /** Builds the opt-in breach client for {@code health --breach}; replaced only by tests. */
+    private Supplier<BreachClient> breachClients = BreachClient::pwnedPasswords;
 
     /** Production wiring: real system properties, UTC clock, Lanterna terminal, real file system. */
     Cli() {
@@ -105,18 +115,37 @@ final class Cli {
         return this;
     }
 
+    /** Test hook: where {@code health --breach} sends its lookups (a loopback server in tests). */
+    Cli withBreachClients(Supplier<BreachClient> clients) {
+        this.breachClients = Objects.requireNonNull(clients, "clients");
+        return this;
+    }
+
     /** Production entry: requires an interactive console (passphrases are never read from a pipe). */
     int run(String[] args) {
         // JDK 21 (the pinned toolchain) returns no console when stdin/stdout is not a terminal.
         // JDK 22+ always returns one: moving past 21 must add a Console.isTerminal() check here.
-        Optional<Console> console = Optional.ofNullable(System.console());
-        if (console.isEmpty()) {
-            System.err.println(Messages.NO_TERMINAL.text());
-            System.err.flush();
-            return ExitCodes.USAGE;
+        return run(args, Optional.ofNullable(System.console()), System.out, System.err);
+    }
+
+    /**
+     * {@link #run(String[])} with the console and standard streams given. Without a console only
+     * {@code generate} runs (it reads nothing, so {@code pm generate | pbcopy} works); every other
+     * command is refused, since a passphrase is never read from a pipe.
+     */
+    int run(String[] args, Optional<Console> console, PrintStream out, PrintStream err) {
+        if (console.isPresent()) {
+            return run(args, new SystemConsoleIo(console.get()),
+                    (path, creating) -> new FileVaultPort(path, clock, kdfFor(creating, () -> Kdf.tune(KDF_TARGET))));
         }
-        return run(args, new SystemConsoleIo(console.get()),
-                (path, creating) -> new FileVaultPort(path, clock, kdfFor(creating, () -> Kdf.tune(KDF_TARGET))));
+        if (args.length > 0 && GENERATE_GROUP.equals(args[0])) {
+            return run(args, new PipedIo(out, err, Charset.defaultCharset()), (path, creating) -> {
+                throw new IllegalStateException("generate opens no vault");
+            });
+        }
+        err.println(Messages.NO_TERMINAL.text());
+        err.flush();
+        return ExitCodes.USAGE;
     }
 
     /**
@@ -220,6 +249,17 @@ final class Cli {
             return openApp(vaultPath, io, opener);
         }
         if (sub != null) {
+            String group = positional.get(0);
+            if (GENERATE_GROUP.equals(group)) {
+                return GenerateCommand.run(sub, io);
+            }
+            if (HEALTH_GROUP.equals(group)) {
+                return new HealthCommand(clock, breachClients).run(sub, opener.open(vaultPath, false), io);
+            }
+            if (SSH_GROUP.equals(group)) {
+                return new SshCommands(properties, clock, environment).run(sub, opener.open(vaultPath, false), io,
+                        vaultPath);
+            }
             EnvCommands env = new EnvCommands(properties, clock, environment);
             VaultPort port = opener.open(vaultPath, false);
             return "project".equals(positional.get(0))
@@ -396,7 +436,8 @@ final class Cli {
         try (ApprovalHost host = ApprovalHost.socket(vaultDir, Env.system(), Clock.systemUTC(),
                         Objects.requireNonNull(System.getProperty("user.name"), "user.name"));
                 Terminal terminal = factory.createTerminal()) {
-            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host).run(terminal);
+            SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
+            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath)).run(terminal);
         }
     }
 

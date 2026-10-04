@@ -28,7 +28,9 @@ public final class SshException extends Exception {
         /** The export target's file system cannot create an owner-only (0600) file. */
         UNSAFE_TARGET,
         /** An I/O error on the agent socket or the export file. */
-        IO
+        IO,
+        /** The agent did not take the request or answer it within the client's deadline. */
+        TIMEOUT
     }
 
     private final Code errorCode;

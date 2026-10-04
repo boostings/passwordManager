@@ -80,6 +80,22 @@ Status: Planned until the test exists and passes in CI.
 | — (plaintext password map in memory) | SR-076 | MSC03-J | `ReuseAndAgeTest`, R | M4 | Implemented (M4.2) |
 | — (stale password undetected) | SR-077 | — | `ReuseAndAgeTest`, `HealthCheckTest` | M4 | Implemented (M4.2) |
 
+## M4.4 generate, health and ssh in the CLI and TUI
+
+| Threat | SR | CERT | Test / check | Milestone | Status |
+| --- | --- | --- | --- | --- | --- |
+| — (generated secret copied into logs or extra output) | SR-072, SR-501 | MSC03-J, FIO13-J | `GenerateCommandTest` (stdout holds exactly the secret, entropy on stderr, `@SecretBoundary` print-once from the `SecretChars` buffer; `.generateRunsWithoutATerminalSoItCanBePiped`: only `generate` runs without a console, others still refused); `ToolsTest.generatorHonoursThePolicyAndClearsItsResult` (TUI result emptied on close and lock) | M4 | Implemented (M4.4) |
+| — (unrequested network use by `pm health`) | SR-078 | MSC00-J | `HealthCommandTest.withoutBreachNoClientIsBuiltAndNoRequestIsSent`, `.breachAsksFirstAndSendsNothingWhenDeclined`, `.closedInputAtTheConfirmationSendsNothing`, `.onlyAnExactYConfirms`, `.nothingToLookUpSkipsThePromptAndTheClient` (loopback server sees no request, no client built); TUI health view is offline only (`ToolsTest.healthOpensFromTheMenuWithTheBreachHint`) | M4 | Implemented (M4.4) |
+| TM-70 (breach check leaks more than a hash prefix) | SR-074 | MSC00-J | `HealthCommandTest.confirmedBreachSendsOnePrefixPerDistinctPassword` (only `/range/<5 hex>` requests, one per distinct password); confirmation text names the 5-character prefix | M4 | Implemented (M4.4) |
+| — (breach failure misreported) | SR-501 | ERR00-J | `HealthCommandTest.malformedAndTimedOutRepliesMapToClearMessages`, `.everyFailureCodeHasAMessage` | M4 | Implemented (M4.4) |
+| — (private key bytes handled outside `pm.crypto.ssh`) | SR-060 | MSC03-J | `SshCommandsTest` (import/add/remove/export via the `pm.crypto.ssh` API only); `pm.tui` reaches the agent through the `SshActions` port implemented in `pm.cli` (ArchUnit `onlyTheCliReachesSshKeys`) | M4 | Implemented (M4.4) |
+| — (unsafe or missing agent socket) | SR-061 | FIO00-J | `SshCommandsTest.noAgentIsReportedClearly` (unset `SSH_AUTH_SOCK` and no listener are both exit 9), `.tuiAdapterMapsEveryOutcome` | M4 | Implemented (M4.4) |
+| — (stalled agent hangs the CLI or freezes the TUI) | SR-061, SR-504 | TPS00-J, FIO00-J | `SshAgentClientTest.aStalledAgentTimesOutAndTheConnectionIsClosed`, `.timeoutsMustBePositive` (10 s deadline on every agent request, connection dropped); `SshCommandsTest.aStalledAgentEndsInABoundedError` (exit 9, `AGENT_TIMEOUT` in the TUI); `ToolsTest.aPendingAgentCallKeepsTheUiLiveAndLockTearsTheDialogDown`, `.aRefusedOrFailingCallIsReportedAsAFailure` (agent calls run off the GUI thread on a private key copy; lock tears the dialog down and a late result is dropped) | M4 | Implemented (M4.4) |
+| — (agent-supplied text injects terminal escapes) | SR-501 | IDS03-J | `SshAgentClientTest.agentKeyTypesAreMadeSafeToPrint`; `SshCommandsTest.agentFieldsArePrintedSafely` (type, fingerprint and comment pass through `Cli.displaySafe`) | M4 | Implemented (M4.4) |
+| — (key file swapped or read through a link during import; plaintext original left behind) | SR-060 | FIO01-J, FIO05-J | `SshCommandsTest.importRefusesMalformedMissingAndLinkedFiles`, `.importRefusesDirectoriesAndOversizedFiles` (one `O_NOFOLLOW` open, regular-file and (device, inode) check around it, capped read), `.importWarnsWhenOthersCanReadTheKeyFile`, `.importDefaultsTheTitleToTheComment` (delete-the-original advice) | M4 | Implemented (M4.4) |
+| — (export overwrites a file or leaves it readable) | SR-063 | FIO01-J, FIO02-J | `SshCommandsTest.exportWritesAnOwnerOnlyFileAndNeverOverwrites` (0600, refused before unlock when the target exists), `.exportToAMissingFolderIsAUsageErrorBeforeUnlocking` (exit 2) | M4 | Implemented (M4.4) |
+| — (key release not audited) | SR-112 | — | `SshCommandsTest.addWithConstraintsThenListThenRemove`, `.exportWritesAnOwnerOnlyFileAndNeverOverwrites`, `.tuiAdapterMapsEveryOutcome`, `.aFailedExportIsAuditedAsFailed`, `.aStalledAgentEndsInABoundedError` (an `export` entry before each release naming the target and the key's public SHA-256 fingerprint, never the title; a release that then fails gets a second entry with decision `FAILED`) | M4 | Implemented (M4.4) |
+
 ## M6 passkey keys
 
 | Threat | SR | CERT | Test / check | Milestone | Status |

@@ -5,7 +5,8 @@ import pm.vault.VaultException;
 
 /**
  * Process exit codes (plan.md §5 E, SR-501): 0 ok, 1 wrong credential, 2 usage, 3 corrupt or
- * unsupported, 4 storage, 5 internal error, 6 recovery key not shown, 7 not enough memory. Both
+ * unsupported, 4 storage, 5 internal error, 6 recovery key not shown, 7 not enough memory, 8 denied
+ * ({@code env run}), 9 external service failed ({@code ssh-agent}, breach service). Both
  * mappings switch exhaustively over {@link VaultException.Code}, so a new code is a compile error
  * rather than a silent default.
  *
@@ -34,6 +35,12 @@ final class ExitCodes {
     static final int INSUFFICIENT_MEMORY = 7;
     /** {@code env run}: the approval was denied, timed out or the vault was locked; nothing ran. */
     static final int DENIED = 8;
+    /**
+     * A service outside pm failed: {@code ssh-agent} (absent, whether {@code SSH_AUTH_SOCK} is unset
+     * or nothing listens on it; unsafe socket; refused; bad reply; no answer within the deadline) or
+     * the opt-in breach service (network, timeout, invalid reply). Nothing in the vault changed.
+     */
+    static final int EXTERNAL = 9;
 
     private ExitCodes() {
     }
