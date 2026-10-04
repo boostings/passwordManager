@@ -1,7 +1,9 @@
 package pm.domain.env;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -42,5 +44,18 @@ class EnvTest {
     @Test
     void systemEnvironmentIsReadable() {
         Env.system().get(Env.Var.TERM); // must not throw whatever the CI environment holds
+    }
+
+    @Test
+    void jvmOptionVariablesAreDetectedByPresenceOnly() {
+        assertFalse(Env.of(Map.of()).jvmOptionsInjected());
+        assertFalse(Env.of(Map.of("JAVA_TOOL_OPTIONS", "", "_JAVA_OPTIONS", "", "JDK_JAVA_OPTIONS", ""))
+                .jvmOptionsInjected());
+        assertFalse(Env.of(Map.of("JAVA_HOME", "/opt/jdk", "TERM", "xterm")).jvmOptionsInjected());
+        for (String name : new String[] {"JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS"}) {
+            assertTrue(Env.of(Map.of(name, "-XX:-DisableAttachMechanism")).jvmOptionsInjected(), name);
+            // A value no Var check would accept (spaces, control characters) still counts as set.
+            assertTrue(Env.of(Map.of(name, " \n")).jvmOptionsInjected(), name);
+        }
     }
 }

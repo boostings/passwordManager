@@ -105,3 +105,16 @@ Status: Planned until the test exists and passes in CI.
 | — (biased or weak passkey scalar) | SR-081, SR-084 | MSC02-J | `PasskeyKeyTest.generationRejectsOutOfRangeCandidates`, `.credentialIdsAreRandom32Bytes` | M6 | Implemented (M6.1) |
 | — (signature rejected by relying parties or nonce reuse) | SR-082 | IDS00-J | `PasskeyKeyTest.rfc6979VectorsAreReproducedExactly`, `.assertionSignatureIsDerOverAuthenticatorDataAndClientDataHash`, `Es256Test` | M6 | Implemented (M6.1) |
 | — (public key misencoded or malformed key accepted) | SR-083 | IDS00-J | `CoseKeyTest` | M6 | Implemented (M6.1) |
+
+## M7 packaging (M7.3)
+
+| Threat | SR | CERT | Test / check | Milestone | Status |
+| --- | --- | --- | --- | --- | --- |
+| TM-93 (debug or monitoring entry point in the shipped runtime) | SR-710, SR-801 | ENV05-J, ENV06-J | T-PKG-01: `jlinkImage` fails on any forbidden module and on a missing required one (`java --list-modules` of the built image) | M7 | Implemented (M7.3) |
+| TM-93, TM-15 (attach, heap dump or core dump exposes vault memory) | SR-711, SR-502 | ENV05-J, ENV06-J | T-PKG-01: `jlinkImage` checks `-XX:+PrintFlagsFinal` of the built runtime; flags also passed as jpackage `--java-options`; R of `tools/packaging/launcher/pm`, `pm.bat` | M7 | Implemented (M7.3) |
+| TM-93, TM-15 (JVM options injected through `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` or `JDK_JAVA_OPTIONS` undo the hardening) | SR-711, SR-502 | ENV05-J | `MainJvmOptionsTest` (each variable gives exit 2, value not echoed; empty or unset runs), `EnvTest.jvmOptionVariablesAreDetectedByPresenceOnly`, `releaseSmoke` (app-image launcher with `JAVA_TOOL_OPTIONS` exits 2) | M7 | Implemented (M7.3); detection only, residual risk accepted (docs/release/packaging.md) |
+| TM-91 (tampered or non-reproducible release) | SR-712, SR-601 | ENV01-J | T-PKG-04: `tools/packaging/repro-check.sh` (two clean builds identical; second-machine run is a user-only step, docs/release/packaging.md) | M7 | Implemented (M7.3), second machine pending |
+| TM-90 (unknown dependency shipped) | SR-713, SR-600 | — | T-PKG-02/T-PKG-03: `releaseMetadataCheck` (in `check`): SBOM parsed back, every jar's purl and SHA-256 and the runtime `lib/modules` SHA-256 recomputed, graph refs resolve; manifest writer/verifier detects a changed byte, a malformed line and a `../` name | M7 | Implemented (M7.3) |
+| TM-91 (installer payload differs from the reviewed image) | SR-713, SR-601 | — | `releaseSmoke`: app-image and mounted dmg `lib/modules`, `release` and jars match the image; packaged `pm --help` runs | M7 | Implemented (M7.3) |
+| TM-93 (packaged runtime lacks a module the app needs at run time; the shipped TUI crashes) | SR-710 | — | `releaseSmoke`: the archive and app-image launchers create a throwaway vault and the TUI is still running, with no internal error, 30 s after opening (under `script(1)`) | M7 | Implemented (M7.3) |
+| TM-91 (unsigned or wrongly signed installer) | SR-714, SR-601 | MSC03-J | Signing hooks (env-driven); Developer ID, notarization, Authenticode and gpg key are user-only | M7 | Hooks implemented; signing pending (user-only) |

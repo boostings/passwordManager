@@ -1,0 +1,52 @@
+#!/bin/sh
+# pm launcher for the release archive (docs/release/packaging.md). Layout:
+#   <home>/bin/pm        this script
+#   <home>/runtime/      jlink runtime (JDK modules only; no JDWP, JMX or attach, SR-801)
+#   <home>/app/          pm and its dependency module jars, byte-identical to the SBOM hashes
+#
+# The JVM hardening flags (-XX:+DisableAttachMechanism, no heap or core dumps, SR-502) are baked
+# into the runtime image by jlink --add-options. A JVM-option environment variable would be
+# applied after them and could undo them, so this launcher clears those variables below.
+#
+# PM_MAX_HEAP  optional maximum heap for 1 GiB Argon2 vaults (ADR 0007): 1 to 5 digits and an
+#              m or g suffix, between 64m and 64g (for example 1200m or 2g). No other JVM
+#              option is read from the environment.
+set -eu
+
+# Environment-supplied JVM options would bypass the launcher's fixed command line (ENV05-J).
+unset JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS CLASSPATH
+
+# Follow symlinks (a user may link bin/pm onto PATH) to find the installation.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+# CDPATH would make `cd` print the directory and could resolve to a different one.
+home=$(CDPATH= cd -- "$(dirname -- "$self")/.." >/dev/null && pwd -P)
+
+heap=
+if [ -n "${PM_MAX_HEAP:-}" ]; then
+    digits=${PM_MAX_HEAP%?}
+    ok=
+    case $digits in
+        '' | *[!0-9]* | 0* | ??????*) ;; # empty, non-digit, leading zero or more than 5 digits
+        *)
+            case $PM_MAX_HEAP in
+                *[mM]) [ "$digits" -ge 64 ] && [ "$digits" -le 65536 ] && ok=1 ;;
+                *[gG]) [ "$digits" -ge 1 ] && [ "$digits" -le 64 ] && ok=1 ;;
+            esac
+            ;;
+    esac
+    if [ -z "$ok" ]; then
+        echo "pm: PM_MAX_HEAP must be 64m to 64g, for example 1200m or 2g" >&2
+        exit 2
+    fi
+    heap=-Xmx$PM_MAX_HEAP
+fi
+
+# shellcheck disable=SC2086 # $heap is empty or one word
+exec "$home/runtime/bin/java" $heap -p "$home/app" -m pm.cli/pm.cli.Main "$@"

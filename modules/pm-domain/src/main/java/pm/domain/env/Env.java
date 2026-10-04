@@ -2,6 +2,7 @@ package pm.domain.env;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,6 +20,14 @@ public final class Env {
     static final int MAX_VALUE_CHARS = 4_096;
 
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9._+-]{1,64}");
+
+    /**
+     * Variables the JVM or the {@code java} launcher read as extra JVM options before {@code main}
+     * runs. They can undo the hardening flags baked into the release runtime (SR-711), so pm
+     * refuses to start when any is set.
+     */
+    private static final List<String> JVM_OPTION_VARIABLES =
+            List.of("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS");
 
     /** How a variable's value is checked. */
     private enum Kind {
@@ -85,6 +94,15 @@ public final class Env {
             case PATH -> isAbsolutePath(value);
         };
         return valid ? Optional.of(value) : Optional.empty();
+    }
+
+    /**
+     * Whether any of {@code JAVA_TOOL_OPTIONS}, {@code _JAVA_OPTIONS} or {@code JDK_JAVA_OPTIONS}
+     * is set to a non-empty value. Only presence is reported; the value is never read out or
+     * returned (SR-711).
+     */
+    public boolean jvmOptionsInjected() {
+        return JVM_OPTION_VARIABLES.stream().map(source).anyMatch(v -> v != null && !v.isEmpty());
     }
 
     /**

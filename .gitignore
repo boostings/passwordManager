@@ -16,9 +16,10 @@
 *.war
 *.ear
 
-# Generated release artifacts
-dist/
-release/
+# Generated release artifacts (anchored: docs/release/ is documentation; packaging output goes to
+# modules/pm-cli/build/release/, already ignored above)
+/dist/
+/release/
 *.dmg
 *.msi
 *.exe

@@ -17,6 +17,8 @@ enum Messages {
             + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
+    JVM_OPTIONS_IN_ENVIRONMENT("JAVA_TOOL_OPTIONS, _JAVA_OPTIONS or JDK_JAVA_OPTIONS is set;"
+            + " pm does not run with JVM options from the environment. Unset them and run pm again"),
     UNKNOWN_COMMAND("unknown command"),
     UNKNOWN_OPTION("unknown option"),
     WRONG_ARG_COUNT("wrong number of arguments for this command"),

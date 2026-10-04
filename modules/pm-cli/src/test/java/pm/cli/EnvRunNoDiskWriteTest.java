@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -131,10 +132,22 @@ class EnvRunNoDiskWriteTest {
     private static void assertNoNewTempFileContains(Path dir, Instant since, String injected) throws IOException {
         try (Stream<Path> files = Files.list(dir)) {
             for (Path p : files.filter(Files::isRegularFile).filter(Files::isReadable).toList()) {
-                if (!Files.getLastModifiedTime(p).toInstant().isBefore(since)) {
-                    assertFalse(contains(p, injected), () -> p + " holds the secret");
-                }
+                assertFalse(newAndContains(p, since, injected), () -> p + " holds the secret");
             }
+        }
+    }
+
+    /**
+     * Whether {@code p} was written at or after {@code since} and holds {@code injected}. The temp
+     * directory is shared with every other process of the user, which create and delete short-lived
+     * files there (a JVM attach handshake leaves {@code .attach_pid<n>} for a moment); one that is
+     * gone by the time it is read cannot be a file this run left behind.
+     */
+    private static boolean newAndContains(Path p, Instant since, String injected) throws IOException {
+        try {
+            return !Files.getLastModifiedTime(p).toInstant().isBefore(since) && contains(p, injected);
+        } catch (NoSuchFileException e) {
+            return false;
         }
     }
 

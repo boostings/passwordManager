@@ -13,3 +13,8 @@ tasks.register<Sync>("installModules") {
     from(configurations.named("runtimeClasspath"))
     into(layout.buildDirectory.dir("modules"))
 }
+
+// M7.3 release packaging: jlink runtime, jpackage, reproducible archives, CycloneDX SBOM and
+// SHA256SUMS (docs/release/packaging.md). Adds `release` and its parts; only the fast,
+// OS-independent releaseMetadataCheck joins `check`.
+apply(from = rootProject.file("tools/packaging/release.gradle.kts"))
