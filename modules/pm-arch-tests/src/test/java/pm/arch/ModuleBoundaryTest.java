@@ -4,6 +4,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -17,6 +18,8 @@ import com.tngtech.archunit.lang.ArchRule;
  */
 @AnalyzeClasses(packages = "pm", importOptions = ImportOption.DoNotIncludeTests.class)
 final class ModuleBoundaryTest {
+
+    private static final String PASSKEY_RECORD = "pm.vault.record.PasskeyRecord";
 
     /** SR-017 / MSC02-J: cryptographic JCA APIs stay in pm-crypto; Principal supports file ACLs. */
     @ArchTest
@@ -114,6 +117,28 @@ final class ModuleBoundaryTest {
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "pm.crypto.passkey.storage..", "pm.crypto.passkey.internal..")
                     .because("SR-080: only pm.vault may read or load the passkey storage form (ADR 0016)");
+
+    /**
+     * SR-085 / SR-086 / ADR 0016 addendum: the hook that reads a passkey record's key, advances its
+     * counter and encodes it is in pm.vault.internal, which only pm.vault reaches. Mirrors the
+     * module-info, which does not export the package.
+     */
+    @ArchTest
+    static final ArchRule onlyTheVaultReachesVaultInternals =
+            noClasses().that().resideOutsideOfPackages("pm.vault..", "pm.arch..")
+                    .should().dependOnClassesThat().resideInAPackage("pm.vault.internal..")
+                    .because("SR-085: a passkey's key and counter are reachable from pm.vault alone (ADR 0016)");
+
+    /**
+     * SR-085 / ADR 0016 addendum: only pm.vault builds passkey records, so no other module can make
+     * one with a key or counter of its choosing. Mirrors the package-private constructor.
+     */
+    @ArchTest
+    static final ArchRule onlyTheVaultBuildsPasskeyRecords =
+            noClasses().that().resideOutsideOfPackages("pm.vault..", "pm.arch..")
+                    .should().callConstructorWhere(DescribedPredicate.describe("a PasskeyRecord constructor",
+                            (JavaConstructorCall call) -> PASSKEY_RECORD.equals(call.getTargetOwner().getName())))
+                    .because("SR-085: passkey records are built only inside pm.vault (ADR 0016)");
 
     /** pm-crypto depends on nothing else in the project. */
     @ArchTest

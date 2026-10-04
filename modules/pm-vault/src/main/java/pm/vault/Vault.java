@@ -12,14 +12,21 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import pm.crypto.Aead;
+import pm.crypto.ConstantTime;
 import pm.crypto.CryptoException;
 import pm.crypto.Csprng;
+import pm.crypto.Hash;
 import pm.crypto.Kdf;
 import pm.crypto.SecretBytes;
+import pm.crypto.passkey.Es256;
+import pm.crypto.passkey.PasskeyKey;
+import pm.crypto.passkey.storage.PasskeyStorage;
 import pm.storage.StorageException;
 import pm.storage.VaultFileStore;
 import pm.vault.envelope.EnvelopeCodec;
 import pm.vault.envelope.EnvelopeHeader;
+import pm.vault.internal.PasskeyRecordAccess;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.RecordSearch;
 import pm.vault.record.VaultRecord;
 
@@ -33,9 +40,16 @@ import pm.vault.record.VaultRecord;
  * with it, and closing it early would zero secrets that are still live. {@link #remove}
  * closes the removed record at once. {@link #close} closes every held and retired record.
  *
+ * <p><b>Passkeys (ADR 0016 addendum, SR-085, SR-087).</b> A passkey's key and counter are vault
+ * state. {@link #records()} and {@link #search} return keyless views of passkey records, so
+ * closing one changes nothing in the vault. {@link #put} of a passkey whose id the vault holds
+ * takes only the title and names from it; the key, identity and counter stay the vault's, so an
+ * old view put back can never lower the counter. A new passkey must carry a valid key.
+ *
  * <p><b>Locked state (OBJ14-J).</b> {@code close()} is the lock operation. It zeroes the VK,
  * closes every record and is idempotent. Afterwards {@link #save()} throws
- * {@link VaultException} with code {@code LOCKED}. Every other method except
+ * {@link VaultException} with code {@code LOCKED}, and {@link #signWithPasskey} throws
+ * {@link PasskeyException} with code {@code LOCKED}. Every other method except
  * {@link #isLocked()} and {@code close()} throws {@link IllegalStateException}, because its
  * signature has no checked failure channel.
  *
@@ -50,6 +64,12 @@ public final class Vault implements AutoCloseable {
     private static final String DATA_KEY_INFO = "pm/data/v1";
     private static final String LOCKED_MESSAGE = "LOCKED";
 
+    private static final int RP_ID_HASH_BYTES = 32;
+    private static final int BYTE_MASK = 0xFF;
+    private static final int FLAG_UP = 0x01;
+    private static final int FLAG_AT = 0x40;
+    private static final int FLAG_ED = 0x80;
+
     private final ReentrantLock lock = new ReentrantLock();
     private final VaultFileStore store;
     private final Clock clock;
@@ -63,6 +83,10 @@ public final class Vault implements AutoCloseable {
     private EnvelopeHeader currentHeader;
     /** Guarded by {@link #lock}. */
     private boolean closed;
+    /** Guarded by {@link #lock}. A put or remove since the last save: the next save rotates backups. */
+    private boolean contentChanged;
+    /** Guarded by {@link #lock}. A {@link #signWithPasskey} call is running on the lock's owner. */
+    private boolean signing;
 
     /**
      * Creates an unlocked vault. Copies {@code vk}; the caller keeps ownership of its
@@ -83,11 +107,14 @@ public final class Vault implements AutoCloseable {
         this.vaultKey = vk.apply(Vault::copyKey);
     }
 
-    /** Returns an unmodifiable snapshot of the records in insertion order. */
+    /**
+     * Returns an unmodifiable snapshot of the records in insertion order. Passkey records are
+     * keyless views (see the class comment); every other record is the vault's own instance.
+     */
     public List<VaultRecord> records() {
         return locked(() -> {
             ensureOpen();
-            return List.copyOf(byId.values());
+            return byId.values().stream().map(Vault::shareable).toList();
         });
     }
 
@@ -104,7 +131,7 @@ public final class Vault implements AutoCloseable {
             List<VaultRecord> hits = new ArrayList<>();
             for (VaultRecord r : byId.values()) {
                 if (RecordSearch.matches(r, query)) {
-                    hits.add(r);
+                    hits.add(shareable(r));
                 }
             }
             return List.copyOf(hits);
@@ -114,17 +141,42 @@ public final class Vault implements AutoCloseable {
     /**
      * Inserts {@code r}, or replaces the record with the same id. The vault takes ownership
      * of {@code r}; the replaced record is closed when the vault locks. Changes reach disk on
-     * {@link #save()}.
+     * {@link #save()}. For a passkey the vault already holds, only the title, account name,
+     * display name and update time are taken from {@code r}; its key and counter are ignored.
      *
      * @param r record to store
+     * @throws IllegalArgumentException {@code BAD_KEY} for a new passkey record without a valid
+     *     key (such as a view of a removed passkey); the vault is unchanged and the caller keeps
+     *     {@code r}
      */
     public void put(VaultRecord r) {
         Objects.requireNonNull(r, "r");
         locked(() -> {
             ensureOpen();
-            Optional.ofNullable(byId.put(r.id(), r)).ifPresent(retired::add);
+            if (r instanceof PasskeyRecord) {
+                putPasskey(PasskeyRecord.class.cast(r));
+            } else {
+                Optional.ofNullable(byId.put(r.id(), r)).ifPresent(retired::add);
+            }
+            contentChanged = true;
             return null;
         });
+    }
+
+    /** Caller holds the lock. */
+    private void putPasskey(PasskeyRecord incoming) {
+        PasskeyRecordAccess.Hook hook = PasskeyRecordAccess.hook();
+        if (byId.get(incoming.id()) instanceof PasskeyRecord) {
+            // The vault's passkey is never handed out, so nothing else holds it: close it now.
+            try (PasskeyRecord live = PasskeyRecord.class.cast(byId.get(incoming.id())); incoming) {
+                byId.put(incoming.id(), hook.edited(live, incoming));
+            }
+            return;
+        }
+        if (!hook.keyIsValid(incoming)) {
+            throw new IllegalArgumentException(PasskeyException.Code.BAD_KEY.name());
+        }
+        Optional.ofNullable(byId.put(incoming.id(), incoming)).ifPresent(retired::add);
     }
 
     /**
@@ -142,6 +194,7 @@ public final class Vault implements AutoCloseable {
                 return false;
             }
             removed.close();
+            contentChanged = true;
             return true;
         });
     }
@@ -157,6 +210,15 @@ public final class Vault implements AutoCloseable {
      *                        {@code CORRUPT} if the save counter is exhausted or sealing fails
      */
     public void save() throws VaultException {
+        persist(true);
+    }
+
+    /**
+     * {@link #save()}, rotating the {@code .bak.N} generations only if {@code rotateBackups}. A
+     * passkey counter advance alone does not rotate them, so signing in does not push the user's
+     * recovery points out (ADR 0016 addendum).
+     */
+    private void persist(boolean rotateBackups) throws VaultException {
         locked(() -> {
             if (closed) {
                 throw new VaultException(VaultException.Code.LOCKED, null);
@@ -167,9 +229,7 @@ public final class Vault implements AutoCloseable {
             } catch (ArithmeticException e) {
                 throw new VaultException(VaultException.Code.CORRUPT, e);
             }
-            byte[] dataSalt = Csprng.bytes(EnvelopeCodec.SALT_LENGTH);
-            byte[] aad = EnvelopeCodec.aadOf(EnvelopeCodec.encodeHeader(next), dataSalt);
-            byte[] file = seal(aad, dataSalt);
+            byte[] file = sealFile(next, vaultKey, codec, List.copyOf(byId.values()));
             if (file.length > VaultFileStore.MAX_FILE_BYTES) {
                 // Never write a file that unlock would refuse to read.
                 throw new VaultException(VaultException.Code.STORAGE,
@@ -185,7 +245,7 @@ public final class Vault implements AutoCloseable {
                     }
                     throw ex;
                 }
-                if (exists) {
+                if (exists && rotateBackups) {
                     store.backup();
                 }
                 store.writeAtomically(file);
@@ -193,8 +253,203 @@ public final class Vault implements AutoCloseable {
                 throw new VaultException(VaultException.Code.STORAGE, e);
             }
             currentHeader = next;
+            contentChanged = false;
             return null;
         });
+    }
+
+    /**
+     * Signs one WebAuthn assertion with a stored passkey, advancing its counter first (ADR 0016
+     * addendum, SR-087, SR-088). Under the vault lock, so concurrent signers are serialised and
+     * each gets its own counter value:
+     * <ol>
+     *   <li>check {@code clientDataHash} is 32 bytes and find the passkey record {@code id};
+     *       refuse {@code COUNTER_EXHAUSTED} if its counter is already 2^32 - 1. Nothing changes
+     *       on any of these refusals;</li>
+     *   <li>replace the record in memory with a copy whose counter is one higher and whose last
+     *       use is now;</li>
+     *   <li>write the vault, the new counter and every pending change included, atomically; the
+     *       {@code .bak.N} generations rotate only if a record was put or removed since the last
+     *       save. If the write fails, {@code SAVE_FAILED}, and nothing is signed;</li>
+     *   <li>only then load the key, give {@code port} a keyless view of the saved record to build
+     *       the authenticator data, sign, and close the key.</li>
+     * </ol>
+     * The counter is on disk before any signature exists, so a crash at any point can lose a
+     * signature but never lets a later signature carry a counter at or below one already
+     * released. A value whose save failed stays in memory and is never handed out again. A call
+     * from inside {@code port} on the same thread is refused with {@code REENTRANT}, so signing
+     * order is always counter order.
+     *
+     * @param id the passkey record's id
+     * @param clientDataHash SHA-256 of the client data, exactly 32 bytes
+     * @param port builds the authenticator data for the persisted counter
+     * @return the assertion; its counter is already saved
+     * @throws PasskeyException {@code LOCKED}, {@code REENTRANT}, {@code BAD_INPUT}, {@code NOT_FOUND}
+     *     (no record, or not a passkey), {@code COUNTER_EXHAUSTED}, {@code SAVE_FAILED} (any failure
+     *     to write, the cause attached), {@code BAD_KEY} or {@code SIGN_FAILED} (the port failed or
+     *     returned authenticator data not bound to this record's RP ID, UP flag and persisted
+     *     counter; see {@link AssertionPort}; the counter value stays burnt)
+     */
+    public PasskeyAssertion signWithPasskey(UUID id, byte[] clientDataHash, AssertionPort port)
+            throws PasskeyException {
+        Objects.requireNonNull(id, "id");
+        byte[] hash = Objects.requireNonNull(clientDataHash, "clientDataHash").clone();
+        Objects.requireNonNull(port, "port");
+        return locked(() -> {
+            if (closed) {
+                throw new PasskeyException(PasskeyException.Code.LOCKED, null);
+            }
+            if (signing) {
+                throw new PasskeyException(PasskeyException.Code.REENTRANT, null);
+            }
+            if (hash.length != Es256.CLIENT_DATA_HASH_BYTES) {
+                throw new PasskeyException(PasskeyException.Code.BAD_INPUT, null);
+            }
+            VaultRecord found = byId.get(id);
+            if (!(found instanceof PasskeyRecord)) {
+                throw new PasskeyException(PasskeyException.Code.NOT_FOUND, null);
+            }
+            signing = true;
+            try {
+                PasskeyRecord persisted = advanceAndPersist(PasskeyRecord.class.cast(found));
+                return signPersisted(persisted, hash, port);
+            } finally {
+                signing = false;
+            }
+        });
+    }
+
+    /**
+     * Replaces {@code current} with a copy whose counter is one higher, closes {@code current}
+     * (never handed out) and writes the vault. Caller holds the lock.
+     */
+    private PasskeyRecord advanceAndPersist(PasskeyRecord current) throws PasskeyException {
+        if (current.signCount() >= PasskeyRecord.MAX_SIGN_COUNT) {
+            throw new PasskeyException(PasskeyException.Code.COUNTER_EXHAUSTED, null);
+        }
+        PasskeyRecord next = PasskeyRecordAccess.hook().advanced(current, current.signCount() + 1, clock.instant());
+        byId.put(current.id(), next);
+        current.close();
+        try {
+            persist(contentChanged);
+        } catch (VaultException e) {
+            throw new PasskeyException(PasskeyException.Code.SAVE_FAILED, e);
+        } catch (RuntimeException e) {
+            // A failing codec or store: still a failed save, and the value stays burnt.
+            throw new PasskeyException(PasskeyException.Code.SAVE_FAILED, e);
+        }
+        return next;
+    }
+
+    /**
+     * Loads the key of the saved record, asks {@code port} for the authenticator data and signs.
+     * The key is loaded first, so nothing the port does to the vault can reach it. Caller holds
+     * the lock.
+     */
+    private static PasskeyAssertion signPersisted(PasskeyRecord persisted, byte[] clientDataHash, AssertionPort port)
+            throws PasskeyException {
+        try (PasskeyKey key = loadKey(persisted)) {
+            byte[] authenticatorData = authenticatorData(persisted, port);
+            return new PasskeyAssertion(persisted.signCount(), authenticatorData,
+                    key.sign(authenticatorData, clientDataHash));
+        } catch (CryptoException e) {
+            throw new PasskeyException(PasskeyException.Code.SIGN_FAILED, e);
+        }
+    }
+
+    private static byte[] authenticatorData(PasskeyRecord persisted, AssertionPort port) throws PasskeyException {
+        byte[] built;
+        try (PasskeyRecord view = PasskeyRecordAccess.hook().view(persisted)) {
+            built = port.authenticatorData(view);
+        } catch (RuntimeException e) {
+            throw new PasskeyException(PasskeyException.Code.SIGN_FAILED, e);
+        }
+        if (built == null) {
+            throw new PasskeyException(PasskeyException.Code.SIGN_FAILED, null);
+        }
+        byte[] data = built.clone();
+        if (!boundTo(persisted, data)) {
+            throw new PasskeyException(PasskeyException.Code.SIGN_FAILED, null);
+        }
+        return data;
+    }
+
+    /**
+     * Whether {@code data} is authenticator data for this record's assertion (WebAuthn §6.1):
+     * at least 37 bytes; {@code rpIdHash} = SHA-256 of the record's RP ID, computed here; the
+     * user-present flag set; no attested credential data (not allowed in an assertion); trailing
+     * bytes exactly when the extension flag is set; and the signature counter equal to the value
+     * just persisted. User verification and the extension content are the caller's policy (M6.3).
+     */
+    private static boolean boundTo(PasskeyRecord persisted, byte[] data) {
+        if (data.length < Es256.MIN_AUTHENTICATOR_DATA_BYTES) {
+            return false;
+        }
+        byte[] expectedRp = Hash.sha256(persisted.rpId().getBytes(StandardCharsets.US_ASCII));
+        if (!ConstantTime.equals(expectedRp, Arrays.copyOf(data, RP_ID_HASH_BYTES))) {
+            return false;
+        }
+        int flags = data[RP_ID_HASH_BYTES] & BYTE_MASK;
+        boolean extensions = (flags & FLAG_ED) != 0;
+        if ((flags & FLAG_UP) == 0 || (flags & FLAG_AT) != 0
+                || extensions != (data.length > Es256.MIN_AUTHENTICATOR_DATA_BYTES)) {
+            return false;
+        }
+        long counter = 0;
+        for (int i = RP_ID_HASH_BYTES + 1; i < Es256.MIN_AUTHENTICATOR_DATA_BYTES; i++) {
+            counter = (counter << Byte.SIZE) | (data[i] & BYTE_MASK);
+        }
+        return counter == persisted.signCount();
+    }
+
+    private static PasskeyKey loadKey(PasskeyRecord persisted) throws PasskeyException {
+        try {
+            return PasskeyStorage.fromStorage(PasskeyRecordAccess.hook().privateKey(persisted));
+        } catch (CryptoException e) {
+            throw new PasskeyException(PasskeyException.Code.BAD_KEY, e);
+        }
+    }
+
+    /**
+     * The file a restore installs (ADR 0015, ADR 0016 addendum): {@code records} sealed under
+     * {@code vk} as the save after {@code header}, with every passkey counter raised to
+     * {@code max(backup + margin, existing + 1)}, where {@code existing} is the counter the vault being
+     * replaced holds for the same record id (from {@code floors}, if any). A value that would
+     * reach 2^32 - 1 becomes 2^32 - 1, which is exhausted: the credential cannot sign again rather
+     * than repeat a counter. Never lowered. Takes ownership of {@code records}.
+     */
+    static byte[] raisedForRestore(EnvelopeHeader header, SecretBytes vk, PayloadCodec codec,
+                                   List<VaultRecord> records, long margin, Map<UUID, Long> floors, long now)
+            throws VaultException {
+        List<VaultRecord> raised = new ArrayList<>(records.size());
+        try {
+            records.forEach(r -> raised.add(r instanceof PasskeyRecord
+                    ? raise(PasskeyRecord.class.cast(r), margin, floors.getOrDefault(r.id(), -1L)) : r));
+            EnvelopeHeader next;
+            try {
+                next = header.nextSave(now);
+            } catch (ArithmeticException e) {
+                throw new VaultException(VaultException.Code.CORRUPT, e);
+            }
+            return sealFile(next, vk, codec, raised);
+        } finally {
+            raised.forEach(VaultRecord::close);
+            records.forEach(VaultRecord::close);
+        }
+    }
+
+    private static VaultRecord raise(PasskeyRecord stored, long margin, long floor) {
+        long wanted = Math.max(stored.signCount() + margin, floor + 1);
+        long target = Math.min(wanted, PasskeyRecord.MAX_SIGN_COUNT);
+        if (target <= stored.signCount()) {
+            return PasskeyRecordAccess.hook().edited(stored, stored);
+        }
+        return PasskeyRecordAccess.hook().advanced(stored, target, stored.lastUsed());
+    }
+
+    /** A passkey leaves the vault only as a keyless view; other records as themselves. */
+    private static VaultRecord shareable(VaultRecord r) {
+        return r instanceof PasskeyRecord ? PasskeyRecordAccess.hook().view(PasskeyRecord.class.cast(r)) : r;
     }
 
     /** Returns true once {@link #close()} has run. */
@@ -272,11 +527,17 @@ public final class Vault implements AutoCloseable {
         return Kdf.hkdfSha256(vk, dataSalt, DATA_KEY_INFO.getBytes(StandardCharsets.UTF_8), KEY_LENGTH);
     }
 
-    /** Returns {@code aad ‖ AES-GCM(DK, payload, aad)}, which is the complete file. Caller holds the lock. */
-    private byte[] seal(byte[] aad, byte[] dataSalt) throws VaultException {
+    /**
+     * Seals {@code records} as the vault file for header {@code next}: a fresh {@code dataSalt},
+     * the AAD, DK = HKDF(VK, dataSalt, "pm/data/v1") and {@code aad ‖ AES-GCM(DK, payload, aad)}.
+     */
+    private static byte[] sealFile(EnvelopeHeader next, SecretBytes vk, PayloadCodec codec, List<VaultRecord> records)
+            throws VaultException {
+        byte[] dataSalt = Csprng.bytes(EnvelopeCodec.SALT_LENGTH);
+        byte[] aad = EnvelopeCodec.aadOf(EnvelopeCodec.encodeHeader(next), dataSalt);
         byte[] ciphertext;
-        try (SecretBytes dk = dataKey(vaultKey, dataSalt);
-             SecretBytes plaintext = codec.encode(List.copyOf(byId.values()))) {
+        try (SecretBytes dk = dataKey(vk, dataSalt);
+             SecretBytes plaintext = codec.encode(records)) {
             ciphertext = Aead.sealWithFreshKey(dk, plaintext, aad);
         } catch (CryptoException e) {
             throw new VaultException(VaultException.Code.CORRUPT, e);

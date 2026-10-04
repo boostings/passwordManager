@@ -18,7 +18,9 @@ public final class RecordException extends Exception {
         /** A size, count or range bound was exceeded. */
         LIMIT,
         /** Not a deterministic encoding of the supported CBOR subset. */
-        MALFORMED
+        MALFORMED,
+        /** A passkey record outside {@code pm.vault}: only the vault reads them (SR-086). */
+        VAULT_ONLY
     }
 
     private final Code reason;

@@ -12,7 +12,7 @@ import java.util.UUID;
  * stores; the constructors truncate finer instants and refuse earlier ones.
  */
 public sealed interface VaultRecord extends AutoCloseable permits LoginRecord, WifiRecord, SshKeyRecord, ProjectRecord,
-        DeviceRecord {
+        DeviceRecord, PasskeyRecord {
     /** Returns the record's identity, unique within a vault. */
     UUID id();
 

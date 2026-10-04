@@ -8,8 +8,9 @@ import java.util.Objects;
  * Text search over the non-secret fields of a record (sprint plan section 2 D).
  *
  * <p>The searched fields are exactly: the title of every record, plus user name, URLs and tags of
- * a login, the SSID of a Wi-Fi network and the hosts of an SSH key. Secret fields (passwords,
- * private keys, variable values) are never read, so a query can never confirm part of a secret
+ * a login, the SSID of a Wi-Fi network, the hosts of an SSH key, and the RP ID, account name and
+ * display name of a passkey. Secret fields (passwords, private keys, variable values) and a
+ * passkey's credential ID and user handle are never read, so a query can never confirm part of a secret
  * (SR-505, data-classification.md). Matching is a case-insensitive substring test that lower-cases
  * both sides with {@link Locale#ROOT} (STR02-J).
  */
@@ -46,6 +47,9 @@ public final class RecordSearch {
         if (record instanceof SshKeyRecord) {
             return containsAny(SshKeyRecord.class.cast(record).hosts(), needle);
         }
+        if (record instanceof PasskeyRecord) {
+            return matchesPasskey(PasskeyRecord.class.cast(record), needle);
+        }
         return false;
     }
 
@@ -53,6 +57,12 @@ public final class RecordSearch {
         return contains(login.username(), needle)
                 || containsAny(login.urls(), needle)
                 || containsAny(login.tags(), needle);
+    }
+
+    private static boolean matchesPasskey(PasskeyRecord passkey, String needle) {
+        return contains(passkey.rpId(), needle)
+                || contains(passkey.accountName(), needle)
+                || contains(passkey.displayName(), needle);
     }
 
     private static boolean contains(String candidate, String needle) {

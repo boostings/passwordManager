@@ -40,6 +40,7 @@ import pm.tui.VaultPort;
 import pm.vault.VaultException;
 import pm.vault.record.DeviceRecord;
 import pm.vault.record.LoginRecord;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
 import pm.vault.record.WifiRecord;
@@ -571,7 +572,7 @@ final class Cli {
         return String.join(COLUMN_GAP, r.id().toString(), typeOf(r), displaySafe(r.title()), r.updated().toString());
     }
 
-    /** The item types; device records never reach here ({@link #printRecords} drops them). */
+    /** The item types (ADR 0006, ADR 0016); device records never reach here ({@link #printRecords} drops them). */
     private static String typeOf(VaultRecord r) {
         if (r instanceof LoginRecord) {
             return "login";
@@ -581,6 +582,9 @@ final class Cli {
         }
         if (r instanceof SshKeyRecord) {
             return "ssh-key";
+        }
+        if (r instanceof PasskeyRecord) {
+            return "passkey";
         }
         return "project";
     }

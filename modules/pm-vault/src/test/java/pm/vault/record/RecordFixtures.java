@@ -88,6 +88,22 @@ final class RecordFixtures {
         }
     }
 
+    /** {@link #encode} through the vault-only path, which also writes passkey records. */
+    static byte[] encodeVault(List<VaultRecord> records) {
+        try (SecretBytes payload = RecordCodec.encodeVaultPayload(records)) {
+            return payload.apply(bytes -> Arrays.copyOf(bytes, bytes.length));
+        }
+    }
+
+    /** {@link #decodedCount} through the vault-only path, which also reads passkey records. */
+    static int decodedVaultCount(byte[] payload) throws RecordException {
+        try (SecretBytes plaintext = SecretBytes.copyOf(payload)) {
+            List<VaultRecord> decoded = RecordCodec.decodeVaultPayload(plaintext);
+            decoded.forEach(VaultRecord::close);
+            return decoded.size();
+        }
+    }
+
     /** Decodes {@code payload}, closes the records and returns how many there were. */
     static int decodedCount(byte[] payload) throws RecordException {
         try (SecretBytes plaintext = SecretBytes.copyOf(payload)) {

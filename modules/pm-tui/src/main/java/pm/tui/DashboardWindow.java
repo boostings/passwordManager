@@ -26,6 +26,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import pm.vault.record.DeviceRecord;
 import pm.vault.record.LoginRecord;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
 import pm.vault.record.WifiRecord;
@@ -259,16 +260,23 @@ final class DashboardWindow {
             return "Wi-Fi";
         } else if (r instanceof SshKeyRecord) {
             return "SSH key";
+        } else if (r instanceof PasskeyRecord) {
+            return "Passkey";
         }
         return "Project";
     }
 
-    /** Username for logins, SSID for Wi-Fi, empty otherwise. Never a secret field. */
+    /**
+     * Username for logins, SSID for Wi-Fi, account name and RP ID for passkeys, empty otherwise.
+     * Never a secret field.
+     */
     private static String account(VaultRecord r) {
         if (r instanceof LoginRecord) {
             return LoginRecord.class.cast(r).username();
         } else if (r instanceof WifiRecord) {
             return WifiRecord.class.cast(r).ssid();
+        } else if (r instanceof PasskeyRecord) {
+            return PasskeyRecord.class.cast(r).accountName() + " @ " + PasskeyRecord.class.cast(r).rpId();
         }
         return "";
     }

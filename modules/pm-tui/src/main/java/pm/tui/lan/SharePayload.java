@@ -14,6 +14,7 @@ import pm.tui.Session;
 import pm.vault.VaultException;
 import pm.vault.record.DeviceRecord;
 import pm.vault.record.LoginRecord;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.ProjectRecord;
 import pm.vault.record.RecordCodec;
 import pm.vault.record.RecordException;
@@ -59,11 +60,11 @@ public final class SharePayload {
     /**
      * Encodes {@code item} for a paired device. The item stays owned by the caller.
      *
-     * @throws LanException {@code NOT_SHAREABLE} for sharing state or an item too large for one
-     *     frame
+     * @throws LanException {@code NOT_SHAREABLE} for sharing state, a passkey (vault-only, SR-086),
+     *     or an item too large for one frame
      */
     public static Prepared prepare(VaultRecord item) throws LanException {
-        if (DeviceRecord.isInternal(item)) {
+        if (DeviceRecord.isInternal(item) || item instanceof PasskeyRecord) {
             throw new LanException(LanException.Code.NOT_SHAREABLE);
         }
         SecretBytes payload = RecordCodec.encodePayload(List.of(item));
@@ -103,6 +104,9 @@ public final class SharePayload {
         }
         if (item instanceof ProjectRecord) {
             return "project";
+        }
+        if (item instanceof PasskeyRecord) {
+            return "passkey";
         }
         return "device";
     }

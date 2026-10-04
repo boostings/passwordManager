@@ -106,8 +106,12 @@ public final class WebServer implements AutoCloseable {
             release();
             watchdog.shutdownNow();
             loop.shutdown();
-            done.countDown();
-            events.closed();
+            // closed() before the latch: awaitClosed promises the event has been delivered.
+            try {
+                events.closed();
+            } finally {
+                done.countDown();
+            }
         }
     }
 

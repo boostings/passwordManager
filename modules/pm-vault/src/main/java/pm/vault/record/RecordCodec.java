@@ -16,6 +16,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import pm.crypto.DeviceIdentity;
 import pm.crypto.SecretBytes;
+import pm.vault.internal.PasskeyRecordAccess;
 import pm.vault.cbor.CborException;
 import pm.vault.cbor.CborLimits;
 import pm.vault.cbor.CborReader;
@@ -40,8 +41,16 @@ import pm.vault.cbor.CborWriter;
  * copies is zero-filled before the method returns, on success and on failure. This is best effort
  * only: the JVM may have moved or copied an array before it was cleared (risk R-003).
  *
+ * <p><b>Passkeys are vault-only (SR-086).</b> The public {@link #encodePayload} and
+ * {@link #decodePayload} refuse passkey records ({@code VAULT_ONLY}): a payload holding one would
+ * carry the private key and the counter, so it is written and read only by {@code pm.vault},
+ * through the package-private {@code encodeVaultPayload}/{@code decodeVaultPayload} that the
+ * unexported {@code pm.vault.internal} hook reaches. That path also checks every passkey key
+ * (d·G equals the stored point) at decode.
+ *
  * <p>Unknown keys are ignored on read for forward compatibility (ADR 0006) and are not written
- * back. Exception messages are fixed text and never contain payload content (SR-501, ERR01-J).
+ * back, except in a passkey record, whose key set must be exact (ADR 0016 addendum). Exception
+ * messages are fixed text and never contain payload content (SR-501, ERR01-J).
  */
 public final class RecordCodec {
     /** The only payload schema version this codec reads and writes. */
@@ -86,6 +95,26 @@ public final class RecordCodec {
     private static final String T_DEVICE_IDENTITY = "device_identity";
     private static final String T_TRUSTED_DEVICE = "trusted_device";
 
+    // Passkey records (M6.2, ADR 0016 addendum).
+    private static final String T_PASSKEY = "passkey";
+    private static final String K_RP_ID = "rp_id";
+    private static final String K_CREDENTIAL_ID = "credential_id";
+    private static final String K_USER_HANDLE = "user_handle";
+    private static final String K_USER_NAME = "user_name";
+    private static final String K_DISPLAY_NAME = "display_name";
+    private static final String K_SIGN_COUNT = "sign_count";
+    /**
+     * The exact key set of a passkey record. Unlike the older record types, a passkey record with a
+     * missing or unknown key is refused: a field silently dropped on rewrite could lose state the
+     * counter or the relying party depends on (ADR 0016 addendum, SR-086).
+     */
+    private static final Set<String> WEBAUTHN_FIELDS = Set.of(K_TYPE, K_ID, K_TITLE, K_RP_ID, K_CREDENTIAL_ID,
+            K_USER_HANDLE, K_USER_NAME, K_DISPLAY_NAME, K_PRIVATE_KEY, K_SIGN_COUNT, K_CREATED, K_UPDATED,
+            K_LAST_USED);
+
+    /** Fixed text of a refused passkey record outside the vault. */
+    private static final String VAULT_ONLY = "VAULT_ONLY: passkey records are written and read only by pm.vault";
+
     /** The canonical text form of a UUID: lower-case hex in groups of 8-4-4-4-12. */
     private static final Pattern CANONICAL_UUID =
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
@@ -99,13 +128,26 @@ public final class RecordCodec {
      *
      * @param records the records to store; their ids must be distinct
      * @return the plaintext payload; the caller closes it
-     * @throws IllegalArgumentException if two records share an id, or the payload would exceed
+     * @throws IllegalArgumentException {@code VAULT_ONLY} if a record is a passkey (only
+     *     {@code pm.vault} writes those), if two records share an id, or if the payload would exceed
      *     {@link CborLimits#PAYLOAD} (more than 1,000,000 data items or 256 MiB); nothing is
      *     returned
      * @throws IllegalStateException if a record's secret is already closed
      */
     public static SecretBytes encodePayload(List<VaultRecord> records) {
         Objects.requireNonNull(records, "records");
+        if (records.stream().anyMatch(PasskeyRecord.class::isInstance)) {
+            throw new IllegalArgumentException(VAULT_ONLY);
+        }
+        return encode(records);
+    }
+
+    /** {@link #encodePayload} with passkey records allowed; reached only through the vault's hook. */
+    static SecretBytes encodeVaultPayload(List<VaultRecord> records) {
+        return encode(Objects.requireNonNull(records, "records"));
+    }
+
+    private static SecretBytes encode(List<VaultRecord> records) {
         if (records.stream().map(VaultRecord::id).distinct().count() != records.size()) {
             throw new IllegalArgumentException("duplicate record id");
         }
@@ -131,15 +173,28 @@ public final class RecordCodec {
      * @throws RecordException {@code MALFORMED} if the bytes are not deterministic CBOR,
      *     {@code LIMIT} if a bound is exceeded, {@code SCHEMA} if the content does not match
      *     {@code records.cddl} (wrong {@code schema_version}, missing or mistyped field, unknown
-     *     record type, duplicate or non-canonical id, field out of bounds)
+     *     record type, duplicate or non-canonical id, field out of bounds), {@code VAULT_ONLY} if
+     *     it holds a passkey record (only {@code pm.vault} reads those)
      * @throws IllegalStateException if {@code plaintext} is closed
      */
     public static List<VaultRecord> decodePayload(SecretBytes plaintext) throws RecordException {
+        return decode(plaintext, false);
+    }
+
+    /**
+     * {@link #decodePayload} with passkey records allowed and their keys checked; reached only
+     * through the vault's hook.
+     */
+    static List<VaultRecord> decodeVaultPayload(SecretBytes plaintext) throws RecordException {
+        return decode(plaintext, true);
+    }
+
+    private static List<VaultRecord> decode(SecretBytes plaintext, boolean vaultInternal) throws RecordException {
         Objects.requireNonNull(plaintext, "plaintext");
         AtomicReference<RecordException> rejection = new AtomicReference<>();
         List<VaultRecord> records = plaintext.apply(bytes -> {
             try {
-                return decodeBytes(bytes);
+                return decodeBytes(bytes, vaultInternal);
             } catch (RecordException e) {
                 rejection.set(e);
                 return List.of();
@@ -154,7 +209,7 @@ public final class RecordCodec {
 
     // ---- decode -------------------------------------------------------------------------------
 
-    private static List<VaultRecord> decodeBytes(byte[] plaintext) throws RecordException {
+    private static List<VaultRecord> decodeBytes(byte[] plaintext, boolean vaultInternal) throws RecordException {
         CborValue root;
         try {
             root = CborReader.decode(plaintext, CborLimits.PAYLOAD);
@@ -164,14 +219,14 @@ public final class RecordCodec {
             throw new RecordException(code, "payload is not valid deterministic CBOR", e);
         }
         try {
-            return decodeRoot(root);
+            return decodeRoot(root, vaultInternal);
         } finally {
             // The tree still holds a copy of every secret byte string.
             root.wipe();
         }
     }
 
-    private static List<VaultRecord> decodeRoot(CborValue root) throws RecordException {
+    private static List<VaultRecord> decodeRoot(CborValue root, boolean vaultInternal) throws RecordException {
         Map<String, CborValue> top = mapOf(root);
         if (uint(top, K_SCHEMA_VERSION) != SCHEMA_VERSION) {
             throw schema("unsupported schema_version");
@@ -184,7 +239,7 @@ public final class RecordCodec {
         boolean complete = false;
         try {
             for (CborValue item : array.items()) {
-                decoded.add(decodeRecord(item, ids));
+                decoded.add(decodeRecord(item, ids, vaultInternal));
             }
             List<VaultRecord> result = List.copyOf(decoded);
             complete = true;
@@ -196,7 +251,8 @@ public final class RecordCodec {
         }
     }
 
-    private static VaultRecord decodeRecord(CborValue item, Set<UUID> ids) throws RecordException {
+    private static VaultRecord decodeRecord(CborValue item, Set<UUID> ids, boolean vaultInternal)
+            throws RecordException {
         Map<String, CborValue> fields = mapOf(item);
         String type = text(fields, K_TYPE);
         UUID id = uuid(fields);
@@ -211,6 +267,7 @@ public final class RecordCodec {
                 case T_PROJECT -> decodeProject(id, fields, pending);
                 case T_DEVICE_IDENTITY -> decodeDeviceIdentity(id, fields, pending);
                 case T_TRUSTED_DEVICE -> decodeTrustedDevice(id, fields);
+                case T_PASSKEY -> decodePasskey(id, fields, pending, vaultInternal);
                 default -> throw schema("unknown record type");
             });
         } catch (IllegalArgumentException e) {
@@ -300,6 +357,30 @@ public final class RecordCodec {
             ids.add(UUID.fromString(text));
         }
         return ids;
+    }
+
+    private static VaultRecord decodePasskey(UUID id, Map<String, CborValue> fields, Pending pending,
+                                             boolean vaultInternal) throws RecordException {
+        if (!vaultInternal) {
+            throw new RecordException(RecordException.Code.VAULT_ONLY, VAULT_ONLY);
+        }
+        Set<String> present = fields.keySet();
+        if (!WEBAUTHN_FIELDS.equals(present)) {
+            throw schema("passkey record keys differ from the schema");
+        }
+        long signCount = uint(fields, K_SIGN_COUNT);
+        if (signCount > PasskeyRecord.MAX_SIGN_COUNT) {
+            throw new RecordException(RecordException.Code.LIMIT, "sign_count is out of range");
+        }
+        PasskeyRecord passkey = new PasskeyRecord(id, text(fields, K_TITLE), text(fields, K_RP_ID),
+                bytes(fields, K_CREDENTIAL_ID), bytes(fields, K_USER_HANDLE), text(fields, K_USER_NAME),
+                text(fields, K_DISPLAY_NAME), pending.own(bytes(fields, K_PRIVATE_KEY)), signCount,
+                instant(fields, K_CREATED), instant(fields, K_UPDATED), instant(fields, K_LAST_USED));
+        // The key is owned by pending until commit, so a refusal here zero-fills it.
+        if (!PasskeyRecordAccess.hook().keyIsValid(passkey)) {
+            throw schema("passkey private_key is not a valid key");
+        }
+        return passkey;
     }
 
     /** Accepts only the canonical text form, exactly as {@link UUID#toString} writes it. */
@@ -393,6 +474,9 @@ public final class RecordCodec {
         if (record instanceof SshKeyRecord) {
             return encodeSshKey(SshKeyRecord.class.cast(record));
         }
+        if (record instanceof PasskeyRecord) {
+            return encodePasskey(PasskeyRecord.class.cast(record));
+        }
         if (record instanceof ProjectRecord) {
             return encodeProject(ProjectRecord.class.cast(record));
         }
@@ -478,6 +562,19 @@ public final class RecordCodec {
         fields.put(K_SHARED, textArray(device.shared().stream().map(UUID::toString).toList()));
         fields.put(K_RECEIVED, textArray(device.received().stream()
                 .map(r -> r.shareId() + "@" + r.expires().getEpochSecond()).toList()));
+        return new CborValue.MapV(fields);
+    }
+
+    private static CborValue encodePasskey(PasskeyRecord passkey) {
+        Map<String, CborValue> fields = commonFields(T_PASSKEY, passkey);
+        fields.put(K_RP_ID, new CborValue.Text(passkey.rpId()));
+        fields.put(K_CREDENTIAL_ID, new CborValue.Bytes(passkey.credentialId()));
+        fields.put(K_USER_HANDLE, new CborValue.Bytes(passkey.userHandle()));
+        fields.put(K_USER_NAME, new CborValue.Text(passkey.accountName()));
+        fields.put(K_DISPLAY_NAME, new CborValue.Text(passkey.displayName()));
+        fields.put(K_SIGN_COUNT, new CborValue.UInt(passkey.signCount()));
+        fields.put(K_LAST_USED, seconds(passkey.lastUsed()));
+        fields.put(K_PRIVATE_KEY, secretBytes(passkey.privateKey()));
         return new CborValue.MapV(fields);
     }
 

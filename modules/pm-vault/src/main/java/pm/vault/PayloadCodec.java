@@ -2,6 +2,7 @@ package pm.vault;
 
 import java.util.List;
 import pm.crypto.SecretBytes;
+import pm.vault.internal.PasskeyRecordAccess;
 import pm.vault.record.RecordCodec;
 import pm.vault.record.RecordException;
 import pm.vault.record.VaultRecord;
@@ -9,7 +10,8 @@ import pm.vault.record.VaultRecord;
 /**
  * Seam over {@link RecordCodec} so tests can count payload decodes and prove that no
  * record is parsed before the GCM tag verifies (SR-020, TamperTest). Production code always
- * uses {@link #RECORDS}.
+ * uses {@link #RECORDS}, the vault-internal form of {@link RecordCodec} that also writes and reads
+ * passkey records (SR-086).
  */
 interface PayloadCodec {
 
@@ -23,12 +25,12 @@ interface PayloadCodec {
     PayloadCodec RECORDS = new PayloadCodec() {
         @Override
         public SecretBytes encode(List<VaultRecord> records) {
-            return RecordCodec.encodePayload(records);
+            return PasskeyRecordAccess.hook().encodeVaultPayload(records);
         }
 
         @Override
         public List<VaultRecord> decode(SecretBytes plaintext) throws RecordException {
-            return RecordCodec.decodePayload(plaintext);
+            return PasskeyRecordAccess.hook().decodeVaultPayload(plaintext);
         }
     };
 }

@@ -9,6 +9,7 @@ import com.googlecode.lanterna.gui2.Panel;
 import com.googlecode.lanterna.gui2.Window;
 import java.util.List;
 import pm.vault.record.LoginRecord;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.ProjectRecord;
 import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
@@ -90,8 +91,20 @@ final class RecordDetailWindow {
             return wifiFields(WifiRecord.class.cast(r));
         } else if (r instanceof SshKeyRecord) {
             return sshFields(SshKeyRecord.class.cast(r));
+        } else if (r instanceof PasskeyRecord) {
+            return passkeyFields(PasskeyRecord.class.cast(r));
         }
         return projectFields(ProjectRecord.class.cast(r));
+    }
+
+    /** RP ID, account name and counter only: never the credential ID, user handle or key (ADR 0016). */
+    private static List<List<String>> passkeyFields(PasskeyRecord p) {
+        return List.of(
+                List.of("Type:", DashboardWindow.typeName(p)),
+                List.of("Title:", p.title()),
+                List.of("Site:", p.rpId()),
+                List.of("Account:", p.accountName()),
+                List.of("Sign count:", Long.toString(p.signCount())));
     }
 
     private static List<List<String>> loginFields(LoginRecord l) {

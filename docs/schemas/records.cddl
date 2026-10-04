@@ -13,7 +13,7 @@
 ;   - All or nothing: any violation rejects the whole payload (SR-021).
 ;   - Record ids are unique within "records".
 ;   - Readers ignore unknown keys, in the payload map and in every record map
-;     (ADR 0006 forward compatibility). Unknown keys are not written back. The
+;     except passkey-record (ADR 0006 forward compatibility). Unknown keys are not written back. The
 ;     "variables" and "config" maps are data: every entry in them is read.
 ;   - Every key listed in a map below is required.
 ;   - Sizes marked "chars" count UTF-16 code units, as the Java model does;
@@ -21,7 +21,7 @@
 ;     below give that byte bound.
 ;
 ; Secret fields (data-classification.md: Secret) are byte strings and are never
-; held as text: login and wifi "password", ssh-key and device-identity
+; held as text: login and wifi "password", ssh-key, device-identity and passkey
 ; "private_key", and every value of project "variables". All other fields are Sensitive.
 ;
 ; Decoder bounds (CborLimits.PAYLOAD): payload <= 256 MiB, at most 1,000,000
@@ -37,6 +37,7 @@ payload = {
 
 record = login-record / wifi-record / ssh-key-record / project-record /
          device-identity-record / trusted-device-record
+record //= passkey-record
 
 login-record = {
   "type"      => "login",
@@ -124,6 +125,43 @@ received-share = tstr .regexp "[0-9a-f]{32}@(0|[1-9][0-9]{0,11})"
 device-name = tstr .size (1..96)
 
 wifi-security = "WPA2" / "WPA3" / "WEP" / "OPEN"
+
+; WebAuthn passkey (M6.2, ADR 0016 addendum, SR-085 to SR-088). Rules beyond
+; CDDL, enforced by RecordCodec and PasskeyRecord:
+;   - Vault-only: only pm.vault writes or reads a payload holding a passkey
+;     record; the public RecordCodec.encodePayload/decodePayload refuse it
+;     (VAULT_ONLY), so no export or share format carries one.
+;   - The key set is exact: a missing or unknown key rejects the whole payload
+;     (unlike the other record types).
+;   - "rp_id" is a lower-case ASCII host name: dot-separated LDH labels of 1 to
+;     63 characters, no leading or trailing hyphen, internationalised names only
+;     as xn-- A-labels, no trailing dot, and not an IPv4 literal (the last label
+;     is not all digits).
+;   - "user_name" and "display_name" hold no control, format (bidi, zero-width),
+;     line or paragraph separator character, and at least one visible character
+;     (not only white space, marks, Hangul fillers or the braille blank);
+;     "display_name" may be empty, "user_name" may not.
+;   - "private_key" is the pm.crypto.passkey.storage.PasskeyStorage form
+;     0x01 || d (32) || 0x04 || X (32) || Y (32). Decode loads it: d in range
+;     and d·G equal to the stored point, or the payload is refused (SCHEMA).
+;   - "sign_count" is only ever increased: by Vault.signWithPasskey, saved
+;     before the signature carrying it is released, and by 2^20 on a restore
+;     from backup (VaultBackups.restore).
+passkey-record = {
+  "type"          => "passkey",
+  "id"            => uuid-text,
+  "title"         => title,
+  "rp_id"         => tstr .size (1..253),
+  "credential_id" => bstr .size (16..1023),
+  "user_handle"   => bstr .size (1..64),
+  "user_name"     => tstr .size (0..768),    ; at most 256 chars
+  "display_name"  => tstr .size (0..768),    ; at most 256 chars
+  "private_key"   => bstr .size 98,          ; Secret
+  "sign_count"    => 0..4294967295,          ; u32
+  "created"       => epoch-seconds,
+  "updated"       => epoch-seconds,
+  "last_used"     => epoch-seconds,
+}
 
 ; RFC 9562 text form exactly as java.util.UUID.toString writes it: lower-case
 ; hex in groups of 8-4-4-4-12. Any other spelling is rejected.

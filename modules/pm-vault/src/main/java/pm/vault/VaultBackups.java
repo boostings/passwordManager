@@ -11,8 +11,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import pm.crypto.ConstantTime;
 import pm.crypto.Csprng;
@@ -21,6 +24,7 @@ import pm.crypto.SecretChars;
 import pm.storage.BackupDirectory;
 import pm.storage.StorageException;
 import pm.storage.VaultFileStore;
+import pm.vault.record.PasskeyRecord;
 import pm.vault.record.VaultRecord;
 
 /**
@@ -49,6 +53,17 @@ import pm.vault.record.VaultRecord;
  * the caller passes {@code overwrite}. Every failure before the rename leaves the target as it
  * was, and the rename itself is atomic, so a restore never leaves a partial vault.
  *
+ * <p><b>Passkey counters (ADR 0016 addendum, AC-51).</b> A backup holds the counters of the day it
+ * was taken; assertions signed since then carried higher ones. If the backup holds a passkey,
+ * {@link #restore} does not install it byte for byte: it re-seals the records as the next save
+ * with every passkey counter raised to {@code max(backup + 2^20, existing + 1)}, where
+ * {@code existing} is the counter of the same record in the vault being overwritten, if that vault
+ * opens with the same passphrase ({@link #RESTORE_COUNTER_MARGIN}). A value that would reach
+ * 2^32 - 1 becomes 2^32 - 1, which is exhausted, so the credential stops rather than repeats a
+ * counter. A relying party sees no counter it has already seen unless more than 2^20 assertions
+ * were signed after the backup on a vault that is not the one overwritten (another machine, or a
+ * target that does not open with this passphrase).
+ *
  * <p>Failures are {@link VaultException}s with the existing codes: {@code CORRUPT} for a damaged,
  * truncated or tampered backup, {@code WRONG_CREDENTIAL} for a wrong passphrase,
  * {@code UNSUPPORTED_VERSION} for a backup or vault format this build cannot read,
@@ -69,9 +84,12 @@ public final class VaultBackups {
     private static final int MIN_KEEP = 1;
     private static final int STAMP_LENGTH = 16;
     private static final long FUTURE_SLACK_SECONDS = 24L * 60 * 60;
+    /** How far {@link #restore} raises every passkey counter: 2^20 assertions. */
+    static final long RESTORE_COUNTER_MARGIN = 1L << 20;
 
     private final Clock clock;
     private final VaultReader reader;
+    private final PayloadCodec codec;
     private final StoreOpener opener;
 
     /** Opens the restore target; replaced in tests to inject storage failures. */
@@ -175,6 +193,7 @@ public final class VaultBackups {
     VaultBackups(Clock clock, MigrationRegistry migrations, PayloadCodec codec, StoreOpener opener) {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.reader = new VaultReader(migrations, codec);
+        this.codec = codec;
         this.opener = Objects.requireNonNull(opener, "opener");
     }
 
@@ -262,13 +281,14 @@ public final class VaultBackups {
      *                        {@code STORAGE}
      */
     public Verified verify(Path backup, SecretChars passphrase) throws VaultException {
-        Checked checked = check(backup, passphrase);
+        Checked checked = check(backup, passphrase, false, Map.of());
         return new Verified(checked.info(), checked.records());
     }
 
     /**
      * Verifies {@code backup} as {@link #verify} does, then installs its vault file at
-     * {@code target}. An existing vault there is replaced only if {@code overwrite} is true, and
+     * {@code target}; if it holds a passkey, the file installed is the backup re-sealed with every
+     * passkey counter raised (see the class comment). An existing vault there is replaced only if {@code overwrite} is true, and
      * is then kept as {@code .bak.1}. The target must not be open in this or another process.
      * As with every save (ADR 0003), {@code .bak.1} is written before the vault is replaced, so a
      * write that then fails leaves the target unchanged but has already shifted the older
@@ -287,8 +307,8 @@ public final class VaultBackups {
     public Restored restore(Path backup, Path target, SecretChars passphrase, boolean overwrite)
             throws VaultException {
         Objects.requireNonNull(target, "target");
-        Checked checked = check(backup, passphrase);
-        byte[] vaultFile = checked.parsed().vault();
+        Checked checked = check(backup, passphrase, true, Map.of());
+        byte[] vaultFile = checked.install();
         try (VaultFileStore store = opener.open(target)) {
             boolean exists = exists(store);
             boolean lowers = false;
@@ -296,7 +316,14 @@ public final class VaultBackups {
                 if (!overwrite) {
                     throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
                 }
-                lowers = saveSeqOf(store.readAll()) > checked.info().saveSeq();
+                byte[] existing = store.readAll();
+                lowers = saveSeqOf(existing) > checked.info().saveSeq();
+                if (checked.passkeys()) {
+                    Map<UUID, Long> floors = passkeyCounters(existing, passphrase);
+                    if (!floors.isEmpty()) {
+                        vaultFile = check(backup, passphrase, true, floors).install();
+                    }
+                }
                 store.backup();
             }
             store.writeAtomically(vaultFile);
@@ -332,11 +359,39 @@ public final class VaultBackups {
 
     // ---- internals -----------------------------------------------------------------------------
 
-    /** A backup that passed every check. */
-    private record Checked(BackupFormat.Parsed parsed, Info info, int records) {
+    /** A backup that passed every check, and the vault file a restore installs. */
+    private static final class Checked {
+        private final Info facts;
+        private final int count;
+        private final byte[] file;
+        private final boolean holdsPasskeys;
+
+        Checked(Info facts, int count, byte[] file, boolean holdsPasskeys) {
+            this.facts = facts;
+            this.count = count;
+            this.file = file.clone();
+            this.holdsPasskeys = holdsPasskeys;
+        }
+
+        boolean passkeys() {
+            return holdsPasskeys;
+        }
+
+        Info info() {
+            return facts;
+        }
+
+        int records() {
+            return count;
+        }
+
+        byte[] install() {
+            return file.clone();
+        }
     }
 
-    private Checked check(Path backup, SecretChars passphrase) throws VaultException {
+    private Checked check(Path backup, SecretChars passphrase, boolean forRestore, Map<UUID, Long> floors)
+            throws VaultException {
         Objects.requireNonNull(passphrase, "passphrase");
         BackupFormat.Parsed parsed = BackupFormat.parse(read(backup));
         VaultReader.Envelope env = reader.parse(parsed.vault());
@@ -346,8 +401,15 @@ public final class VaultBackups {
             }
             List<VaultRecord> records = reader.records(env, vk);
             int count = records.size();
-            closeAll(records);
-            return new Checked(parsed, info(parsed.header(), env), count);
+            byte[] install = parsed.vault();
+            boolean passkeys = records.stream().anyMatch(PasskeyRecord.class::isInstance);
+            if (forRestore && passkeys) {
+                install = Vault.raisedForRestore(env.header(), vk, codec, records, RESTORE_COUNTER_MARGIN, floors,
+                        VaultService.epochSeconds(clock));
+            } else {
+                closeAll(records);
+            }
+            return new Checked(info(parsed.header(), env), count, install, passkeys);
         }
     }
 
@@ -358,6 +420,27 @@ public final class VaultBackups {
     private static Info info(BackupFormat.Header header, VaultReader.Envelope env) {
         return new Info(Instant.ofEpochSecond(header.created()), header.formatVersion(),
                 header.vaultLength(), env.header().saveSeq());
+    }
+
+    /**
+     * The passkey counters of the vault a restore overwrites, by record id; empty if it does not
+     * open with {@code passphrase} or is unreadable (the restore then raises from the backup alone;
+     * ADR 0016 addendum).
+     */
+    private Map<UUID, Long> passkeyCounters(byte[] existing, SecretChars passphrase) {
+        Map<UUID, Long> counters = new HashMap<>();
+        try {
+            VaultReader.Envelope env = reader.parse(existing);
+            try (SecretBytes vk = VaultReader.keyFromPassphrase(env.header(), passphrase)) {
+                List<VaultRecord> records = reader.records(env, vk);
+                records.stream().filter(PasskeyRecord.class::isInstance).map(PasskeyRecord.class::cast)
+                        .forEach(p -> counters.put(p.id(), p.signCount()));
+                closeAll(records);
+            }
+        } catch (VaultException unreadable) {
+            return Map.of();
+        }
+        return counters;
     }
 
     private long saveSeqOf(byte[] existing) {
