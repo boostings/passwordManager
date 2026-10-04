@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLServerSocket;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.CryptoException;
 import pm.crypto.DeviceIdentity;
@@ -34,6 +35,8 @@ import pm.sharing.wire.WireException;
 
 /** The ceremony end to end over real loopback TLS 1.3 sockets; Bob's side runs on a second thread. */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: one executor plays the peer device
+@Tag("T-LAN-02")
+@Tag("T-LAN-04")
 class PairerTest {
     private static final Instant NOW = Instant.parse("2026-10-03T12:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);

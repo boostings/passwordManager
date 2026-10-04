@@ -10,9 +10,11 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** SR-210: the page's CSP admits exactly its own inline script, and the page stores nothing. */
+@Tag("T-WEB-02")
 class WebPageTest {
     @Test
     void cspAllowsOnlyTheInlineScriptByItsHash() throws NoSuchAlgorithmException {

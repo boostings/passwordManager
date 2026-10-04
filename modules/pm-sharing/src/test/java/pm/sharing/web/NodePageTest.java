@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import pm.crypto.CryptoException;
@@ -21,6 +22,8 @@ import pm.crypto.CryptoException;
  * browser side decrypts what {@link WebShare} seals (same key, zero nonce, id as associated data)
  * and removes the fragment. Skipped when {@code node} is not on the PATH.
  */
+@Tag("T-WEB-01")
+@Tag("T-WEB-02")
 class NodePageTest {
     private static final String HARNESS = """
             const fs = require("fs");

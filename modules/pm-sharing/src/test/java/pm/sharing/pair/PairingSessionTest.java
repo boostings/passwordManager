@@ -15,6 +15,7 @@ import static pm.sharing.pair.Peers.MALLORY;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongFunction;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.DeviceIdentity;
 import pm.crypto.Pairing;
@@ -24,6 +25,8 @@ import pm.sharing.wire.Message;
 import pm.sharing.wire.Octets;
 
 /** The pairing ceremony as a pure state machine (lan-share.md §5, ADR 0010 Amendment 1). */
+@Tag("T-LAN-02")
+@Tag("T-LAN-03")
 class PairingSessionTest {
     private static final Octets V32 = Octets.copyOf(new byte[32]);
     private static final Octets ID16 = Octets.copyOf(new byte[16]);

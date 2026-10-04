@@ -9,12 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.sharing.share.ShareException.Code;
 import pm.sharing.wire.Message;
 import pm.sharing.wire.Octets;
 
 /** Share windows on the sender: expiry, one use, revocation (SR-204, SR-205). */
+@Tag("T-LAN-05")
 class SharesTest {
     static final Instant T0 = Instant.parse("2026-10-03T12:00:00.250Z");
     static final byte[] BOB = filled(2);

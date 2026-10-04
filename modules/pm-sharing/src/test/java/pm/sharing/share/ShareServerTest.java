@@ -26,6 +26,7 @@ import java.util.function.Predicate;
 import javax.net.ssl.SSLServerSocket;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.CryptoException;
 import pm.crypto.DeviceIdentity;
@@ -38,6 +39,9 @@ import pm.sharing.wire.WireException;
 
 /** The sender's listener over real loopback TLS: lifetime, pinning, revocation (SR-205, SR-207). */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: one executor plays a misbehaving sender
+@Tag("T-LAN-05")
+@Tag("T-LAN-06")
+@Tag("T-LAN-07")
 class ShareServerTest {
     private static final InetAddress LOOPBACK = InetAddress.getLoopbackAddress();
     private static final Duration WAIT = Duration.ofSeconds(20);

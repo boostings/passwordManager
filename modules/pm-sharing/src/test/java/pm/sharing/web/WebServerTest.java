@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.CryptoException;
 import pm.crypto.SecretBytes;
@@ -37,6 +38,10 @@ import pm.crypto.WebIdentity;
 
 /** The one-fetch HTTPS listener over real loopback TLS (SR-209, SR-210, SR-207). */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: a second client dribbles bytes while the first is served
+@Tag("T-WEB-01")
+@Tag("T-WEB-02")
+@Tag("T-LAN-05")
+@Tag("T-LAN-07")
 class WebServerTest {
     private static final InetAddress HOST = InetAddress.getLoopbackAddress();
     private static final Duration WAIT = Duration.ofSeconds(10);

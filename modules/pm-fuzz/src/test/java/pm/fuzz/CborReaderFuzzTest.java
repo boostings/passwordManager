@@ -2,6 +2,7 @@ package pm.fuzz;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.code_intelligence.jazzer.junit.FuzzTest;
 import java.io.IOException;
@@ -48,5 +49,14 @@ class CborReaderFuzzTest {
             assertEquals(seed.getValue(), CborReader.decode(bytes, CborLimits.HEADER), seed.getKey());
             assertArrayEquals(bytes, CborWriter.encode(seed.getValue()), seed.getKey());
         }
+    }
+
+    /** The duplicate-key seed, {@code {"a": 1, "a": 1}}, is refused rather than collapsed to one entry. */
+    @Test
+    void aMapWithADuplicateKeyIsRefused() throws IOException {
+        byte[] bytes = Seeds.read(CborReaderFuzzTest.class, "map-duplicate-key.cbor");
+        assertArrayEquals(new byte[] {(byte) 0xA2, 0x61, 'a', 0x01, 0x61, 'a', 0x01}, bytes);
+        assertThrows(CborException.class, () -> CborReader.decode(bytes, CborLimits.HEADER));
+        fuzz(bytes);
     }
 }

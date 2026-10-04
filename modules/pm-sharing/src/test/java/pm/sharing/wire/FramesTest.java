@@ -8,9 +8,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Length-prefixed framing, bounded before allocation. */
+@Tag("T-FUZZ-LAN")
 class FramesTest {
     @Test
     void framesRoundTripBackToBack() throws IOException, WireException {

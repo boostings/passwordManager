@@ -13,6 +13,7 @@ import static pm.sharing.share.SharesTest.T0;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.DeviceIdentity;
 import pm.sharing.share.ShareException.Code;
@@ -20,6 +21,8 @@ import pm.sharing.wire.Message;
 import pm.sharing.wire.Octets;
 
 /** The two share session state machines, pumped in memory (lan-share.md §6, §9). */
+@Tag("T-LAN-03")
+@Tag("T-LAN-05")
 class ShareSessionTest {
     private static final byte[] ALICE = SharesTest.filled(1);
     private static final Octets OTHER_ID = Octets.copyOf(new byte[16]);

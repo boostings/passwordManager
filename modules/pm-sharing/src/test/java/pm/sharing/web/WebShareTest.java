@@ -14,12 +14,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.Aead;
 import pm.crypto.CryptoException;
 import pm.crypto.SecretBytes;
 import pm.sharing.share.Shares;
 
+@Tag("T-WEB-01")
 class WebShareTest {
     static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");
     static final byte[] TEXT = "DB_PASSWORD=correct horse".getBytes(StandardCharsets.UTF_8);

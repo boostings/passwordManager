@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Sequence numbers (SR-202) and the byte-string value type. */
+@Tag("T-LAN-03")
 class SequenceAndOctetsTest {
     @Test
     void sendingNumbersStartAtZeroAndCount() {

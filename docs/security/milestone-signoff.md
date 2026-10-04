@@ -209,3 +209,91 @@ Open, not blocking M2:
   `pm.crypto.ConstantTime.equals`; there is no ArchUnit rule keeping the VK out of direct GCM use.
 
 Signed off: Lane A (@boostings), security owner.
+
+## M3 — LAN sharing (protocol layer, M3.1–M3.5)
+
+**Scope.** This sign-off covers the protocol layer: device identity and pairing crypto (M3.1), the
+wire format (M3.2), the pairing ceremony (M3.3), share windows and their sessions (M3.4), and
+browser-only receiving (M3.5). It does not cover the CLI/TUI exposure of these features (M3.6:
+`devices`, `pair`, `share`, `receive`, `revoke`, and removing a revoked device's pinned key from the
+vault, SR-205/SR-208). That is reviewed at its own integration. Traceability rows TM-30
+(discovery) and TM-37 (apply) stay Planned for that reason.
+
+Evidence: local runs on 2026-10-03 (fuzz campaign) and 2026-10-04 (planted-bug checks and the gate) at commit M3.7 (this section's commit). As with M2, the manual
+CI workflow has **not** been dispatched, because nothing is pushed without the owner's approval.
+
+- Full gate on macOS 27.0 arm64, JDK 21.0.12.1:
+  `./gradlew --rerun-tasks check certReport gitleaksScan`. Result: `BUILD SUCCESSFUL`, `**Result: 0 findings.**`,
+  gitleaks "no leaks found", 1336 tests from committed sources, 0 failures or errors.
+- pm-sharing branch coverage stays at 100 %: `:modules:pm-sharing:jacocoTestCoverageVerification`
+  ran in the gate and passed. M3.7 changed no pm-sharing main code.
+- Fuzz campaign over the four new harnesses: 40 minutes, 19,348,851 executions, 0 crashes. Details
+  are in `docs/security/fuzz/M3-fuzz-runs.md`.
+
+| Exit criterion (plan.md §13 M3) | Proving test | Local result |
+| --- | --- | --- |
+| Protocol fuzzed against the state machine; malformed messages never reach domain code | `LanCodecFuzzTest` (framing and codec: only documented errors, every accepted field within the CDDL bounds restated in the harness, one spelling per message; oversized frame headers refused before any body byte is read); `PairingSessionFuzzTest` (both roles, crafted and out-of-order messages: `DONE` only with an opened commitment, the right MAC recomputed with `pm.crypto.Pairing`, and a human confirmation); `ShareSessionFuzzTest` (crafted, replayed, dropped and renumbered messages, clock moves, revocations: the receiver's applier only ever sees the exact payload of a live, unrevoked window for that device, at most once for one-use); `WebRouteFuzzTest` (routing and request-head parsing: raw and assembled heads fed to `requestLine` and `route` directly; the seeds are also replayed over real loopback TLS). Each harness replays its seeds in the gate, and a seed test checks each seed ends in its labelled state, so the accepting branches of every oracle run | 40 min campaign, 19,348,851 executions, 0 crashes, 0 oracle violations (M3-fuzz-runs.md). Gate: `LanCodecFuzzTest` 25/0/0, `PairingSessionFuzzTest` 9/0/0, `ShareSessionFuzzTest` 7/0/0, `WebRouteFuzzTest` 8/0/0 (tests/failures/skipped) |
+| Replay, pairing-code reuse, expired share and revoked device all fail closed | Replay: `ShareSessionTest.theSameShareOfferedAgainIsAReplay`, `ShareServerTest.aReusableShareReceivedTwiceIsAReplayOnTheSecondTime`, `SequenceAndOctetsTest`. Pairing reuse: fresh nonces per run (`PairingSessionTest.theRealNonceSourceGivesDistinctDigitsPerRun`), a commitment that opens only with its key and nonce (`PairingTest.aCommitmentOpensOnlyWithItsKeyAndNonce`), lockout (`LockoutTest`, `PairerTest.failuresAreCountedAndTheThirdLocksPairing`). Expiry: `ShareSessionTest.anOfferThatHasExpiredByTheReceiversClockIsRefused`, `theSenderEnforcesExpiryAndRevocationAtTheAccept`. Revoked device: `SharesTest.revokingAShareOrItsDeviceClosesTheWindow`, `ShareServerTest.aRevokedOrUntrustedOrUnofferedDeviceFailsTheHandshake` | `ShareSessionTest` 11/0/0, `ShareServerTest` 9/0/0, `SharesTest` 7/0/0, `SequenceAndOctetsTest` 4/0/0, `PairingSessionTest` 13/0/0, `PairingTest` 8/0/0, `LockoutTest` 2/0/0, `PairerTest` 8/0/0 |
+| Listener lifetime: no open port after share expiry | `ShareServerTest.theListenerClosesWhenTheLastWindowExpires`, `aOneUseShareIsDeliveredThenTheListenerClosesAndFreesThePort`; `WebServerTest.theListenerClosesAtExpiryWithoutDelivering`, `pageUntilTheDataIsFetchedOnceThenThePortIsClosed`, `closeStopsTheListenerAndFreesThePort`, `aSlowClientIsCutOffAtTheConnectionDeadline` | `ShareServerTest` 9/0/0, `WebServerTest` 9/0/0 |
+| Browser page passes a CSP audit and holds no data after expiry | `WebPageTest` (the CSP hash matches the only script; no storage APIs or markup sinks); `WebServerTest.afterExpiryOrCloseEverythingIsGone` (410 for everything after expiry and close); `NodePageTest` (the real inline script decrypts under Node WebCrypto); a headless Chrome check by hand at M3.5 | `WebPageTest` 2/0/0, `WebServerTest` 9/0/0, `NodePageTest` 1/0/0. The browser's own history database keeps the key; see residual risk below |
+| External review of the pairing and SAS construction | None; this is a review, not a test | **Open, user-only.** Listed in docs/plans/M2-M7.md. Must happen before v1 ships |
+
+Design changes accepted at this sign-off:
+
+- **ADR 0010 Amendment 1 (M3.1): commit-then-reveal SAS, no TLS exporter.** As first written, the
+  SAS came from values each side contributed without committing to them first. A machine in the
+  middle could therefore grind its own contribution offline, about 10^6 tries, until both victims
+  saw the same 6 digits. Now the initiator commits to `n_I` under its key before it sees `n_R`, so
+  each victim's digits contain a random value the attacker had to fix in advance. Each attempt
+  succeeds with probability 10^-6, and the lockout caps attempts. JDK 21 has no RFC 8446 exporter
+  (`javap javax.net.ssl.ExtendedSSLSession` shows none), so the SAS binds both certificate keys
+  through HKDF `info` instead of an exporter. The 20-bit reduction bias was also corrected to
+  64 bits mod 10^6. `PairingSessionTest.aRelayingAttackerLeavesTheVictimsWithDifferentDigits` and
+  `aForwardedConfirmationFromTheOtherLegDoesNotVerify` show the relay failing.
+- **ADR 0010 Amendment 2 (M3.5): browser-only receiving.** No browser accepts an Ed25519 server
+  certificate. Each browser share therefore gets a throwaway ECDSA P-256 identity
+  (`pm.crypto.WebIdentity`). It is valid only for the share window, names the listener IP, and is
+  never stored. The CSP gains `connect-src 'self'` so the page can fetch its ciphertext. The
+  one-message key uses a zero nonce through `Aead.sealWithFreshKey`.
+
+M3.5 adversarial-review fixes (all in M3.5, regression-tested in `WebServerTest`; the routing ones,
+strict version and page-before-data, are also fuzzed by `WebRouteFuzzTest`):
+
+- **Trickling client.** A client sending one byte at a time kept the listener open past expiry and
+  was then served the ciphertext. A 5 s per-connection watchdog now closes it
+  (`aSlowClientIsCutOffAtTheConnectionDeadline`).
+- **In-flight revocation.** `close()` did not stop a request already being read. It now cuts it off
+  (`closeCutsOffARequestInFlight`).
+- **Page burning by link previews.** The page was served once, so a chat app's link preview, or one
+  `curl`, locked the real recipient out. The page is now served until the ciphertext is fetched,
+  and only `/d/<id>` is one-time (`pageUntilTheDataIsFetchedOnceThenThePortIsClosed`).
+- **Strict HTTP version.** Only `HTTP/1.0` and `HTTP/1.1` request lines are accepted
+  (`routeRefusesMalformedRequestsAndOtherMethods`).
+- **History database, documented residual risk.** `history.replaceState` clears the fragment from
+  the address bar, but Chrome has already written the full URL, key included, to its History
+  database, and it may sync. No page script can remove it. The key opens only this share's
+  ciphertext, which is served once and never after expiry. The TUI (M3.6) must tell the sender to
+  keep windows short and suggest a private window. The other residual risk stays as well: a
+  network attacker answering the first request (ADR 0010 §7). The recipient's only defence is the
+  certificate fingerprint, and paired-device sharing remains the default.
+
+The fuzz campaign found no defect, and no pm-sharing main code changed in M3.7. An adversarial
+review then planted a missing field-length check and a loosened frame bound, and the first harness
+missed both. The oracles were strengthened and each planted bug is now caught; see "Oracle checks
+after the adversarial review" in M3-fuzz-runs.md. Traceability status meaning was changed
+explicitly at the same time: "Implemented" means the local gate, not CI (traceability.md, top).
+
+CERT exceptions: no suppression was added in M3.7, so CE-040..CE-044 are unused. The M3 rows added
+earlier (CE-011..CE-013) are unchanged.
+
+Open, not blocking the M3 protocol layer:
+- **External review of the pairing/SAS construction (ADR 0010 Amendment 1). User-only; required
+  before v1 ships.**
+- M3.6 CLI/TUI integration and its own review: pinned-key removal on revoke (SR-205), apply
+  (SR-208), and the sender and recipient warnings Amendment 2 requires.
+- Longer fuzz runs: the campaign was 10 minutes per harness. `WebRouteFuzzTest` runs at about
+  600 exec/s because each input binds a listener socket. The accept loop and TLS path are
+  exercised only by the seed replay over TLS and by `WebServerTest`, not fuzzed.
+- Dispatching the manual CI workflow (needs the branch pushed). The M2 carry-overs are unchanged.
+
+Signed off: Lane A (@boostings), security owner, for the protocol layer M3.1–M3.5.

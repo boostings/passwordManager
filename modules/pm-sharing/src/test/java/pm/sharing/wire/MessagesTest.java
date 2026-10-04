@@ -14,11 +14,13 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.Size;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.vault.cbor.CborValue;
 import pm.vault.cbor.CborWriter;
 
 /** The strict message codec (lan-share.md §4, docs/schemas/lan-share.cddl). */
+@Tag("T-FUZZ-LAN")
 class MessagesTest {
     private static final Octets ID16 = Octets.copyOf(new byte[16]);
     private static final Octets V32 = Octets.copyOf(new byte[32]);

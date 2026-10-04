@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** SR-203: three failures lock pairing for 60 s, each further failure doubles it, capped at 1 h. */
+@Tag("T-LAN-04")
 class LockoutTest {
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");
 

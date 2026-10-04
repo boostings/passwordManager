@@ -73,3 +73,11 @@ recovery/
 
 # Jazzer local fuzzing corpus (JAZZER_FUZZ=1 runs)
 .cifuzz-corpus/
+# Jazzer findings written next to the seeds (crash-<sha1>, timeout-*, oom-*, slow-unit-*, leak-*).
+# A fixed finding is committed on purpose, renamed to a descriptive seed (see
+# docs/security/fuzz/M3-fuzz-runs.md), so a raw reproducer is never committed by accident.
+modules/pm-fuzz/src/test/resources/**/crash-*
+modules/pm-fuzz/src/test/resources/**/timeout-*
+modules/pm-fuzz/src/test/resources/**/oom-*
+modules/pm-fuzz/src/test/resources/**/slow-unit-*
+modules/pm-fuzz/src/test/resources/**/leak-*
