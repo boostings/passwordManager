@@ -90,6 +90,27 @@ class SharesTest {
     }
 
     @Test
+    void aDeviceNoLongerAdmittedGetsNoDataEvenAfterTheOffer() {
+        java.util.concurrent.atomic.AtomicBoolean bobTrusted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        Shares shares = new Shares(peer -> !pm.crypto.ConstantTime.equals(peer, BOB) || bobTrusted.get());
+        Share s = open(shares, BOB, true);
+        Share carols = open(shares, CAROL, true);
+        assertSame(s, shares.offerFor(BOB, T0).orElseThrow(), "offered while trusted");
+        bobTrusted.set(false); // removed from the trust list between the offer and SHARE_ACCEPT
+        assertEquals(Code.REVOKED, claimFails(shares, s.id(), BOB, T0));
+        bobTrusted.set(true);
+        assertEquals(Code.REVOKED, claimFails(shares, s.id(), BOB, T0), "the refusal revoked the window for good");
+        assertSame(carols, shares.offerFor(CAROL, T0).orElseThrow(), "other devices are unaffected");
+
+        Share later = open(shares, BOB, true);
+        bobTrusted.set(false);
+        assertTrue(shares.offerFor(BOB, T0).isEmpty(), "no offer to a removed device");
+        bobTrusted.set(true);
+        assertTrue(shares.offerFor(BOB, T0).isEmpty(), "and the refusal revoked its window");
+        assertEquals(Code.REVOKED, claimFails(shares, later.id(), BOB, T0));
+    }
+
+    @Test
     void windowsAreBetweenOneSecondAndADay() {
         Shares shares = new Shares();
         for (Duration bad : new Duration[] {Duration.ZERO, Duration.ofMillis(999), Shares.MAX_TTL.plusSeconds(1)}) {

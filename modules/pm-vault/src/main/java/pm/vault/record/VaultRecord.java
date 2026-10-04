@@ -11,7 +11,8 @@ import java.util.UUID;
  * Timestamps are whole seconds from 1970-01-01T00:00:00Z on, because that is what the payload
  * stores; the constructors truncate finer instants and refuse earlier ones.
  */
-public sealed interface VaultRecord extends AutoCloseable permits LoginRecord, WifiRecord, SshKeyRecord, ProjectRecord {
+public sealed interface VaultRecord extends AutoCloseable permits LoginRecord, WifiRecord, SshKeyRecord, ProjectRecord,
+        DeviceRecord {
     /** Returns the record's identity, unique within a vault. */
     UUID id();
 

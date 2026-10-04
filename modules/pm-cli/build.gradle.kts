@@ -2,6 +2,7 @@
 dependencies {
     implementation(project(":modules:pm-tui"))
     implementation(project(":modules:pm-approval"))
+    implementation(project(":modules:pm-sharing"))
 }
 
 // No application plugin: this copies the pm-cli jar and every runtime module jar into one

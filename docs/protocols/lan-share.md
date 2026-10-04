@@ -172,6 +172,82 @@ if connected. Future handshakes fail at the trust manager. UI shows a "rotate
 these secrets" checklist built from audit entries `kind=share` with that
 `device_id` (R-005).
 
+### 8.1 As built in M3.6 (CLI and TUI)
+
+- **Where state lives (SR-090).** This device's Ed25519 identity and certificate are a
+  `device-identity` record, and each pinned peer is a `trusted-device` record, both inside the
+  encrypted vault (`docs/schemas/records.cddl`); nothing is written to plain files. They are
+  internal records: `list`, `search`, the dashboard and sharing skip them.
+- **Commands.** `pm devices` lists this device and the pinned peers; `pm devices remove <name|fingerprint>`
+  unpins one and prints the rotate checklist. `pm pair --listen [--bind ip]` waits; `pm pair <ip:port>`
+  connects. Both show the six-digit code and pin only after a typed `y` (SR-091). `pm share <title>
+  --to <device> [--ttl 10m]` and `pm share <title> --browser [--ttl]` show a summary (the browser form
+  first prints the Amendment 2 warnings), require a typed `y`, audit `approval`, then open the window
+  and print its address or URL and certificate SHA-256 (SR-092). `pm receive <ip:port>` shows the
+  sender, its fingerprint, the summary and the expiry and applies the item only after a typed `y`, under
+  a fresh id (SR-093). `pm revoke <share-id>` closes a waiting share. New exit code 10 (`NOT_DONE`):
+  pairing, sharing or receiving did not complete.
+- **Cross-process revoke.** A waiting `pm share` holds the window in memory with its own copies of the
+  payload and identity (the vault is closed while it waits) and creates `share-<id>` in the owner-only
+  run directory. `pm revoke` deletes that marker; the waiting process polls it every 100 ms and revokes
+  when it is missing, so a deleted run directory also revokes (fail closed).
+- **Rotate checklist.** The checklist comes from the `shared` list on the `trusted-device` record (item
+  ids, oldest first, at most 1 024), recorded when a share window is opened for that device, rather
+  than from audit entries: the audit log does not carry item ids. An offer that was never taken still
+  appears, which errs on the side of rotating.
+- **Lockout scope (SR-203, SR-096).** The lockout is shared by every pm process of the user: its
+  failure count and lock end are kept in `pair-lockout` (mode 0600, written to a temporary file and
+  moved into place) in the owner-only run directory, read when a pairing starts and written after
+  every failure and when the pairing ends, so a new `pm pair --listen` or TUI pairing starts locked
+  rather than afresh. A stored lock more than 1 h ahead is cut to 1 h (a clock set back cannot lock
+  pairing for longer). Without a run directory (a TUI with no approval host) the lockout is per
+  process.
+  - *Concurrency.* Pairings can run side by side (on the user's different vaults). Every write is a
+    read-merge-write under an exclusive lock (`FileChannel.lock` on `pair-lockout.lock`, plus an
+    in-process lock): the stored and the local state are merged by the larger failure count and the
+    later lock end, so a pairing that read a clean state before another one locked never writes the
+    lock away. A success clears the count only if no other process changed the file since this
+    pairing read it; otherwise the other process's failures stay.
+  - *Fail closed.* A file that does not parse, is too large, is not a plain file, or is not
+    owner-only (any group or other permission bit, or another owner) counts as locked for the full
+    hour, as does a lock file that cannot be taken.
+  - *Residuals.* Deleting `pair-lockout` resets the lockout; only a process of the same user can do
+    that, and such a process can already read the vault file and run pairings itself, so it is not
+    defended against. The run directory follows `XDG_RUNTIME_DIR`, so pairings started with
+    different values (for example one from a desktop session and one over ssh) count separately;
+    each still enforces the per-process lockout of §5 step 6.
+- **Removal reaches open windows (SR-205, SR-095).** `pm devices remove` and the TUI's Remove write
+  `removed-<public key hex>` (mode 0600) before the vault forgets the device; if that file cannot be
+  written nothing is removed. The markers live in an owner-only (0700, not a link) directory next to
+  the vault file, `<vault file name>.lan`, named from the vault's real path (links resolved). Its
+  place depends only on the vault file, never on `XDG_RUNTIME_DIR` or on the path a process was given,
+  so the remover and every sender of that vault agree on it however each was started. Every share
+  window, in any process, checks the marker when the device's TLS connection is accepted and again
+  just before `SHARE_DATA`; a removed device is refused and the window revokes itself (`REVOKED`), so
+  a window opened before the removal releases nothing more. Pairing the same key again deletes the
+  marker. A share to a device removed since the list was shown records nothing and opens nothing.
+  Residuals: a marker deleted by a process of the same user is not detected (as above); a second
+  *hard* link to the vault file in another directory (links are resolved only for symbolic links)
+  would have its own marker directory, so the removal message names windows "of this vault".
+- **Replay guard in the vault (SR-204, SR-097).** The receiver keeps the ids of shares it applied in
+  the sender's `trusted-device` record (`received`, `<id hex>@<expiry>`, at most 1 024, each dropped
+  once the longest window, 24 h, has passed) and writes the entry in the same vault save as the item,
+  so a replayed share id is refused by any later `pm receive` or TUI receive.
+- **Offer and payload agree (SR-208, SR-098).** The receiver applies the payload only if its kind and
+  summary (`login: <title>`, `project: <title> (<n> secrets)` and so on) equal the offer the user
+  accepted; otherwise nothing is applied. A received login, Wi-Fi or SSH item whose title already
+  exists is added beside it under a fresh id (nothing is overwritten); a project whose title exists
+  is refused.
+- **Bind address.** `--bind` must be an address of a local interface or loopback; the wildcard
+  addresses `0.0.0.0` and `::` and addresses of other machines are refused.
+- **TUI.** Ctrl+D opens the Devices screen (pair here, pair with address, receive, remove), Ctrl+S the
+  Share dialog for the selected item (to a paired device or a browser link, with Approve/Deny). Network
+  steps run on worker threads; vault access and questions run on the GUI thread; a question that is
+  not answered within 2 minutes counts as no. Questions are queued: only the first is on screen,
+  and Yes or No answers only that one, so a pairing code is never confirmed by a Yes given to
+  another question; a new step or Remove is refused while a question waits. Locking or quitting stops every LAN step and revokes open
+  windows. Audit entries go through the approval host (the broker's audit log in production).
+
 ## 9. State machine (responder side)
 
 ```

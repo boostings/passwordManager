@@ -31,6 +31,26 @@ class LockoutTest {
     }
 
     @Test
+    void aSavedStateRestoresAndAFarFutureLockIsCappedAtOneHour() {
+        Lockout l = new Lockout();
+        for (int i = 0; i < 3; i++) {
+            l.failed(T0);
+        }
+        Lockout again = Lockout.restore(l.failures(), l.lockedUntil(), T0.plusSeconds(10));
+        assertEquals(3, again.failures());
+        assertEquals(Duration.ofSeconds(50), again.remaining(T0.plusSeconds(10)), "the lock carries over");
+        again.failed(T0.plusSeconds(60));
+        assertEquals(Duration.ofMinutes(2), again.remaining(T0.plusSeconds(60)), "and the count keeps doubling");
+
+        Lockout skewed = Lockout.restore(5, T0.plus(Duration.ofDays(365)), T0);
+        assertEquals(Lockout.CAP, skewed.remaining(T0), "a lock beyond the cap ends one hour from now");
+        Lockout odd = Lockout.restore(-4, Instant.MIN, T0);
+        assertEquals(0, odd.failures());
+        assertTrue(odd.allows(T0));
+        assertEquals(Lockout.MAX_FAILURES, Lockout.restore(Integer.MAX_VALUE, T0, T0).failures());
+    }
+
+    @Test
     void successClearsTheCountButNotACurrentLock() {
         Lockout l = new Lockout();
         for (int i = 0; i < 3; i++) {

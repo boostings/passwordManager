@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import pm.crypto.ConstantTime;
 import pm.crypto.Csprng;
@@ -17,7 +18,9 @@ import pm.sharing.wire.Octets;
 /**
  * The sender's share windows (lan-share.md §6, SR-204). Expiry is enforced here whatever the
  * receiver does; a one-use share is consumed when its data is released, before it is sent, so a
- * lost acknowledgement can never lead to a second copy. Revoking a device revokes its windows.
+ * lost acknowledgement can never lead to a second copy. Revoking a device revokes its windows, and
+ * a device that the {@code admits} check refuses (removed from the trust list, perhaps by another
+ * process) gets no offer and no data: the check runs again just before the data is released.
  * Shared by the listener thread and the UI, so guarded by a lock.
  */
 public final class Shares {
@@ -31,10 +34,21 @@ public final class Shares {
     private final ReentrantLock guard = new ReentrantLock();
     private final Map<Octets, Share> shares = new LinkedHashMap<>();
     private final Map<Octets, Status> status = new LinkedHashMap<>();
+    private final Predicate<byte[]> admits;
 
-    /** No windows. */
+    /** No windows; every target stays admitted. */
     public Shares() {
-        // empty
+        this(peer -> true);
+    }
+
+    /**
+     * No windows.
+     *
+     * @param admits whether a target device is still trusted; asked before an offer and again
+     *     before data is released, and a refusal revokes that device's windows
+     */
+    public Shares(Predicate<byte[]> admits) {
+        this.admits = Objects.requireNonNull(admits, "admits");
     }
 
     /**
@@ -62,7 +76,7 @@ public final class Shares {
     public Optional<Share> offerFor(byte[] peer, Instant now) {
         return locked(() -> shares.values().stream()
                 .filter(s -> isOpen(s, now) && ConstantTime.equals(s.target().toByteArray(), peer))
-                .findFirst());
+                .findFirst()).filter(s -> admitted(peer));
     }
 
     /** Whether any window is open at {@code now}; the listener closes when none is (SR-207). */
@@ -90,6 +104,10 @@ public final class Shares {
         Share share = shares.get(id);
         if (share == null || !ConstantTime.equals(share.target().toByteArray(), peer)) {
             return new Claim(null, ShareException.Code.UNKNOWN);
+        }
+        if (!admits.test(peer)) {
+            status.replace(id, Status.OPEN, Status.REVOKED);
+            return new Claim(null, ShareException.Code.REVOKED);
         }
         Status st = status.get(id);
         if (st == Status.REVOKED) {
@@ -124,6 +142,15 @@ public final class Shares {
             }
             return n;
         });
+    }
+
+    /** Asks {@code admits}; a refused device has its windows revoked. */
+    private boolean admitted(byte[] peer) {
+        if (admits.test(peer)) {
+            return true;
+        }
+        revokeDevice(peer);
+        return false;
     }
 
     private boolean isOpen(Share s, Instant now) {

@@ -13,7 +13,12 @@ enum Messages {
             + " | generate --passphrase [--words N] [--separator C]"
             + " | health [--max-age-days N] [--breach]"
             + " | ssh import <file> [--title T] | ssh list | ssh add <item> [--lifetime 1h] [--confirm]"
-            + " | ssh remove <item> | ssh remove --all | ssh export <item> <file>]"
+            + " | ssh remove <item> | ssh remove --all | ssh export <item> <file>"
+            + " | devices | devices remove <name|fingerprint>"
+            + " | pair --listen [--bind <ip>] [--name <name>] | pair <ip:port> [--name <name>]"
+            + " | share <title> --to <device> [--ttl 10m] [--bind <ip>]"
+            + " | share <title> --browser [--ttl 10m] [--bind <ip>]"
+            + " | receive <ip:port> | revoke <share-id>]"
             + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
@@ -53,6 +58,22 @@ enum Messages {
     EXPORT_UNREPRESENTABLE("a value holds control characters a .env file cannot carry; nothing was exported"),
     EXPORT_FAILED("the export file could not be written"),
     AUDIT_UNAVAILABLE("the audit log could not be written, so nothing was exported"),
+    NO_SUCH_DEVICE("no paired device has this name or fingerprint; 'pm devices' lists them"),
+    AMBIGUOUS_DEVICE("more than one paired device has this name; give its fingerprint instead"),
+    NO_SUCH_ITEM("no item has this title; 'pm list' shows them"),
+    AMBIGUOUS_ITEM("more than one item has this title; rename one first"),
+    NOT_SHAREABLE("this item cannot be shared this way (a project goes only to a paired device,"
+            + " and an empty or oversized value not at all)"),
+    BAD_ADDRESS("give the address as IP:port exactly as the other device shows it (host names are not looked up)"),
+    BAD_BIND("--bind needs an IP address of this machine"),
+    BAD_TTL("--ttl is a whole number of s, m or h between 1s and 24h, e.g. 10m"),
+    BAD_SHARE_ID("a share id is the 32 hex digits pm share printed"),
+    NO_SUCH_SHARE("no open share window on this machine has this id"),
+    SHARE_TARGET_NEEDED("say where the item goes: --to <device> or --browser"),
+    LAN_FAILED("could not open the network port or the secure connection"),
+    LAN_STATE_UNAVAILABLE("the owner-only LAN state directories (next to the vault, and the run directory) could not"
+            + " be used, so nothing was changed"),
+    RUN_DIR_UNAVAILABLE("the run directory for share windows could not be used, so no window was opened"),
 
     // ---- M4.4: generate, health, ssh ----
     DUPLICATE_OPTION("an option was given more than once"),
@@ -135,6 +156,49 @@ enum Messages {
     RUN_CONFIRM("Type y and press Enter to run it: "),
     RUN_DENIED("not approved, nothing ran: "),
     BROKER_UNREACHABLE("the pm window's approval service did not answer: "),
+    THIS_DEVICE("this device: "),
+    DEVICES_HEADER("name  fingerprint  paired"),
+    NO_DEVICES("no paired devices yet; run 'pm pair --listen' here and 'pm pair <ip:port>' on the other device"),
+    DEVICE_REMOVED("device removed; it can no longer connect, and share windows of this vault open to it, in any pm"
+            + " process, release nothing more: "),
+    ROTATE_CHECKLIST("rotate these secrets, which were offered to it (it keeps any copy it received):"),
+    ROTATE_NONE("no items in this vault were offered to it"),
+    PAIR_LISTENING("pairing window open; on the other device run: pm pair "),
+    PAIR_WINDOW("this window closes at "),
+    PAIR_PEER("other device: "),
+    PAIR_CODE("pairing code: "),
+    PAIR_COMPARE("both screens must show the same code; if they differ, someone may be in between"),
+    PAIR_CONFIRM("Type y and press Enter only if the codes match: "),
+    PAIR_FAILED("pairing did not complete: "),
+    PAIR_LOCKED("too many failed pairings; pairing is paused for seconds: "),
+    PAIR_TIMED_OUT("the pairing window closed and nothing was paired"),
+    PAIRED("paired and saved in the vault: "),
+    SHARE_SUMMARY("share "),
+    SHARE_WITH(" with "),
+    SHARE_FOR(" for "),
+    SHARE_CONFIRM("Type y and press Enter to share it: "),
+    SHARE_DENIED("not approved, nothing was shared"),
+    SHARE_OPEN("share window open; on the other device run: pm receive "),
+    SHARE_ID("share id (to cancel: pm revoke <id>): "),
+    SHARE_EXPIRES("the window closes at "),
+    SHARE_WAITING("waiting; the vault is locked again until the window closes"),
+    SHARE_DELIVERED("delivered; the window is closed"),
+    SHARE_EXPIRED("the window expired; nothing was sent"),
+    SHARE_REVOKED("revoked; nothing more will be sent"),
+    SHARE_REFUSED("connections turned away (not this device, or not paired): "),
+    BROWSER_HEADER("browser share; read this before giving out the link:"),
+    BROWSER_URL("link (it holds the key; give it only to the recipient): "),
+    BROWSER_FINGERPRINT("certificate SHA-256 fingerprint for the recipient to compare: "),
+    BROWSER_OPENED("the page was fetched (a link preview counts); waiting for the data fetch"),
+    RECEIVE_OFFER("offer from "),
+    RECEIVE_ITEM("item: "),
+    RECEIVE_EXPIRES("offer expires at "),
+    RECEIVE_CONFIRM("Type y and press Enter to accept it into this vault: "),
+    RECEIVED("received and saved in the vault: "),
+    RECEIVE_FAILED("nothing was received: "),
+    RECEIVE_UNREACHABLE("could not connect: the sender is not paired with this device, the address is wrong,"
+            + " or the window is closed or revoked"),
+    REVOKED("revoked; the share window closes now"),
     PROJECT_HEADER("title  directory  profiles"),
     ENV_HEADER("variables in "),
     ENV_IMPORTED("variables imported: "),

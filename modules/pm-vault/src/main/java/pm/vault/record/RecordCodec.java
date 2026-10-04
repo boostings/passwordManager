@@ -2,15 +2,19 @@ package pm.vault.record;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import pm.crypto.DeviceIdentity;
 import pm.crypto.SecretBytes;
 import pm.vault.cbor.CborException;
 import pm.vault.cbor.CborLimits;
@@ -69,11 +73,18 @@ public final class RecordCodec {
     private static final String K_GIT_REMOTE = "git_remote";
     private static final String K_VARIABLES = "variables";
     private static final String K_CONFIG = "config";
+    private static final String K_CERTIFICATE = "certificate";
+    private static final String K_SHARED = "shared";
+    private static final String K_RECEIVED = "received";
+    private static final Pattern RECEIVED_ENTRY =
+            Pattern.compile("([0-9a-f]{32})@(0|[1-9][0-9]{0,11})");
 
     private static final String T_LOGIN = "login";
     private static final String T_WIFI = "wifi";
     private static final String T_SSH_KEY = "ssh_key";
     private static final String T_PROJECT = "project";
+    private static final String T_DEVICE_IDENTITY = "device_identity";
+    private static final String T_TRUSTED_DEVICE = "trusted_device";
 
     /** The canonical text form of a UUID: lower-case hex in groups of 8-4-4-4-12. */
     private static final Pattern CANONICAL_UUID =
@@ -198,6 +209,8 @@ public final class RecordCodec {
                 case T_WIFI -> decodeWifi(id, fields, pending);
                 case T_SSH_KEY -> decodeSshKey(id, fields, pending);
                 case T_PROJECT -> decodeProject(id, fields, pending);
+                case T_DEVICE_IDENTITY -> decodeDeviceIdentity(id, fields, pending);
+                case T_TRUSTED_DEVICE -> decodeTrustedDevice(id, fields);
                 default -> throw schema("unknown record type");
             });
         } catch (IllegalArgumentException e) {
@@ -242,6 +255,51 @@ public final class RecordCodec {
         return new ProjectRecord(id, text(fields, K_TITLE), text(fields, K_CANONICAL_PATH),
                 text(fields, K_GIT_REMOTE), variables, config,
                 instant(fields, K_CREATED), instant(fields, K_UPDATED));
+    }
+
+    private static VaultRecord decodeDeviceIdentity(UUID id, Map<String, CborValue> fields, Pending pending)
+            throws RecordException {
+        byte[] certificate = bytes(fields, K_CERTIFICATE);
+        return new DeviceIdentityRecord(id, text(fields, K_TITLE), pending.own(bytes(fields, K_PRIVATE_KEY)),
+                Base64.getEncoder().encodeToString(certificate), instant(fields, K_CREATED),
+                instant(fields, K_UPDATED));
+    }
+
+    private static VaultRecord decodeTrustedDevice(UUID id, Map<String, CborValue> fields)
+            throws RecordException {
+        byte[] raw = bytes(fields, K_PUBLIC_KEY);
+        if (raw.length != DeviceIdentity.PUBLIC_KEY_BYTES) {
+            throw schema("public_key is not a raw Ed25519 key");
+        }
+        return new TrustedDeviceRecord(id, text(fields, K_TITLE), HexFormat.of().formatHex(raw),
+                text(fields, K_FINGERPRINT), uuids(fields, K_SHARED), received(fields), instant(fields, K_CREATED),
+                instant(fields, K_UPDATED));
+    }
+
+    /** {@code received}: entries {@code <32 hex>@<epoch seconds>}. */
+    private static List<TrustedDeviceRecord.Received> received(Map<String, CborValue> fields)
+            throws RecordException {
+        List<TrustedDeviceRecord.Received> entries = new ArrayList<>();
+        for (String text : texts(fields, K_RECEIVED)) {
+            Matcher m = RECEIVED_ENTRY.matcher(text);
+            if (!m.matches()) {
+                throw schema("received entry is not <share id>@<seconds>");
+            }
+            entries.add(new TrustedDeviceRecord.Received(m.group(1),
+                    Instant.ofEpochSecond(Long.parseLong(m.group(2)))));
+        }
+        return entries;
+    }
+
+    private static List<UUID> uuids(Map<String, CborValue> fields, String key) throws RecordException {
+        List<UUID> ids = new ArrayList<>();
+        for (String text : texts(fields, key)) {
+            if (!CANONICAL_UUID.matcher(text).matches()) {
+                throw schema("id is not a canonical UUID");
+            }
+            ids.add(UUID.fromString(text));
+        }
+        return ids;
     }
 
     /** Accepts only the canonical text form, exactly as {@link UUID#toString} writes it. */
@@ -335,7 +393,13 @@ public final class RecordCodec {
         if (record instanceof SshKeyRecord) {
             return encodeSshKey(SshKeyRecord.class.cast(record));
         }
-        return encodeProject(ProjectRecord.class.cast(record));
+        if (record instanceof ProjectRecord) {
+            return encodeProject(ProjectRecord.class.cast(record));
+        }
+        if (record instanceof TrustedDeviceRecord) {
+            return encodeTrustedDevice(TrustedDeviceRecord.class.cast(record));
+        }
+        return encodeDeviceIdentity(DeviceIdentityRecord.class.cast(record));
     }
 
     // In each encoder the secret is copied last, so nothing can fail while an unwiped copy exists
@@ -398,6 +462,23 @@ public final class RecordCodec {
                 variables.values().forEach(CborValue::wipe);
             }
         }
+    }
+
+    private static CborValue encodeDeviceIdentity(DeviceIdentityRecord identity) {
+        Map<String, CborValue> fields = commonFields(T_DEVICE_IDENTITY, identity);
+        fields.put(K_CERTIFICATE, new CborValue.Bytes(identity.certificateDer()));
+        fields.put(K_PRIVATE_KEY, secretBytes(identity.privateKey()));
+        return new CborValue.MapV(fields);
+    }
+
+    private static CborValue encodeTrustedDevice(TrustedDeviceRecord device) {
+        Map<String, CborValue> fields = commonFields(T_TRUSTED_DEVICE, device);
+        fields.put(K_PUBLIC_KEY, new CborValue.Bytes(device.rawPublicKey()));
+        fields.put(K_FINGERPRINT, new CborValue.Text(device.fingerprint()));
+        fields.put(K_SHARED, textArray(device.shared().stream().map(UUID::toString).toList()));
+        fields.put(K_RECEIVED, textArray(device.received().stream()
+                .map(r -> r.shareId() + "@" + r.expires().getEpochSecond()).toList()));
+        return new CborValue.MapV(fields);
     }
 
     private static Map<String, CborValue> commonFields(String type, VaultRecord record) {

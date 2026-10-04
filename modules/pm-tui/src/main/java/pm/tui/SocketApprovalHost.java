@@ -1,5 +1,6 @@
 package pm.tui;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Objects;
@@ -8,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import pm.approval.ApprovalBroker;
 import pm.approval.AuditException;
+import pm.approval.AuditEvent;
 import pm.approval.AuditLog;
 import pm.approval.PolicyStore;
 import pm.approval.ipc.BrokerServer;
@@ -15,6 +17,7 @@ import pm.approval.ipc.IpcException;
 import pm.approval.ipc.Releaser;
 import pm.approval.ipc.RunDir;
 import pm.domain.env.Env;
+import pm.tui.lan.LanState;
 
 /**
  * {@link ApprovalHost} over a {@link BrokerServer}. Started on the first unlock and kept until the
@@ -28,6 +31,7 @@ final class SocketApprovalHost implements ApprovalHost {
     };
 
     private final Path vaultDir;
+    private final Optional<Path> vaultFile;
     private final Env env;
     private final Clock clock;
     private final String osUser;
@@ -39,8 +43,9 @@ final class SocketApprovalHost implements ApprovalHost {
     private ApprovalBroker active;
     private BrokerServer server;
 
-    SocketApprovalHost(Path vaultDir, Env env, Clock clock, String osUser) {
+    SocketApprovalHost(Path vaultDir, Env env, Clock clock, String osUser, Optional<Path> vaultFile) {
         this.vaultDir = Objects.requireNonNull(vaultDir, "vaultDir");
+        this.vaultFile = Objects.requireNonNull(vaultFile, "vaultFile");
         this.env = Objects.requireNonNull(env, "env");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.osUser = Objects.requireNonNull(osUser, "osUser");
@@ -75,6 +80,28 @@ final class SocketApprovalHost implements ApprovalHost {
             } catch (IpcException e) {
                 stop(); // the token file could not be removed: stop serving altogether
             }
+        }
+    }
+
+    @Override
+    public boolean audit(AuditEvent event) {
+        try {
+            AuditLog.append(vaultDir.resolve(AuditLog.FILE_NAME), clock, event);
+            return true;
+        } catch (AuditException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public Optional<LanState> lanState() throws IOException {
+        if (vaultFile.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(LanState.forVault(vaultFile.get(), RunDir.prepare(RunDir.locate(env, vaultDir)).path()));
+        } catch (IpcException e) {
+            throw new IOException("unsafe run directory", e);
         }
     }
 

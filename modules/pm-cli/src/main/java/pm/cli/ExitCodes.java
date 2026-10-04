@@ -6,7 +6,8 @@ import pm.vault.VaultException;
 /**
  * Process exit codes (plan.md §5 E, SR-501): 0 ok, 1 wrong credential, 2 usage, 3 corrupt or
  * unsupported, 4 storage, 5 internal error, 6 recovery key not shown, 7 not enough memory, 8 denied
- * ({@code env run}), 9 external service failed ({@code ssh-agent}, breach service). Both
+ * ({@code env run}), 9 external service failed ({@code ssh-agent}, breach service), 10 a LAN
+ * step (pair, share, receive) did not complete. Both
  * mappings switch exhaustively over {@link VaultException.Code}, so a new code is a compile error
  * rather than a silent default.
  *
@@ -41,6 +42,13 @@ final class ExitCodes {
      * the opt-in breach service (network, timeout, invalid reply). Nothing in the vault changed.
      */
     static final int EXTERNAL = 9;
+
+    /**
+     * LAN sharing (M3.6): pairing, a share or a receive did not complete. The peer was not reachable
+     * or not paired, the codes did not match, the window expired or was revoked, or the item was
+     * refused. Nothing was pinned or applied.
+     */
+    static final int NOT_DONE = 10;
 
     private ExitCodes() {
     }

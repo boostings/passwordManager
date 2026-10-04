@@ -38,6 +38,7 @@ import pm.tui.Session;
 import pm.tui.TuiApp;
 import pm.tui.VaultPort;
 import pm.vault.VaultException;
+import pm.vault.record.DeviceRecord;
 import pm.vault.record.LoginRecord;
 import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
@@ -68,6 +69,8 @@ final class Cli {
     private static final String SSH_GROUP = "ssh";
     private static final java.util.Set<String> GROUPS =
             java.util.Set.of("project", "env", GENERATE_GROUP, HEALTH_GROUP, SSH_GROUP);
+    /** LAN sharing commands (M3.6); like the groups they parse their own options. */
+    private static final java.util.Set<String> LAN = java.util.Set.of("devices", "pair", "share", "receive", "revoke");
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
@@ -77,6 +80,8 @@ final class Cli {
     private Env environment = Env.system();
     /** Builds the opt-in breach client for {@code health --breach}; replaced only by tests. */
     private Supplier<BreachClient> breachClients = BreachClient::pwnedPasswords;
+    /** Told {@code ip:port} or a URL when a LAN command starts listening; replaced only by tests. */
+    private java.util.function.Consumer<String> lanListening = address -> { };
 
     /** Production wiring: real system properties, UTC clock, Lanterna terminal, real file system. */
     Cli() {
@@ -118,6 +123,12 @@ final class Cli {
     /** Test hook: where {@code health --breach} sends its lookups (a loopback server in tests). */
     Cli withBreachClients(Supplier<BreachClient> clients) {
         this.breachClients = Objects.requireNonNull(clients, "clients");
+        return this;
+    }
+
+    /** Test hook: told where a {@code pair --listen} or {@code share} window listens. */
+    Cli withLanListener(java.util.function.Consumer<String> listener) {
+        this.lanListening = Objects.requireNonNull(listener, "listener");
         return this;
     }
 
@@ -234,7 +245,7 @@ final class Cli {
                         throw new UsageException(Messages.UNKNOWN_OPTION);
                     }
                     positional.add(arg);
-                    if (positional.size() == 1 && GROUPS.contains(arg)) {
+                    if (positional.size() == 1 && (GROUPS.contains(arg) || LAN.contains(arg))) {
                         // project/env parse their own options (EnvCommands.Args).
                         sub = new ArrayList<>(remaining);
                         remaining.clear();
@@ -247,6 +258,10 @@ final class Cli {
                 : VaultPaths.fromArgument(vaultArg);
         if (positional.isEmpty()) {
             return openApp(vaultPath, io, opener);
+        }
+        if (sub != null && LAN.contains(positional.get(0))) {
+            return new LanCommands(properties, clock, environment, lanListening)
+                    .run(positional.get(0), sub, opener, vaultPath, io);
         }
         if (sub != null) {
             String group = positional.get(0);
@@ -431,9 +446,8 @@ final class Cli {
     private static void launchLanterna(VaultPort port, Path vaultPath) throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory(System.out, System.in, StandardCharsets.UTF_8)
                 .setForceTextTerminal(true);
-        Path vaultDir = Objects.requireNonNull(vaultPath.toAbsolutePath().getParent(), "vault dir");
         // While the app is unlocked it hosts the approval broker that `pm env run` asks (M2).
-        try (ApprovalHost host = ApprovalHost.socket(vaultDir, Env.system(), Clock.systemUTC(),
+        try (ApprovalHost host = ApprovalHost.socketFor(vaultPath, Env.system(), Clock.systemUTC(),
                         Objects.requireNonNull(System.getProperty("user.name"), "user.name"));
                 Terminal terminal = factory.createTerminal()) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
@@ -549,7 +563,7 @@ final class Cli {
     /** Prints {@code id  type  title  updated}; never a secret field (SR-500). */
     private static void printRecords(PrintWriter out, List<VaultRecord> records) {
         out.println(Messages.LIST_HEADER.text());
-        records.stream().map(Cli::row).forEach(out::println);
+        records.stream().filter(r -> !DeviceRecord.isInternal(r)).map(Cli::row).forEach(out::println);
     }
 
     /** One list row; the record stays owned by the session (ADR 0008). */
@@ -557,7 +571,7 @@ final class Cli {
         return String.join(COLUMN_GAP, r.id().toString(), typeOf(r), displaySafe(r.title()), r.updated().toString());
     }
 
-    /** {@link VaultRecord} is sealed over exactly these four types (ADR 0006). */
+    /** The item types; device records never reach here ({@link #printRecords} drops them). */
     private static String typeOf(VaultRecord r) {
         if (r instanceof LoginRecord) {
             return "login";

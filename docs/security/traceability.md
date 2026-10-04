@@ -32,14 +32,14 @@ T-PKG-01..04 (M4.4, M7.3 rows) are not yet tagged.
 | TM-24 | SR-106 | FIO03-J | T-ENV-02 | M2 | Planned |
 | TM-25 | SR-108 | FIO00-J, FIO16-J | T-IPC-02 | M2 | Planned |
 | TM-26 | SR-111 | — | T-POLICY-03 | M2 | Planned |
-| TM-30 | SR-200, SR-201 | — | T-LAN-01, T-LAN-02 | M3 | Planned |
+| TM-30 | SR-200, SR-201 | — | T-LAN-01, T-LAN-02 (CLI and TUI): `LanEndToEndTest.pairShareReceiveRevokeAndRefuseAnUnpairedPeer` (both screens show the same code; an unpaired vault is turned away), `LanEndToEndTest.aRejectedCodePinsNothing`, `LanScreensTest.pairShareReceiveAndRevokeBetweenTwoScreens`, `LanScreensTest.aRejectedCodePinsNothingAndADeniedShareSendsNothing`, `LanScreensTest.anAnswerOnlyReachesTheQuestionOnScreenAndASecondOneWaits`. M3.6 has no discovery: the user types the address and trust comes only from the confirmed ceremony | M3 | Implemented (M3.6) |
 | TM-31 | SR-201 | MSC00-J | T-LAN-02: `PairingTest` (pm-crypto), `TlsTest`, `PairingSessionTest` (relaying MITM gets different digits, forwarded MAC fails), `PairerTest` (loopback mutual TLS 1.3), `PairingSessionFuzzTest`; external review | M3 | Implemented (M3.1, M3.3); external review open |
 | TM-32 | SR-203 | — | T-LAN-04: `LockoutTest`, `PairerTest.failuresAreCountedAndTheThirdLocksPairing` | M3 | Implemented (M3.3) |
 | TM-33 | SR-202 | — | T-LAN-03: `SequenceAndOctetsTest`, `PairingSessionTest`, `ShareSessionTest`, `PairingSessionFuzzTest`, `ShareSessionFuzzTest` | M3 | Implemented (M3.2–M3.4) |
-| TM-34 | SR-204, SR-205 | — | T-LAN-05: `SharesTest`, `ShareSessionTest`, `ShareServerTest`, `ShareSessionFuzzTest`; T-LAN-06 (protocol side): `ShareServerTest.aRevokedOrUntrustedOrUnofferedDeviceFailsTheHandshake` | M3 | SR-204 Implemented (M3.4); SR-205 removal of the pinned key from the vault is M3.6 |
+| TM-34 | SR-204, SR-205 | — | T-LAN-05: `SharesTest`, `ShareSessionTest`, `ShareServerTest`, `ShareSessionFuzzTest`; T-LAN-06 (protocol side): `ShareServerTest.aRevokedOrUntrustedOrUnofferedDeviceFailsTheHandshake`; T-LAN-06 (vault side): `LanEndToEndTest.removingADeviceInAnotherProcessClosesAWindowAlreadyOpenToIt`, `SharesTest.aDeviceNoLongerAdmittedGetsNoDataEvenAfterTheOffer` | M3 | SR-204 Implemented (M3.4); SR-205 Implemented (M3.6) |
 | TM-35 | SR-206 | MSC05-J, IDS11-J | T-FUZZ-LAN: `FramesTest`, `MessagesTest`, `LanCodecFuzzTest`, `PairingSessionFuzzTest`, `ShareSessionFuzzTest`, `WebRouteFuzzTest`; runs in `docs/security/fuzz/M3-fuzz-runs.md` | M3 | Implemented (M3.2, M3.7) |
 | TM-36 | SR-207 | THI04-J, FIO14-J | T-LAN-07: `ShareServerTest` (port closed after delivery, expiry, revocation), `WebServerTest` (port closed after delivery, expiry, close) | M3 | Implemented (M3.4, M3.5) |
-| TM-37 | SR-208 | ERR03-J | T-LAN-08 | M3 | Planned |
+| TM-37 | SR-208 | ERR03-J | T-LAN-08: `LanHelpersTest.aPayloadAppliesOnlyIfItMatchesTheAcceptedOfferAndOnlyOnce` (kind or summary differing from the accepted offer, or an unpaired sender, applies nothing; a failed save takes back the item and the replay entry), `LanEndToEndTest.pairShareReceiveRevokeAndRefuseAnUnpairedPeer` (received login equals the original), `LanScreensTest.pairShareReceiveAndRevokeBetweenTwoScreens` | M3 | Implemented (M3.6) |
 | TM-40 | SR-209 | — | T-WEB-01: `WebShareTest`, `WebIdentityTest`, `WebServerTest`, `NodePageTest`, `WebRouteFuzzTest` | M3 | Implemented (M3.5) |
 | TM-41 | SR-204, SR-209 | — | T-LAN-05, T-WEB-01: `WebServerTest` (ciphertext once, only after the page, 410 after expiry and revocation), `WebRouteFuzzTest` | M3 | Implemented (M3.5) |
 | TM-42 | SR-210 | — | T-WEB-02: `WebPageTest` (CSP hash, no storage APIs), `WebServerTest` (security headers), `NodePageTest` | M3 | Implemented (M3.5) |
@@ -124,3 +124,17 @@ T-PKG-01..04 (M4.4, M7.3 rows) are not yet tagged.
 | TM-91 (installer payload differs from the reviewed image) | SR-713, SR-601 | — | `releaseSmoke`: app-image and mounted dmg `lib/modules`, `release` and jars match the image; packaged `pm --help` runs | M7 | Implemented (M7.3) |
 | TM-93 (packaged runtime lacks a module the app needs at run time; the shipped TUI crashes) | SR-710 | — | `releaseSmoke`: the archive and app-image launchers create a throwaway vault and the TUI is still running, with no internal error, 30 s after opening (under `script(1)`) | M7 | Implemented (M7.3) |
 | TM-91 (unsigned or wrongly signed installer) | SR-714, SR-601 | MSC03-J | Signing hooks (env-driven); Developer ID, notarization, Authenticode and gpg key are user-only | M7 | Hooks implemented; signing pending (user-only) |
+
+## M3.6 LAN sharing in the CLI and TUI
+
+| Threat | SR | CERT | Test / check | Milestone | Status |
+| --- | --- | --- | --- | --- | --- |
+| TM-30, TM-31 (pinned trust stored outside the vault) | SR-090 | MSC03-J | `DeviceRecordTest`, `LanHelpersTest.theDeviceIdentityLivesInTheVaultAndIsNeverShared` | M3 | Implemented (M3.6) |
+| TM-31, TM-32 (pairing confirmed without comparing the code) | SR-091, SR-203 | — | `LanEndToEndTest.aRejectedCodePinsNothing`, `LanScreensTest.aRejectedCodePinsNothingAndADeniedShareSendsNothing` | M3 | Implemented (M3.6) |
+| TM-34, TM-40 (share sent without approval, browser link risk unexplained) | SR-092, SR-209 | — | `LanCommandsTest.aDeniedBrowserShareOpensNothingButShowedEveryWarningFirst`, `LanEndToEndTest.browserShareShowsTheUrlFingerprintAndWarningsAndIsRevocable` | M3 | Implemented (M3.6) |
+| TM-33, TM-34 (unpaired peer or revoked window receives an item) | SR-093, SR-204, SR-205 | ERR03-J | `LanEndToEndTest.pairShareReceiveRevokeAndRefuseAnUnpairedPeer` (end-to-end loopback, two file vaults), `LanScreensTest.pairShareReceiveAndRevokeBetweenTwoScreens` | M3 | Implemented (M3.6) |
+| TM-34 (removed device served by a window opened before the removal) | SR-095, SR-205 | — | `LanEndToEndTest.removingADeviceInAnotherProcessClosesAWindowAlreadyOpenToIt`, `LanEndToEndTest.removalReachesAWindowOpenedUnderAnotherRunDirectory`, `SharesTest.aDeviceNoLongerAdmittedGetsNoDataEvenAfterTheOffer` | M3 | Implemented (M3.6) |
+| TM-32 (lockout reset by starting a new pairing) | SR-096, SR-203 | — | `LanEndToEndTest.thePairingLockoutHoldsForTheNextPairInvocation`, `LanEndToEndTest.aConcurrentPairingNeverWeakensThePersistedLockout`, `LockoutTest.aSavedStateRestoresAndAFarFutureLockIsCappedAtOneHour` | M3 | Implemented (M3.6) |
+| TM-33, TM-37 (share replayed to a new receive; payload differs from the accepted offer) | SR-097, SR-098, SR-204, SR-208 | ERR03-J | `LanHelpersTest.aPayloadAppliesOnlyIfItMatchesTheAcceptedOfferAndOnlyOnce`, `DeviceRecordTest.receivedSharesAreKeptUntilTheyExpireWithoutRepeatsAndBounded` | M3 | Implemented (M3.6) |
+| TM-31 (a Yes meant for another question confirms a pairing code) | SR-098, SR-091 | — | `LanScreensTest.anAnswerOnlyReachesTheQuestionOnScreenAndASecondOneWaits` | M3 | Implemented (M3.6) |
+| TM-36 (listener left open after lock or removal) | SR-094, SR-207 | THI04-J | `LanScreensTest.aBrowserLinkShowsTheWarningsUrlAndFingerprintAndLockRevokesIt`, `LanEndToEndTest` (`devices remove` rotate checklist) | M3 | Implemented (M3.6) |

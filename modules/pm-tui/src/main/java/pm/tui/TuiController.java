@@ -7,6 +7,7 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,6 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Optional;
 import pm.approval.PendingApproval;
 import pm.crypto.SecretChars;
+import pm.tui.lan.LanAddress;
+import pm.tui.lan.LanState;
 import pm.vault.VaultException;
 
 /**
@@ -51,7 +54,7 @@ final class TuiController {
     private final IdleTimerFactory timers;
     private final Clock timeSource;
     private final PmTheme pmTheme;
-    private final ApprovalHost host;
+    private final ApprovalHost approvals;
     private final SshActions sshActions;
     private final ActivityListener activityListener = new ActivityListener();
     /** GUI-thread confined: forms shown and not yet cleared by the controller. */
@@ -65,6 +68,11 @@ final class TuiController {
     private long sessionGeneration;
     private boolean quitRequested;
     private ApprovalDialog approvalDialog;
+    /** GUI-thread confined: LAN listeners, share windows and open questions, closed on lock. */
+    private final List<Runnable> lanWork = new ArrayList<>();
+    private InetAddress listenAddress = LanAddress.defaultBind();
+    /** LAN state every pm process sees (lan-share.md §5, §8), set up on first use. */
+    private LanState lanShared;
 
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
             IdleTimerFactory timers, Clock clock, PmTheme theme) {
@@ -79,7 +87,7 @@ final class TuiController {
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
             IdleTimerFactory timers, Clock clock, PmTheme theme, ApprovalHost host, SshActions ssh) {
         this.sshActions = Objects.requireNonNull(ssh, "ssh");
-        this.host = Objects.requireNonNull(host, "host");
+        this.approvals = Objects.requireNonNull(host, "host");
         this.gui = Objects.requireNonNull(gui, "gui");
         this.port = Objects.requireNonNull(port, "port");
         this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
@@ -111,6 +119,96 @@ final class TuiController {
     /** ssh-agent actions for SSH key items (M4.4); {@link SshActions#none()} when not wired. */
     SshActions ssh() {
         return sshActions;
+    }
+
+    /** The approval host, for audit entries of LAN shares. */
+    ApprovalHost host() {
+        return approvals;
+    }
+
+    /** Where LAN windows listen (lan-share.md §3); a private address by default. */
+    InetAddress lanBind() {
+        return listenAddress;
+    }
+
+    /**
+     * Removed-device markers (next to the vault file) and the pairing lockout (run directory) when
+     * the approval host knows the vault file, otherwise for this process only.
+     *
+     * @return empty if a state directory exists but cannot be used safely; LAN steps then refuse
+     */
+    Optional<LanState> lanState() {
+        if (lanShared == null) {
+            try {
+                lanShared = approvals.lanState().orElseGet(LanState::memory);
+            } catch (IOException e) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(lanShared);
+    }
+
+    /** Reloads the dashboard table after an item arrived. */
+    void refreshDashboard() {
+        if (dashboard != null) {
+            dashboard.refresh("");
+        }
+    }
+
+    /** Test hook: listen on {@code address} instead (loopback in tests). */
+    void useLanBind(InetAddress address) {
+        listenAddress = Objects.requireNonNull(address, "address");
+    }
+
+    /**
+     * Runs {@code task} on a new daemon thread: LAN steps block on the network and must not hold
+     * up the GUI thread. The task reaches the GUI only through {@link #post}.
+     */
+    @SuppressWarnings("PMD.DoNotUseThreads") // CE-037: TPS00-J one short-lived thread per LAN step the user starts
+    void background(Runnable task) {
+        Thread worker = new Thread(task, "pm-lan");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * Runs {@code task} on the GUI thread, unless the session it was posted from has ended by then:
+     * nothing from before a lock ever touches the next session.
+     */
+    void post(Runnable task) {
+        long generation = sessionGeneration;
+        gui.getGUIThread().invokeLater(() -> {
+            if (generation == sessionGeneration && session != null) {
+                task.run();
+            }
+        });
+    }
+
+    /**
+     * Runs {@code stop} when the session ends: it closes a listener, revokes a share window or
+     * answers an open question with no. It must not throw.
+     */
+    void track(Runnable stop) {
+        lanWork.add(Objects.requireNonNull(stop, "stop"));
+    }
+
+    /** Forgets {@code stop} once its work ended by itself. */
+    void untrack(Runnable stop) {
+        lanWork.remove(stop);
+    }
+
+    /** Opens the Devices screen (lan-share.md §5 to §8). */
+    void openDevices() {
+        if (session != null) {
+            showForm(new DevicesWindow(this, session));
+        }
+    }
+
+    /** Opens the share dialog for {@code item}. */
+    void openShare(pm.vault.record.VaultRecord item) {
+        if (session != null) {
+            showForm(new ShareDialog(this, session, item));
+        }
     }
 
     /** Colors and styles shared by every window. */
@@ -165,7 +263,7 @@ final class TuiController {
         idleTimer = timers.start(idleTimeout, () -> postLock(generation));
         dashboard = new DashboardWindow(this, opened);
         show(dashboard.window());
-        host.unlocked(new GuiThreadReleaser(gui.getGUIThread(),
+        approvals.unlocked(new GuiThreadReleaser(gui.getGUIThread(),
                 () -> Optional.ofNullable(session).map(Session::records)));
         tick();
     }
@@ -185,7 +283,7 @@ final class TuiController {
             }
             approvalDialog = null;
         }
-        host.broker().ifPresent(b -> {
+        approvals.broker().ifPresent(b -> {
             List<PendingApproval> waiting = b.pending();
             if (!waiting.isEmpty()) {
                 approvalDialog = new ApprovalDialog(pmTheme, waiting.get(0), b.servedUser(), now);
@@ -248,6 +346,12 @@ final class TuiController {
         show(form.window());
     }
 
+    /** For tests: the most recently shown form of {@code type} that is still on screen. */
+    <T extends InputForm> T shownForm(Class<T> type) {
+        openForms.removeIf(f -> !gui.getWindows().contains(f.window()));
+        return openForms.stream().filter(type::isInstance).map(type::cast).reduce((a, b) -> b).orElseThrow();
+    }
+
     /** Adds {@code window} on top, wiring the activity listener so every key touches the timer. */
     void show(Window window) {
         window.addWindowListener(activityListener);
@@ -256,8 +360,9 @@ final class TuiController {
     }
 
     private void endSession() {
-        host.locked(); // before the session closes: pending prompts are denied, the token withdrawn
+        approvals.locked(); // before the session closes: pending prompts are denied, the token withdrawn
         approvalDialog = null;
+        closeLanWork(); // revokes open share windows and stops listeners before the session closes
         clearForms();
         sessionGeneration++;
         if (idleTimer != null) {
@@ -270,6 +375,12 @@ final class TuiController {
         }
         dashboard = null;
         lastActivity = null;
+    }
+
+    private void closeLanWork() {
+        List<Runnable> stops = List.copyOf(lanWork);
+        lanWork.clear();
+        stops.forEach(Runnable::run);
     }
 
     private void removeAllWindows() {

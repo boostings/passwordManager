@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import pm.vault.record.DeviceRecord;
 import pm.vault.record.LoginRecord;
 import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
@@ -34,7 +35,8 @@ import pm.vault.record.WifiRecord;
  * search box that filters the record table live through {@link Session#search(String)}, empty
  * states, and a footer of key hints with a toast slot. Only non-secret fields ever reach the
  * table (SR-503, ADR 0008), and each cell passes through {@link DisplaySafe#text(String)} first
- * (SR-501). Shortcuts: Ctrl+N add login, Ctrl+T tools (generator, health, ssh-agent; M4.4), Ctrl+L lock, Esc clears the search; Ctrl+X quits
+ * (SR-501). Shortcuts: Ctrl+N add login, Ctrl+T tools (generator, health, ssh-agent; M4.4),
+ * Ctrl+S share the selected item, Ctrl+D devices (M3.6), Ctrl+L lock, Esc clears the search; Ctrl+X quits
  * everywhere (see {@link TuiController}).
  */
 final class DashboardWindow {
@@ -43,7 +45,8 @@ final class DashboardWindow {
     static final String SEARCH_LABEL = "Search";
     static final List<List<String>> KEY_HINTS = List.of(
             List.of("↑↓", "select"), List.of("⏎", "open"), List.of("^N", "new login"),
-            List.of("^T", "tools"), List.of("^L", "lock"), List.of("esc", "clear search"), List.of("^X", "quit"));
+            List.of("^T", "tools"), List.of("^S", "share"), List.of("^D", "devices"), List.of("^L", "lock"),
+            List.of("esc", "clear search"), List.of("^X", "quit"));
     private static final String[] COLUMNS = {"Type", "Title", "Username/SSID", "Updated"};
     private static final String SEPARATOR = "  ·  ";
     private static final String CHECK = "✓ ";
@@ -152,7 +155,7 @@ final class DashboardWindow {
 
     /** Reloads the table: all records for a blank query, otherwise {@code session.search(query)}. */
     void refresh(String query) {
-        List<VaultRecord> all = session.records();
+        List<VaultRecord> all = session.records().stream().filter(r -> !DeviceRecord.isInternal(r)).toList();
         List<VaultRecord> records = query.isBlank() ? all : session.search(query.strip());
         total = all.size();
         shown.clear();
@@ -303,6 +306,15 @@ final class DashboardWindow {
             } else if (TuiController.isCtrl(key, 't')) {
                 deliverEvent.set(false);
                 openTools();
+            } else if (TuiController.isCtrl(key, 'd')) {
+                deliverEvent.set(false);
+                controller.openDevices();
+            } else if (TuiController.isCtrl(key, 's')) {
+                deliverEvent.set(false);
+                int index = table.getSelectedRow();
+                if (index >= 0 && index < shown.size()) {
+                    controller.openShare(shown.get(index));
+                }
             } else if (TuiController.isCtrl(key, 'l')) {
                 deliverEvent.set(false);
                 controller.lock();

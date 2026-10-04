@@ -190,6 +190,7 @@ Defined in `modules/pm-cli/src/main/java/pm/cli/ExitCodes.java`:
 | 7 | Not enough Java heap for the vault's Argon2id memory: restart with a larger `-Xmx` (the vault is intact) |
 | 8 | `env run`: the approval was denied, timed out, or the vault was locked; nothing ran |
 | 9 | A service outside pm failed: no `ssh-agent` (`SSH_AUTH_SOCK` unset or nothing listening), an unsafe agent socket, the agent refused, sent a bad reply or did not answer within 10 seconds; or the `health --breach` service failed |
+| 10 | A LAN step did not complete: `pair` was not confirmed, failed or is locked out after repeated failures, a `share` window expired or was revoked (also when the target device was removed), or `receive` found no paired peer, was refused or got an item that did not match the offer. Nothing was pinned or applied |
 
 ## Current state
 

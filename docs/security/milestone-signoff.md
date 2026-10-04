@@ -216,8 +216,8 @@ Signed off: Lane A (@boostings), security owner.
 wire format (M3.2), the pairing ceremony (M3.3), share windows and their sessions (M3.4), and
 browser-only receiving (M3.5). It does not cover the CLI/TUI exposure of these features (M3.6:
 `devices`, `pair`, `share`, `receive`, `revoke`, and removing a revoked device's pinned key from the
-vault, SR-205/SR-208). That is reviewed at its own integration. Traceability rows TM-30
-(discovery) and TM-37 (apply) stay Planned for that reason.
+vault, SR-205/SR-208). That was reviewed at its own integration, recorded under "M3.6 CLI/TUI
+integration" below; TM-30 (discovery) and TM-37 (apply) are Implemented (M3.6) there.
 
 Evidence: local runs on 2026-10-03 (fuzz campaign) and 2026-10-04 (planted-bug checks and the gate) at commit M3.7 (this section's commit). As with M2, the manual
 CI workflow has **not** been dispatched, because nothing is pushed without the owner's approval.
@@ -289,11 +289,45 @@ earlier (CE-011..CE-013) are unchanged.
 Open, not blocking the M3 protocol layer:
 - **External review of the pairing/SAS construction (ADR 0010 Amendment 1). User-only; required
   before v1 ships.**
-- M3.6 CLI/TUI integration and its own review: pinned-key removal on revoke (SR-205), apply
-  (SR-208), and the sender and recipient warnings Amendment 2 requires.
 - Longer fuzz runs: the campaign was 10 minutes per harness. `WebRouteFuzzTest` runs at about
   600 exec/s because each input binds a listener socket. The accept loop and TLS path are
   exercised only by the seed replay over TLS and by `WebServerTest`, not fuzzed.
 - Dispatching the manual CI workflow (needs the branch pushed). The M2 carry-overs are unchanged.
 
 Signed off: Lane A (@boostings), security owner, for the protocol layer M3.1–M3.5.
+
+### M3.6 CLI/TUI integration (closed)
+
+Closed in the M3.6 commit (lane E): `pm devices`, `pair`, `share`, `receive`, `revoke` and the TUI
+Devices screen and Share dialog, with the device identity and trust list as vault records (SR-090),
+pinned-key removal (SR-205), apply only after full verification (SR-208) and the Amendment 2 sender
+warnings (SR-092). TM-30 and TM-37 are Implemented (M3.6), tagged T-LAN-01, T-LAN-02, T-LAN-08 on
+`LanEndToEndTest`, `LanScreensTest` and `LanHelpersTest`; TM-34's SR-205 half is Implemented (M3.6).
+Evidence: the full local gate on the M3.6 commit (`./gradlew check certReport gitleaksScan`).
+
+Review fixes made before merge (each regression-tested):
+- **SR-205 (high): a removed device could still receive from a window already open in another
+  process.** Removal now writes an owner-only marker first, in a directory next to the vault's real
+  path (re-review: not in the run directory, which follows `XDG_RUNTIME_DIR` and so could differ
+  between the remover and the sender); every window re-checks it at TLS accept and before
+  `SHARE_DATA` and revokes itself (SR-095;
+  `LanEndToEndTest.removingADeviceInAnotherProcessClosesAWindowAlreadyOpenToIt`,
+  `LanEndToEndTest.removalReachesAWindowOpenedUnderAnotherRunDirectory`,
+  `SharesTest.aDeviceNoLongerAdmittedGetsNoDataEvenAfterTheOffer`).
+- **SR-203 (medium): the lockout reset with every `pm pair`.** It is now kept in an owner-only
+  run-directory file, a stored lock is capped at 1 h ahead, an unreadable one locks (SR-096;
+  `LanEndToEndTest.thePairingLockoutHoldsForTheNextPairInvocation`, `LockoutTest`). Re-review: a
+  concurrent pairing could overwrite the stored lock with its stale clean state; every write is now
+  a read-merge-write under an exclusive file lock, and a file that is unreadable or not owner-only
+  locks for 1 h (`LanEndToEndTest.aConcurrentPairingNeverWeakensThePersistedLockout`,
+  `LanHelpersTest.thePairingLockoutIsMergedAcrossProcessesAndFailsClosed`). Deleting the file is a
+  same-user residual (lan-share.md §8.1).
+- **TUI question hijack (medium).** Questions are queued and each answer reaches only the question
+  on screen; new steps and Remove wait (`LanScreensTest.anAnswerOnlyReachesTheQuestionOnScreenAndASecondOneWaits`).
+- **Low:** `--bind` refuses wildcards and non-local addresses; the receive replay guard is kept in
+  the vault and saved with the item (SR-097); the payload must match the accepted offer's kind and
+  summary (SR-098); the TUI share records nothing for a device removed since the list was shown;
+  CE-035 narrowed from class level to method level; exit code 10 documented in the README.
+
+CERT exceptions CE-035..CE-039 (M3.6) remain Proposed, awaiting the security owner's sign-off.
+The external SAS review and the CI dispatch above stay open.

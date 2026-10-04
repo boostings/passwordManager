@@ -21,8 +21,8 @@
 ;     below give that byte bound.
 ;
 ; Secret fields (data-classification.md: Secret) are byte strings and are never
-; held as text: login and wifi "password", ssh-key "private_key", and every
-; value of project "variables". All other fields are Sensitive.
+; held as text: login and wifi "password", ssh-key and device-identity
+; "private_key", and every value of project "variables". All other fields are Sensitive.
 ;
 ; Decoder bounds (CborLimits.PAYLOAD): payload <= 256 MiB, at most 1,000,000
 ; data items in total (every integer, string, boolean, array and map, and
@@ -35,7 +35,8 @@ payload = {
   "records"        => [* record],
 }
 
-record = login-record / wifi-record / ssh-key-record / project-record
+record = login-record / wifi-record / ssh-key-record / project-record /
+         device-identity-record / trusted-device-record
 
 login-record = {
   "type"      => "login",
@@ -89,6 +90,38 @@ project-record = {
   "created"        => epoch-seconds,
   "updated"        => epoch-seconds,
 }
+
+; LAN sharing state (lan-share.md sections 1, 5 and 8, M3.6). Internal
+; records: never listed, searched or shared. A vault holds at most one
+; device-identity-record; the trust list is the set of trusted-device-records.
+device-identity-record = {
+  "type"        => "device_identity",
+  "id"          => uuid-text,
+  "title"       => device-name,
+  "private_key" => secret,             ; PKCS#8 Ed25519 private key
+  "certificate" => bstr .size (1..12288),   ; self-signed X.509 DER
+  "created"     => epoch-seconds,
+  "updated"     => epoch-seconds,
+}
+
+trusted-device-record = {
+  "type"        => "trusted_device",
+  "id"          => uuid-text,
+  "title"       => device-name,
+  "public_key"  => bstr .size 32,      ; pinned raw Ed25519 key
+  "fingerprint" => tstr .size 39,      ; 8 groups of 4 lower-case hex, must match public_key
+  "shared"      => [0*1024 uuid-text], ; items offered to it, oldest first, no repeats
+  "received"    => [0*1024 received-share], ; shares applied from it, unexpired, oldest first, no repeated id
+  "created"     => epoch-seconds,      ; when the device was paired
+  "updated"     => epoch-seconds,
+}
+
+; "<share id as 32 lower-case hex>@<epoch seconds when its window closes>";
+; the receiver's replay guard (SR-204), dropped once the window has closed.
+received-share = tstr .regexp "[0-9a-f]{32}@(0|[1-9][0-9]{0,11})"
+
+; 1 to 32 chars, no control, format or line/paragraph separator characters.
+device-name = tstr .size (1..96)
 
 wifi-security = "WPA2" / "WPA3" / "WEP" / "OPEN"
 

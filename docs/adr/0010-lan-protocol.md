@@ -146,3 +146,15 @@ Also checked by hand in headless Chrome 2026-10-03: the page decrypted and rende
 and the listener reported opened, then delivered, then closed. An adversarial review the same day
 found the trickling-client, in-flight revocation, page-burning, history and version defects above;
 all are fixed or documented here.
+
+## Note (M3.6, 2026-10-04): CLI and TUI surface
+
+The protocol is unchanged. M3.6 adds the user surface described in lan-share.md §8.1: the device
+identity and the trust list are vault records (SR-090), the code is confirmed by a typed `y` or Yes
+on both sides (SR-091), every share is approved and audited before a listener opens and the
+browser form shows the Amendment 2 warnings first (SR-092), a received item needs explicit
+acceptance and gets a fresh id (SR-093), and removing a device prints a rotate checklist built from
+the items offered to it (SR-094). Revoking a waiting CLI share across processes uses a marker file in
+the owner-only run directory; a missing marker revokes. The acceptance test is
+`pm.cli.LanEndToEndTest`: two file-backed vaults pair, share and receive over loopback through the
+`pm` commands, and a revoked window and an unpaired peer receive nothing.

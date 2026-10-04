@@ -28,6 +28,9 @@ public final class RecordSearch {
     public static boolean matches(VaultRecord record, String query) {
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(query, "query");
+        if (DeviceRecord.isInternal(record)) {
+            return false; // sharing state, never an item the user searches for
+        }
         String needle = query.toLowerCase(Locale.ROOT);
         if (needle.isEmpty() || contains(record.title(), needle)) {
             return true;
