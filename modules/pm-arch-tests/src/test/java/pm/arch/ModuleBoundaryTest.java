@@ -91,6 +91,30 @@ final class ModuleBoundaryTest {
                     .should().dependOnClassesThat().resideInAPackage("pm.crypto.ssh..")
                     .because("SR-060: pm.crypto.ssh is reachable only from pm.cli, not through another pm.crypto package");
 
+    /**
+     * SR-402 / SR-080 / ADR 0016, plan.md §13 M6: passkey keys are generated and used for signing
+     * only inside pm.crypto.passkey, and only the vault, the domain and the browser bridge reach it.
+     * Mirrors {@code exports pm.crypto.passkey to pm.vault, pm.domain, pm.browser}.
+     */
+    @ArchTest
+    static final ArchRule onlyVaultDomainAndBrowserReachPasskeys =
+            noClasses().that().resideOutsideOfPackages(
+                            "pm.crypto..", "pm.vault..", "pm.domain..", "pm.browser..", "pm.arch..")
+                    .should().dependOnClassesThat().resideInAPackage("pm.crypto.passkey..")
+                    .because("SR-402: passkey keys are reachable only from pm.vault, pm.domain and pm.browser (ADR 0016)");
+
+    /**
+     * SR-080 / ADR 0016: the passkey storage form, the only way the private scalar leaves pm-crypto,
+     * is reachable from the vault alone; the browser and domain modules sign but cannot extract.
+     * Mirrors {@code exports pm.crypto.passkey.storage to pm.vault}.
+     */
+    @ArchTest
+    static final ArchRule onlyTheVaultReachesPasskeyStorage =
+            noClasses().that().resideOutsideOfPackages("pm.crypto.passkey..", "pm.vault..", "pm.arch..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "pm.crypto.passkey.storage..", "pm.crypto.passkey.internal..")
+                    .because("SR-080: only pm.vault may read or load the passkey storage form (ADR 0016)");
+
     /** pm-crypto depends on nothing else in the project. */
     @ArchTest
     static final ArchRule cryptoIsLeaf =

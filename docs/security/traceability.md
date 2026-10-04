@@ -79,3 +79,13 @@ Status: Planned until the test exists and passes in CI.
 | — (weak password undetected) | SR-075 | IDS00-J | `StrengthMeterTest` | M4 | Implemented (M4.2) |
 | — (plaintext password map in memory) | SR-076 | MSC03-J | `ReuseAndAgeTest`, R | M4 | Implemented (M4.2) |
 | — (stale password undetected) | SR-077 | — | `ReuseAndAgeTest`, `HealthCheckTest` | M4 | Implemented (M4.2) |
+
+## M6 passkey keys
+
+| Threat | SR | CERT | Test / check | Milestone | Status |
+| --- | --- | --- | --- | --- | --- |
+| — (passkey private key leaves pm-crypto) | SR-080, SR-402 | MSC03-J, OBJ01-J | Compiler (`exports pm.crypto.passkey to pm.vault, pm.domain, pm.browser`, `exports pm.crypto.passkey.storage to pm.vault`), ArchUnit `onlyVaultDomainAndBrowserReachPasskeys`, `onlyTheVaultReachesPasskeyStorage`, `PasskeyKeyTest.secretsAreZeroedOnClose`, `PasskeyStorageTest` | M6 | Implemented (M6.1) |
+| — (corrupted or substituted stored key signs) | SR-081 | IDS00-J | `PasskeyKeyTest.invalidStorageFormsAreRefused` | M6 | Implemented (M6.1) |
+| — (biased or weak passkey scalar) | SR-081, SR-084 | MSC02-J | `PasskeyKeyTest.generationRejectsOutOfRangeCandidates`, `.credentialIdsAreRandom32Bytes` | M6 | Implemented (M6.1) |
+| — (signature rejected by relying parties or nonce reuse) | SR-082 | IDS00-J | `PasskeyKeyTest.rfc6979VectorsAreReproducedExactly`, `.assertionSignatureIsDerOverAuthenticatorDataAndClientDataHash`, `Es256Test` | M6 | Implemented (M6.1) |
+| — (public key misencoded or malformed key accepted) | SR-083 | IDS00-J | `CoseKeyTest` | M6 | Implemented (M6.1) |

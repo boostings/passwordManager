@@ -81,7 +81,7 @@ desktop application.
 | --- | --- | --- | --- | --- |
 | SR-400 | RP ID validation follows the WebAuthn spec (effective domain rules); tested against spec vectors | T-PK-01 | V2.8 | — |
 | SR-401 | Signature counters are persisted atomically before the assertion is returned | T-PK-02 | V2.8 | — |
-| SR-402 | Passkey private keys never leave `pm-crypto`; signing happens inside it | CI (ArchUnit) | V6.2 | — |
+| SR-402 | Passkey private keys never leave `pm-crypto`; signing happens inside it | CI (ArchUnit `onlyVaultDomainAndBrowserReachPasskeys`, `onlyTheVaultReachesPasskeyStorage`; see SR-080) | V6.2 | — |
 
 ## SSH keys and agent, M4 (SR-060 to SR-064)
 
@@ -130,3 +130,13 @@ desktop application.
 | SR-076 | Reuse detection compares per-call keyed HMAC-SHA-256 tags with `ConstantTime.equals`; no map of plaintext or unkeyed hashes exists, and key and tags are zero-filled before return | `ReuseAndAgeTest`, R | V6.2 | MSC03-J |
 | SR-077 | Password age is measured from the record's update time against an injected `Clock`; future timestamps count as age 0 | `ReuseAndAgeTest`, `HealthCheckTest` | — | — |
 | SR-078 | Network for the breach check is off unless explicitly invoked: `HealthCheck` is offline; `BreachClient` accepts only https (http on loopback for tests) without user info, query or fragment, never follows redirects, enforces one deadline over connect, headers and the whole body, and parses responses strictly (empty body is `MALFORMED`) with a 1 MiB cap | `BreachClientTest.offlineHealthCheckNeverTouchesTheNetwork`, `.baseUriValidation`, `.failuresCarryCodesOnly`, `.strictRangeParsing`, `.oneDeadlineCoversHeadersAndTheWholeBody` | V12.6 | MSC00-J, IDS01-J |
+
+## Passkey keys, M6 (SR-080 to SR-084)
+
+| ID | Requirement | Verification | ASVS | CERT |
+| --- | --- | --- | --- | --- |
+| SR-080 | Passkey private keys are generated, loaded and used for signing only in `pm.crypto.passkey`; the P-256 scalar is held in a `SecretBytes` owned by `PasskeyKey` and leaves only as the storage form the vault encrypts at rest, through `pm.crypto.passkey.storage.PasskeyStorage`; `pm.crypto.passkey` is exported only to `pm.vault`, `pm.domain` and `pm.browser`, and `pm.crypto.passkey.storage` only to `pm.vault`, so the modules that sign cannot extract the scalar (qualified exports, ADR 0016; implements SR-402) | Compiler (qualified exports; planted `pm.browser` call refused at M6.1), CI (ArchUnit `onlyVaultDomainAndBrowserReachPasskeys`, `onlyTheVaultReachesPasskeyStorage`), `PasskeyKeyTest.secretsAreZeroedOnClose`, `.toStringNeverShowsKeyMaterial`, `PasskeyStorageTest`, `PasskeyAccessTest`, R | V6.2 | MSC03-J, OBJ01-J |
+| SR-081 | A passkey scalar is drawn from `Csprng` by rejection sampling into [1, n-1]; a stored key is loaded only if it is exactly `0x01 \|\| d(32) \|\| 0x04 \|\| X(32) \|\| Y(32)`, d is in [1, n-1], the point decodes on P-256 with coordinates below p, and d·G equals the stored point (constant-time compare); anything else is `BAD_INPUT` | `PasskeyKeyTest.invalidStorageFormsAreRefused`, `.generationRejectsOutOfRangeCandidates`, `.generatedKeysAreDistinctAndRoundTripThroughStorage` | V6.2 | MSC02-J, IDS00-J |
+| SR-082 | Assertion signatures are WebAuthn ES256 (alg -7): ECDSA P-256 with SHA-256 over `authenticatorData \|\| clientDataHash` (37 B to 16 KiB, exactly 32 B), ASN.1 DER `Ecdsa-Sig-Value`, nonce per RFC 6979 (HMAC-SHA-256); the verify helper accepts only canonical DER with r, s in [1, n-1] | `PasskeyKeyTest.rfc6979VectorsAreReproducedExactly` (RFC 6979 A.2.5), `.assertionSignatureIsDerOverAuthenticatorDataAndClientDataHash` (JDK SunEC verifier), `Es256Test` | V6.2 | IDS00-J |
+| SR-083 | The credential public key is encoded as the CTAP2 canonical COSE_Key `{1: 2, 3: -7, -1: 1, -2: x, -3: y}` (77 bytes, keys in order 1, 3, -1, -2, -3); decoding accepts only that exact layout with a point on the curve | `CoseKeyTest.encodingIsExactForAFixedKey`, `.anythingButTheCanonicalLayoutIsRefused` | V6.2 | IDS00-J |
+| SR-084 | Credential IDs are 32 random bytes from `Csprng` | `PasskeyKeyTest.credentialIdsAreRandom32Bytes` | V6.3 | MSC02-J |
