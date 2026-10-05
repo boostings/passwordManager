@@ -98,7 +98,7 @@ desktop application.
 | --- | --- | --- | --- | --- |
 | SR-060 | SSH private key bytes are parsed, sent to the agent and exported only in `pm.crypto.ssh`; the API takes `SecretBytes` and never returns private bytes except through the explicit export; only `pm.cli` may use the package (qualified export `exports pm.crypto.ssh to pm.cli`); key bytes are written to channels only from zero-filled pm-owned direct buffers | Compiler (qualified export), CI (ArchUnit `onlyTheCliReachesSshKeys`, `noCryptoFacadeOverSshKeys`), `SshKeyTest` | V6.2 | MSC03-J, FIO13-J |
 | SR-061 | The agent socket path is refused unless absolute, its canonical parent is not group- or world-writable, and the socket itself (not followed through a link) is a socket owned by the current user; after connecting, the peer (`SO_PEERCRED`) must run as the current user | `SshAgentClientTest` | V12.3 | FIO00-J, FIO15-J, FIO16-J |
-| SR-062 | Key files and agent replies are parsed with every `uint32` length bounded before use (agent message at most 256 KiB, at most 1,024 identities); malformed, oversized, truncated or trailing input is refused with an error code | `SshKeyTest`, `SshAgentClientTest` | V5.1 | IDS00-J, NUM00-J, MSC05-J |
+| SR-062 | Key files and agent replies are parsed with every `uint32` length bounded before use (agent message at most 256 KiB, at most 1,024 identities); malformed, oversized, truncated or trailing input is refused with an error code; key armour is strict (BEGIN opens the file, END starts a line, canonical padded base64 only, amended at M4.5) | `SshKeyTest`, `SshAgentClientTest`; T-FUZZ-SSH (`OpenSshKeyFuzzTest`, `AgentReplyFuzzTest`: limits written independently in the harness, at-limit and one-past-limit tests, M4.5 fuzz runs) | V5.1 | IDS00-J, NUM00-J, MSC05-J |
 | SR-063 | The export fallback writes the OpenSSH private key file with `CREATE_NEW`, `NOFOLLOW_LINKS` and mode `0600` set at creation; an existing target is never overwritten; a partial file is deleted if writing fails | `SshKeyExportTest` | V12.3 | FIO01-J, FIO16-J |
 | SR-064 | Encrypted `openssh-key-v1` files are refused with `ENCRYPTED_KEY`; no partial decryption or key derivation is attempted | `SshKeyTest` | V6.2 | ERR01-J |
 
@@ -126,7 +126,7 @@ desktop application.
 | SR-801 | No JMX, JDWP, or debug entry points in release artifacts | T-PKG-01 | V14.3 | ENV05-J, ENV06-J |
 | SR-900 | All Java complies with `RULES.md`; `certReport` shows zero findings for Enforced rules | CI | V1.1 | all |
 
-## Generation and health (SR-06x, M4)
+## Generation and health (SR-070 to SR-078, M4)
 
 | ID | Requirement | Verification | ASVS | CERT |
 | --- | --- | --- | --- | --- |
@@ -138,7 +138,7 @@ desktop application.
 | SR-075 | Weak-password detection uses offline heuristics only, over Unicode code points: pool entropy; repeats; alphabet, digit and keyboard row/column runs; whole-password repeated units; common-list entries as whole password or substring, ignoring case and with substitutions undone; length. A whole common-list match is always `VERY_WEAK`, and a patterned password is never `STRONG`. No password `String` is built for the lookup | `StrengthMeterTest` | V2.1 | IDS00-J |
 | SR-076 | Reuse detection compares per-call keyed HMAC-SHA-256 tags with `ConstantTime.equals`; no map of plaintext or unkeyed hashes exists, and key and tags are zero-filled before return | `ReuseAndAgeTest`, R | V6.2 | MSC03-J |
 | SR-077 | Password age is measured from the record's update time against an injected `Clock`; future timestamps count as age 0 | `ReuseAndAgeTest`, `HealthCheckTest` | — | — |
-| SR-078 | Network for the breach check is off unless explicitly invoked: `HealthCheck` is offline; `BreachClient` accepts only https (http on loopback for tests) without user info, query or fragment, never follows redirects, enforces one deadline over connect, headers and the whole body, and parses responses strictly (empty body is `MALFORMED`) with a 1 MiB cap | `BreachClientTest.offlineHealthCheckNeverTouchesTheNetwork`, `.baseUriValidation`, `.failuresCarryCodesOnly`, `.strictRangeParsing`, `.oneDeadlineCoversHeadersAndTheWholeBody` | V12.6 | MSC00-J, IDS01-J |
+| SR-078 | Network for the breach check is off unless explicitly invoked: `HealthCheck` is offline; `BreachClient` accepts only https (http on loopback for tests) without user info, query or fragment, never follows redirects, enforces one deadline over connect, headers and the whole body, and parses responses strictly (empty body is `MALFORMED`) with a 1 MiB cap | `BreachClientTest.offlineHealthCheckNeverTouchesTheNetwork`, `.baseUriValidation`, `.failuresCarryCodesOnly`, `.strictRangeParsing`, `.oneDeadlineCoversHeadersAndTheWholeBody`; T-FUZZ-BREACH (`BreachRangeFuzzTest`, differential range parsing and the 1 MiB cap, M4.5) | V12.6 | MSC00-J, IDS01-J |
 
 ## Passkey keys, M6 (SR-080 to SR-084)
 

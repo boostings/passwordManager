@@ -139,6 +139,31 @@ class SshKeyTest {
                 .getBytes(StandardCharsets.US_ASCII)));
     }
 
+    /**
+     * Strict base64 and END placement (ADR 0013, found by the M4.5 armour grammar oracle): the JDK
+     * decoder alone takes a body without its padding, non-zero unused bits before the padding, and
+     * an END line that does not start a line; each of those is refused here, as OpenSSH refuses it.
+     */
+    @Test
+    void refusesLaxBase64AndAnEndLineThatDoesNotStartALine() throws SshException {
+        KeyFixtures.File f = KeyFixtures.File.of(KeyFixtures.ed25519());
+        for (int n = 0; f.binary().length % 3 != 1; n++) {
+            f.comment = "c".repeat(n).getBytes(StandardCharsets.US_ASCII);
+        }
+        String g = new String(f.text(), StandardCharsets.US_ASCII);
+        try (SshKey key = parse(f.text())) {
+            assertEquals(SshKeyType.ED25519, key.type());
+        }
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        int last = g.indexOf("==") - 1;
+        String flipped = g.substring(0, last) + alphabet.charAt(alphabet.indexOf(g.charAt(last)) | 1)
+                + g.substring(last + 1);
+        String endMidLine = g.replace("\n" + OpenSshFormat.END, OpenSshFormat.END);
+        for (String lax : new String[] {g.replace("==", ""), flipped, endMidLine}) {
+            assertEquals(SshException.Code.MALFORMED_KEY, refused(lax.getBytes(StandardCharsets.US_ASCII)), lax);
+        }
+    }
+
     @Test
     void refusesTheWrongMagicOrAShortBody() {
         assertEquals(SshException.Code.MALFORMED_KEY, refused(KeyFixtures.armour("openssh-key-v0\0xxxx".getBytes(StandardCharsets.US_ASCII))));

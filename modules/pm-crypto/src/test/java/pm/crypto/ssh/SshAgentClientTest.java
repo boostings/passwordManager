@@ -178,6 +178,9 @@ class SshAgentClientTest {
         byte[] blob = KeyFixtures.blob(KeyFixtures.ed25519());
         assertEquals(SshException.Code.BAD_REPLY, badList(new byte[] {SshAgentClient.SUCCESS}));
         restart();
+        // A failure must be exactly one byte, as for every other request (ADR 0013).
+        assertEquals(SshException.Code.BAD_REPLY, badList(new byte[] {SshAgentClient.FAILURE, 0}));
+        restart();
         assertEquals(SshException.Code.BAD_REPLY, badList(new KeyFixtures.W().u8(SshAgentClient.IDENTITIES_ANSWER)
                 .u32(SshAgentClient.MAX_IDENTITIES + 1L).bytes()));
         restart();

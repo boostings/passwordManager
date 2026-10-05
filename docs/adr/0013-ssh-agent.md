@@ -15,9 +15,14 @@ depends on the package) and `noCryptoFacadeOverSshKeys` (no other `pm.crypto` pa
   `PROTOCOL.key`), unencrypted only: Ed25519 (required) and ECDSA P-256 (`ecdsa-sha2-nistp256`).
   The private section's key fields (`string type` + key contents) are byte for byte what an
   agent's add-identity message carries, so the key keeps exactly those bytes in a `SecretBytes`
-  and never returns them. Parsing is strict (SR-062): the BEGIN line must open the file and the END line must be
-  followed only by line breaks; body line breaks (LF or CRLF) are removed and the rest must be
-  strict base64 (any line length, as OpenSSH accepts); then magic,
+  and never returns them. Parsing is strict (SR-062): the BEGIN line must open the file and end in a
+  line break, and the END line must start a line and be followed only by line breaks; a line break
+  is CR, LF or CRLF, and every CR and LF in the body is removed (any line length, as OpenSSH
+  accepts); the rest must be strict base64: alphabet only, padded to a multiple of 4, `=` only as
+  the final padding, and zero unused bits before it, so a key has one encoding (OpenSSH 10.3
+  refuses unpadded and non-canonical base64 too; the JDK decoder alone takes unpadded and non-canonical text, so the
+  decoded binary is re-encoded and must match; amended at M4.5, where the fuzz harness's armour
+  grammar oracle found both, and an END line in mid-line, accepted); then magic,
   `nkeys = 1`, equal check integers, every `uint32` length bounded before use (64 KiB file,
   16 KiB public blob, 4 KiB comment), exact field sizes, minimal positive mpint below the curve
   order, padding `1, 2, 3, ...` shorter than one block, no trailing bytes, comment strict UTF-8
@@ -25,6 +30,11 @@ depends on the package) and `noCryptoFacadeOverSshKeys` (no other `pm.crypto` pa
   line/paragraph separator characters. The private key must match the public key: the parser signs a
   probe with the private half and verifies it with the public half, and compares the outer
   public blob in constant time.
+  This armour grammar is pm's, not OpenSSH's (checked at the M4.5 re-verify with `ssh-keygen -y`,
+  OpenSSH 10.3p1, on 12 real keys). OpenSSH also accepts a space or tab inside the base64 body and
+  bytes after the END line, which pm refuses; a key file with stray whitespace is therefore
+  `MALFORMED_KEY`, even when it is encrypted, and the user re-exports it with `ssh-keygen`. OpenSSH
+  refuses CR or CRLF line breaks and a missing line break after END, which pm accepts.
 - **Encrypted keys are refused** with `ENCRYPTED_KEY` (SR-064). Supporting them needs
   `bcrypt_pbkdf` and the OpenSSH cipher suite, which are new code or a new dependency for a case
   the user can resolve with `ssh-keygen -p -N ''` on import. The vault's own encryption protects
@@ -68,8 +78,23 @@ depends on the package) and `noCryptoFacadeOverSshKeys` (no other `pm.crypto` pa
   the consistency probe, the `BigInteger` P-256 scalar (both unreachable once parsing returns),
   and the kernel's socket buffers until the agent reads the request (and the page cache for an
   export). The JDK's cached direct I/O buffers no longer receive key bytes (see above).
-- A hung agent blocks the calling command (no read timeout on Unix domain sockets in the JDK)
-  until the user interrupts it.
+- A stalled agent cannot hang a command once connected: every request, from its first byte
+  written to its last reply byte read, runs under one deadline (`SshAgentClient.DEFAULT_TIMEOUT`,
+  10 s, non-blocking socket and a selector, M4.4) and fails with `TIMEOUT`, closing the
+  connection. (Amended at M4.5: this item used to say a hung agent blocks the command, which
+  predates the M4.4 deadline.) Two residual risks remain:
+  - **Connect has no deadline.** `SshAgentClient.connect` is a blocking Unix-domain connect. It
+    completes or fails at once unless the listener's backlog is full, so an agent (or another
+    process of the same user holding the checked socket) that stops accepting can wedge the
+    command at connect until the user interrupts it. The CLI connects before it unlocks the
+    vault, so no key is decrypted while it is wedged there. The TUI runs agent calls on a daemon
+    worker thread (`CliSshActions`), which connects before it parses the key, but the private-key
+    buffer handed to that thread stays referenced until the call returns.
+  - **The private-key copy outlives a lock until the call returns.** During `add`, the parsed
+    `SshKey`, the pm-owned direct buffer and the kernel socket buffer hold the private key. If
+    the vault locks (idle timer or `lock`) mid-call, those copies live on until `add` returns,
+    at most the 10 s deadline, and are then zero-filled (the kernel buffer until the agent reads
+    it).
 - Windows named-pipe agents (OpenSSH for Windows, Pageant) are out of scope for M4.
 - No private key file is committed as a test fixture: an `ssh-keygen` fixture is flagged by
   gitleaks (checked 2026-10-03, "leaks found: 1"). Tests build `openssh-key-v1` files from keys

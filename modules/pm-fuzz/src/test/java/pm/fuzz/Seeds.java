@@ -5,7 +5,8 @@ import java.io.InputStream;
 
 /**
  * Reads files of a fuzz test's seed corpus. Jazzer looks for the corpus of test class {@code X} in
- * the resource directory {@code XInputs} next to the class.
+ * the resource directory {@code XInputs} next to the class. Public because the M4 harnesses live in
+ * the packages whose package-private parsers they drive.
  */
 public final class Seeds {
     private Seeds() {

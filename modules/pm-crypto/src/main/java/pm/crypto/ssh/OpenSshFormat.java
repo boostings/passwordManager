@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
+import pm.crypto.ConstantTime;
 import pm.crypto.Csprng;
 import pm.crypto.SecretBytes;
 
@@ -60,8 +61,9 @@ final class OpenSshFormat {
         if (!startsWith(text, 0, BEGIN_BYTES) || body >= text.length || !isNewline(text[body])) {
             throw new SshException(SshException.Code.MALFORMED_KEY);
         }
+        // The END line must start a line (end > body, since text[body] is a line break).
         int end = indexOf(text, body, END_BYTES);
-        if (end < 0) {
+        if (end < 0 || !isNewline(text[end - 1])) {
             throw new SshException(SshException.Code.MALFORMED_KEY);
         }
         for (int i = end + END_BYTES.length; i < text.length; i++) {
@@ -77,14 +79,34 @@ final class OpenSshFormat {
             }
         }
         byte[] exact = Arrays.copyOf(b64, n);
+        Arrays.fill(b64, (byte) 0);
         try {
-            return Base64.getDecoder().decode(exact);
-        } catch (IllegalArgumentException e) {
-            throw new SshException(SshException.Code.MALFORMED_KEY);
+            return strictBase64(exact);
         } finally {
-            Arrays.fill(b64, (byte) 0);
             Arrays.fill(exact, (byte) 0);
         }
+    }
+
+    /**
+     * Strict base64 (ADR 0013): the JDK decoder also takes a body without its {@code =} padding and
+     * non-zero unused bits before the padding, which OpenSSH's {@code b64_pton} refuses. So the
+     * binary is re-encoded and must give back exactly the text it came from: one encoding per key.
+     */
+    private static byte[] strictBase64(byte[] b64) throws SshException {
+        byte[] bin;
+        try {
+            bin = Base64.getDecoder().decode(b64);
+        } catch (IllegalArgumentException e) {
+            throw new SshException(SshException.Code.MALFORMED_KEY);
+        }
+        byte[] canonical = Base64.getEncoder().encode(bin);
+        boolean strict = ConstantTime.equals(canonical, b64);
+        Arrays.fill(canonical, (byte) 0);
+        if (!strict) {
+            Arrays.fill(bin, (byte) 0);
+            throw new SshException(SshException.Code.MALFORMED_KEY);
+        }
+        return bin;
     }
 
     static SshKey decodeBinary(byte[] bin) throws SshException {

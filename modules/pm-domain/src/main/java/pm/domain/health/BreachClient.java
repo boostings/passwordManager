@@ -159,7 +159,7 @@ public final class BreachClient implements AutoCloseable {
                 .build();
         CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request, info ->
                 info.statusCode() == HTTP_OK
-                        ? new BoundedBody(MAX_BODY_BYTES)
+                        ? boundedBody()
                         : HttpResponse.BodySubscribers.replacing(null));
         try {
             HttpResponse<byte[]> response = pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -257,6 +257,14 @@ public final class BreachClient implements AutoCloseable {
     public void close() {
         http.shutdownNow();
         http.close();
+    }
+
+    /**
+     * The collector for a 200 response body, capped at {@link #MAX_BODY_BYTES}. Package-private so
+     * the fuzz harness (T-FUZZ-BREACH) drives the production limit rather than its own.
+     */
+    static BoundedBody boundedBody() {
+        return new BoundedBody(MAX_BODY_BYTES);
     }
 
     /** Signals that a response body passed {@link #MAX_BODY_BYTES}; carries no data. */

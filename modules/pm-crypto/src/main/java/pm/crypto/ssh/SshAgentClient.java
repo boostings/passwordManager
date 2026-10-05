@@ -125,7 +125,7 @@ public final class SshAgentClient implements AutoCloseable {
         }
         WireReader r = WireReader.over(reply, SshException.Code.BAD_REPLY);
         int type = r.u8();
-        if (type == FAILURE) {
+        if (type == FAILURE && reply.length == 1) {
             throw new SshException(SshException.Code.AGENT_REFUSED);
         }
         if (type != IDENTITIES_ANSWER) {

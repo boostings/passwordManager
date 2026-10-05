@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import pm.crypto.CryptoException;
 import pm.crypto.Hash;
@@ -44,6 +45,7 @@ import pm.vault.record.LoginRecord;
  * client sends; the tests assert it only ever sees a five-character prefix.
  */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-016: fake server needs its own handler threads to drip and stall
+@Tag("T-HEALTH-01")
 class BreachClientTest {
     private static final String SAMPLE = "correct-horse-sample";
     private static final Duration TIMEOUT = Duration.ofSeconds(5);

@@ -331,3 +331,145 @@ Review fixes made before merge (each regression-tested):
 
 CERT exceptions CE-035..CE-039 (M3.6) remain Proposed, awaiting the security owner's sign-off.
 The external SAS review and the CI dispatch above stay open.
+
+## M4 — Health and SSH workflows (M4.1–M4.5)
+
+**Scope.** This section covers:
+- password and passphrase generation (M4.1, Lane C);
+- offline health checks and the opt-in breach client (M4.2, Lane C);
+- the ssh-agent client and the `openssh-key-v1` parser and export (M4.3, Lane A);
+- their CLI and TUI exposure (M4.4, Lane E);
+- this security exit (M4.5, Lane A): three new Jazzer harnesses, the ledger and traceability
+  sweeps, and this section.
+
+Evidence: local runs on 2026-10-05 at commit M4.5 (this section's commit, amended at the M4.5
+review). As with M2 and M3, the
+manual CI workflow has **not** been dispatched, because nothing is pushed without the owner's
+approval.
+
+- Full gate on macOS 27.0 arm64, JDK 21.0.12.1:
+  `./gradlew --rerun-tasks check certReport gitleaksScan`. Result: `BUILD SUCCESSFUL`,
+  `**Result: 0 findings.**`, gitleaks "no leaks found", 1565 tests from committed sources,
+  0 failures or errors, 8 skipped.
+- Fuzz campaign over the three rebuilt harnesses: 15 minutes (5 per harness), 5,216,945
+  executions, 0 crashes. All 9 bugs the review planted in main code were caught in 2-minute runs,
+  also with the seeds that trip them withheld, and each was reverted. The OpenSshKey 5 minutes
+  ran before the gate's static-analysis fixes to that harness (no oracle changed); its repeat on
+  the final harness was cut to about 100 s awake by a closed lid (510,132 executions, 0 crashes).
+  Details are in `docs/security/fuzz/M4-fuzz-runs.md`.
+
+Test counts below are tests/failures/skipped from this gate run's JUnit reports.
+
+| Lane, phase | Exit criterion (plan.md §13 M4, plus the phase's acceptance line) | Proving test | Local result |
+| --- | --- | --- | --- |
+| C, M4.1 | The generator uses `SecureRandom` and passes statistical tests (MSC02-J) | Production randomness is `pm.crypto.Csprng`, the codebase's only `SecureRandom` (`RandomSource.secure()`; ArchUnit `onlyCryptoUsesJca` keeps every other JCA use in pm-crypto). `UniformTest` covers rejection sampling with no modulo reduction. `PasswordGeneratorTest.chiSquareUniformPerPosition`, `.chiSquareUniformWithinEachClass` and `PassphraseGeneratorTest.chiSquareUniformOverWords` run on a fixed-seed DRBG. `PasswordGeneratorTest.chiSquareDetectsModuloBias` is the planted-bias control: the test fails a modulo-reduced generator. `PassphraseGeneratorTest.secureRandomSmoke` draws from the real source | `UniformTest` 6/0/0, `PasswordGeneratorTest` 11/0/0, `PassphraseGeneratorTest` 7/0/0, `ModuleBoundaryTest` 16/0/0 |
+| C, M4.2 | Online checks use k-anonymity range queries only, and network capture in test shows no full hash leaves the machine | T-HEALTH-01 `BreachClientTest.serverSeesOnlyAFiveCharacterPrefixAndCountIsMatchedLocally`: a recording loopback server sees every request's method, path and headers, and only `/range/<5 hex>` arrives. Also `.offlineHealthCheckNeverTouchesTheNetwork`, `.baseUriValidation`, `.strictRangeParsing` and `.oneDeadlineCoversHeadersAndTheWholeBody` | `BreachClientTest` 9/0/0 |
+| A, M4.3 | ssh-agent socket handling passes the CERT FIO rules and never exposes private key bytes to the TUI layer | FIO: `SshAgentClientTest` covers relative and root paths, group- or world-writable directories, links, regular files, another user's socket, and the listening process checked after connect (`SO_PEERCRED`). Key bytes: the qualified export `exports pm.crypto.ssh to pm.cli` (CE-021; a planted `pm.tui` reference failed to compile at M4.3) and ArchUnit `onlyTheCliReachesSshKeys` and `noCryptoFacadeOverSshKeys`. The parser and export are covered by `SshKeyTest` and `SshKeyExportTest` | `SshAgentClientTest` 24/0/0, `SshKeyTest` 18/0/0, `SshKeyExportTest` 4/0/0, `ModuleBoundaryTest` 16/0/0 |
+| E, M4.4 | CLI tests for `generate`, `health` and `ssh add/remove/export`. The breach check stays opt-in, and a stalled agent cannot freeze the TUI | `GenerateCommandTest`; `HealthCommandTest` (no client without `--breach` and an exact `y`; one prefix per distinct password); `SshCommandsTest`; `ToolsTest` (TUI agent calls run off the GUI thread, and lock tears the dialog down) | `GenerateCommandTest` 8/0/0, `HealthCommandTest` 10/0/0, `SshCommandsTest` 18/0/0, `ToolsTest` 9/0/0 |
+| A, M4.5 | Hostile key files, agent replies and range responses are refused with documented codes only, within bounds, with no crash or hang | T-FUZZ-SSH `OpenSshKeyFuzzTest`, `AgentReplyFuzzTest`; T-FUZZ-BREACH `BreachRangeFuzzTest`. The oracles are independent: an exact expected code from a header model, an armour grammar, harness-side spec limits, a round trip, a differential reference parser, allocation tied to the limits. Each harness has deterministic at-limit and one-past-limit tests, and all 9 bugs planted by the review were caught | 5 min per harness: 1,170,913 + 3,969,400 + 76,632 executions, 0 crashes. Review plants: all 9 caught in 2-minute runs; with their tripping seeds withheld, by mutation alone after 18 to 95,356 executions. Gate: `OpenSshKeyFuzzTest` 21/0/0, `AgentReplyFuzzTest` 21/0/0, `BreachRangeFuzzTest` 11/0/0 |
+
+Review findings fixed during M4, as recorded in each phase's result in docs/plans/M2-M7.md and
+its commit. They were not re-derived at M4.5; the regression tests named for them are in the gate:
+
+- **M4.1:** the adversarial review re-ran the chi-square at 10^6 draws, and it passed. Offensive
+  words were screened out of the bundled list (ADR 0012).
+- **M4.2:** 5 defects fixed. The strength meter now works on code points and detects repeats,
+  keyboard runs and common substrings; one deadline covers connect, headers and the whole body;
+  an empty body is `MALFORMED`.
+- **M4.3:** 7 defects fixed. These include a constraint lifetime above 2^31−1 that crashed
+  OpenSSH's agent (now capped), zero-filled direct buffers for key bytes, and the
+  `SO_PEERCRED` check after connect. The client was checked against OpenSSH 10.3's `ssh-agent`
+  by hand at M4.3. That check was **not** repeated at M4.5.
+- **M4.4:** 1 HIGH, 1 MEDIUM and 6 LOW fixed. The HIGH: a stalled agent froze the TUI's lock,
+  because agent calls ran on the GUI thread. Agent calls now run on `CliSshActions`' daemon
+  executor (CE-046), and each request, from its first byte written to its last reply byte read,
+  has a 10 s deadline (`SshAgentClient.DEFAULT_TIMEOUT`). The connect before it has none (see the
+  residual risks below).
+  The MEDIUM: agent-supplied key types and comments could inject terminal escapes; they are now
+  sanitised in the client and in `Cli.displaySafe`.
+- **M4.5:** the first sign-off said the campaign found no defect and changed no main code. The
+  adversarial review then planted 9 bugs, and the 2-minute runs missed 4 (an armour trailer
+  check, the encrypted-key code, the 1,024-identity cap and the 256 KiB frame cap). The harnesses
+  were rebuilt (an armour grammar oracle, exact header codes, near-limit frame modes, an
+  allocation ceiling tied to the frame limit, the production 1 MiB breach cap). The armour
+  grammar oracle then found 2 real defects in `OpenSshFormat`, and the review found a third in
+  `SshAgentClient`; all **3 real defects** are fixed with regression tests:
+  - `OpenSshFormat` accepted unpadded base64 and base64 with non-zero unused bits (the JDK
+    decoder is lax; OpenSSH's `b64_pton` refuses both), so a key had several encodings. Now the
+    decoded binary is re-encoded and must match (`SshKeyTest.refusesLaxBase64AndAnEndLineThatDoesNotStartALine`).
+  - `OpenSshFormat` accepted an END line that did not start a line (same test).
+  - `SshAgentClient.list` took a FAILURE reply with trailing bytes as `AGENT_REFUSED`; every other
+    request needs a one-byte FAILURE. Now `BAD_REPLY` (`SshAgentClientTest.malformedIdentityListsAreRejected`).
+  One harness false positive was also fixed: the allocation bound fired under Jazzer's
+  instrumentation on a 32 KiB input that passed without it. See M4-fuzz-runs.md.
+
+Residual risks accepted at this sign-off:
+
+- **Blocking Unix-socket connect.** The 10 s deadline covers each request from its first byte
+  written to its last byte read. It does not cover `connect`. A local connect completes or fails
+  at once unless the listener's backlog is full, and the JDK has no connect timeout for Unix
+  domain sockets. A same-user process that fills the agent's backlog (or holds the checked socket
+  and never accepts) can still stall `pm ssh` in the CLI until the user interrupts it. In the TUI
+  the call runs off the GUI thread, so lock keeps working, but the worker thread, and the
+  private-key buffer handed to it, stay held until the connect returns.
+- **Private-key copy outlives a lock until the call returns.** During an agent `add`, the parsed
+  `SshKey`, a pm-owned direct buffer and the kernel socket buffer hold the private key. A lock
+  (idle timer or `lock`) mid-call does not cut the call short: those copies live until `add`
+  returns, at most the 10 s request deadline after connecting, and are then zero-filled (the
+  kernel's copy until the agent reads it). ADR 0013 Consequences records both residuals.
+- **FIFO swap at open (key import).** The import opens the file once with `O_NOFOLLOW` and checks,
+  around that open, that it is a regular file with an unchanged (device, inode). But a FIFO
+  swapped in just before the open blocks inside `open` itself, before any check can run. The JDK
+  exposes no `O_NONBLOCK` open. This needs a same-user attacker with write access to the key's
+  directory.
+- **Unwipeable key copies in the parser.** `KeyCheck` validates a P-256 private scalar through
+  `BigInteger` and JCA key objects. They hold copies of the private key that cannot be zeroed. They
+  are dropped as soon as the probe finishes, but stay in the heap until it is collected (`KeyCheck`;
+  ADR 0013, which records this ADR 0008 residual risk). The key's own bytes stay in
+  `SecretBytes` and pm-owned zero-filled buffers.
+- **Generator entropy claims.** The reported entropy, about 130.9 bits by default and 13 bits per
+  passphrase word, is exact for a uniform source. The chi-square tests prove the sampling is
+  uniform given uniform input, on a fixed-seed DRBG. They cannot test the platform's
+  `SecureRandom` itself, so the claim rests on the JDK's default provider.
+  `PassphraseGeneratorTest.secureRandomSmoke` only checks that 500 passphrases from the real
+  source are well-formed and distinct.
+- **Breach k-anonymity limits.** Sending a 5-hex (20-bit) SHA-1 prefix hides the password among
+  the range's suffixes, but it is not secrecy:
+  - The range service learns the user's IP address, timing and which prefixes were asked.
+  - Prefixes repeated across runs can be linked.
+  - A prefix narrows the password to its range for anyone with the dictionary.
+  - `Add-Padding: true` hides the response size, not the request.
+  The check is opt-in per run (`--breach` plus an exact `y`), names the prefix in the
+  confirmation, and sends one request per distinct password.
+- **Fuzz depth.** The campaign was 5 minutes per harness, which is smoke-level. Not fuzzed: socket
+  path and owner checks, the breach client's HTTP layer, and request encoding (all covered by
+  unit tests). One gap is known in the agent oracles: a raised frame limit is caught by a complete
+  frame over 256 KiB (differential) or a header over about 520 KiB (allocation), but a header
+  between those sizes followed by a truncated body gives `BAD_REPLY` on both sides and fits under
+  the allocation ceiling.
+
+Documentation drift fixed at the M4.5 review: ADR 0013 said "a hung agent blocks the calling
+command (no read timeout on Unix domain sockets in the JDK)", which predates the M4.4 request
+deadline. It now states the deadline and the two residuals above, and its armour grammar matches
+the strict parser.
+
+CERT exceptions: the M4 sweep is recorded at the top of `docs/security/cert-exceptions.md`. Every
+M4 suppression maps to a row. CE-015, CE-016, CE-045 and CE-046 were signed off at this exit, and
+CE-020 and CE-021 were already signed at M4.3. M4.5 adds no suppression.
+
+Traceability: the TM-61/SR-017 row was corrected from Planned to Implemented. T-FUZZ-SSH and
+T-FUZZ-BREACH rows were added, and T-HEALTH-01 is now a JUnit `@Tag` on `BreachClientTest`. A
+spot-check of every M4 traceability row and every SR-06x/SR-07x requirement found that all 110
+named test classes, methods and ArchUnit rules exist.
+
+Open, user-only, not blocking M4:
+- **Dispatching the manual CI workflow** on all three OSes. This needs the branch pushed.
+- **Longer fuzz campaigns** (24 CPU-hours, as for M2's `.env` parser) on a long-running machine.
+  The command is in M4-fuzz-runs.md.
+- **Manual interop on a real OpenSSH install** before v1: `pm ssh add` into the system
+  `ssh-agent`, `ssh -T` with that identity, and import of keys written by `ssh-keygen` (Ed25519
+  and ECDSA P-256, with and without a passphrase). The last such check was at M4.3, against
+  OpenSSH 10.3.
+- The M2 and M3 carry-overs are unchanged.
+
+Signed off: Lane A (Jimmy), security owner, for M4.1–M4.5.

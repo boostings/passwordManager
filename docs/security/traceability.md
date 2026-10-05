@@ -7,8 +7,15 @@ full local gate (`./gradlew check certReport gitleaksScan`). The manual CI workf
 M1, so CI confirmation is recorded per milestone in `docs/security/milestone-signoff.md` when it
 happens, not in this column. (Changed at M3.7: this line used to say "passes in CI", which no
 M3, M4, M6 or M7 row met; the rows already used the local-gate meaning.)
-Every test ID named in an M3 row is a JUnit `@Tag` on its implementing tests; T-HEALTH-01 and
-T-PKG-01..04 (M4.4, M7.3 rows) are not yet tagged.
+Every test ID named in an M3 or M4 row is a JUnit `@Tag` on the tests that implement it:
+- T-HEALTH-01 on `BreachClientTest`, tagged at M4.5.
+- T-FUZZ-SSH on `OpenSshKeyFuzzTest` and `AgentReplyFuzzTest`.
+- T-FUZZ-BREACH on `BreachRangeFuzzTest`.
+
+T-PKG-01..04 (M7.3 rows) are not yet tagged. M4 rows that name only class or method names (no
+T-ID) point at those tests directly. At M4.5, every M4 row was spot-checked against the tree: each
+named test class and method exists. `certReport` aggregates scanner findings only. It does not
+read tags, so the tag-to-row mapping is checked by review, not by the gate.
 
 | Threat | SR | CERT | Test / check | Milestone | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -54,12 +61,13 @@ T-PKG-01..04 (M4.4, M7.3 rows) are not yet tagged.
 | TM-50, TM-54 | SR-304, SR-309 | — | T-EXT-04 (`extension/test/fill.test.js`, `background.test.js`) | M5.3 | Tested |
 | TM-52 | SR-308 | — | T-EXT-06 (`extension/test/manifest.test.js`) + permission review M5.5 | M5.3 | Tested |
 | TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
-| TM-61 | SR-017 | — | ArchUnit | M4 | Planned |
+| TM-61 | SR-017 | MSC02-J | ArchUnit `ModuleBoundaryTest.onlyCryptoUsesJca`. No class outside `pm.crypto` depends on `javax.crypto` or `java.security`, other than `Principal`. The M4 code is covered too: SSH keys and the agent live in `pm.crypto.ssh`, and breach SHA-1 goes through `pm.crypto.Hash` | M4 | Implemented (M4.5: the rule predates M4 and passes over all M4 code in the gate; this row said Planned) |
 | TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |
 | — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Implemented (M4.3) |
 | — | SR-062 | IDS00-J, NUM00-J, MSC05-J | `SshKeyTest`, `SshAgentClientTest` | M4 | Implemented (M4.3) |
 | — | SR-063 | FIO01-J, FIO16-J | `SshKeyExportTest` | M4 | Implemented (M4.3) |
 | — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Implemented (M4.3) |
+| TM-61 (hostile key file or agent reply) | SR-062, SR-064 | IDS00-J, NUM00-J, MSC05-J | T-FUZZ-SSH: `OpenSshKeyFuzzTest` and `AgentReplyFuzzTest`. These check the exact documented code (an independent armour grammar and header model for key files; a differential agent-reply reference), bounded allocation (the agent ceiling tied to the 256 KiB frame limit), spec limits written in the harness, and a round trip. They include deterministic at-limit and one-past-limit tests (`limitsHoldAtAndJustPastTheirValues`: 64 KiB file, 4 KiB comment, 1,024/1,025 identities, 256 KiB frame ± 1). The M4.5 review's grammar oracle found lax base64 and a mid-line END accepted (fixed in `OpenSshFormat`, `SshKeyTest.refusesLaxBase64AndAnEndLineThatDoesNotStartALine`) and a FAILURE reply with trailing bytes accepted (fixed in `SshAgentClient`). Runs and planted-bug proofs are in `docs/security/fuzz/M4-fuzz-runs.md` | M4 | Implemented (M4.5) |
 | TM-70 | SR-074 | MSC00-J | T-HEALTH-01 (`BreachClientTest`, network capture) | M4 | Implemented (M4.2) |
 | TM-71 | SR-602 | — | T-UPD-01 | M7 | Planned |
 | TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01 | M1 | Planned |
@@ -85,6 +93,7 @@ T-PKG-01..04 (M4.4, M7.3 rows) are not yet tagged.
 | — (weak password undetected) | SR-075 | IDS00-J | `StrengthMeterTest` | M4 | Implemented (M4.2) |
 | — (plaintext password map in memory) | SR-076 | MSC03-J | `ReuseAndAgeTest`, R | M4 | Implemented (M4.2) |
 | — (stale password undetected) | SR-077 | — | `ReuseAndAgeTest`, `HealthCheckTest` | M4 | Implemented (M4.2) |
+| TM-70 (hostile or oversized range response misread) | SR-074, SR-078 | IDS00-J, NUM00-J | T-FUZZ-BREACH: `BreachRangeFuzzTest`. It checks `BreachClient.match` against a regex reference of ADR 0012 §8, that only `MALFORMED` is thrown, that the suffix is zero-filled, and that allocation stays bounded. Every input goes through the production collector (`BreachClient.boundedBody()`, the 1 MiB cap `fetch` uses), stretched up to 1 MiB + 1, and `.productionBodyLimitHoldsAtAndJustPastOneMebibyte` pins 1 MiB and 1 MiB + 1. Runs are in `docs/security/fuzz/M4-fuzz-runs.md` | M4 | Implemented (M4.5) |
 
 ## M4.4 generate, health and ssh in the CLI and TUI
 
