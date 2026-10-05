@@ -34,6 +34,18 @@ final class Requests {
                 new Display(List.of(), Optional.empty(), Effect.WRITE_FILE), at);
     }
 
+    static ApprovalRequest share(Instant at, String project) {
+        return new ApprovalRequest(UUID.randomUUID(), new Requester(Kind.CLI, "pm share"), Operation.SHARE,
+                Scope.profile(project, "default"), Duration.ZERO,
+                new Display(List.of(), Optional.empty(), Effect.SEND), at);
+    }
+
+    static ApprovalRequest passkey(Instant at, String origin, String profile) {
+        return new ApprovalRequest(UUID.randomUUID(), new Requester(Kind.EXTENSION, "abcdefghijklmnopabcdefghijklmnop"),
+                Operation.PASSKEY, Scope.profile(origin, profile), Duration.ZERO,
+                new Display(List.of(), Optional.of(origin + " - sign in with a passkey"), Effect.SEND), at);
+    }
+
     static ApprovalRequest sameIdAs(ApprovalRequest q) {
         return new ApprovalRequest(q.requestId(), q.requester(), q.operation(), q.scope(), q.duration(),
                 q.display(), q.created());

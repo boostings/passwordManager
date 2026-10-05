@@ -1,0 +1,15 @@
+public_suffix_list.dat in this directory is an unmodified copy of the Public Suffix List.
+
+Source:   https://publicsuffix.org/list/public_suffix_list.dat
+Version:  2026-10-01_23-02-52_UTC (COMMIT 6cd82aff889e3d64e5e03bc5c1f43da1934a960a)
+Fetched:  2026-10-04
+SHA-256:  e0fe072d26b0536525badea237953ff451c9f8e64c9d02c6daa81a4491d2fc66
+License:  Mozilla Public License, v. 2.0 (https://mozilla.org/MPL/2.0/)
+
+The file is MPL-2.0 licensed and is distributed here as source, unchanged. pm reads it on the
+first WebAuthn request and verifies its SHA-256 (pm.browser.webauthn.PublicSuffixList, RpId). If
+the file is missing or its digest differs, every webauthn.create and webauthn.get request is
+answered with the error PSL_UNAVAILABLE; every other native-messaging request keeps working.
+To update it, replace the file, then update the pinned digest,
+version and date in PublicSuffixList.java, this notice, ADR 0016 (M6.3 addendum) and
+docs/release/packaging.md.

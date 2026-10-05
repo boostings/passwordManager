@@ -1,6 +1,8 @@
 package pm.browser.host;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import pm.crypto.SecretChars;
 
@@ -10,7 +12,8 @@ import pm.crypto.SecretChars;
  * canonicalised by the bridge.
  */
 public sealed interface Request extends AutoCloseable
-        permits Request.Hello, Request.Lookup, Request.Fill, Request.Save, Request.Generate {
+        permits Request.Hello, Request.Lookup, Request.Fill, Request.Save, Request.Generate,
+        Request.WebauthnCreate, Request.WebauthnGet {
 
     /** The extension's correlation id: 1–64 of {@code [A-Za-z0-9_-]}. */
     String id();
@@ -127,6 +130,91 @@ public sealed interface Request extends AutoCloseable
             if (length < MIN_LENGTH || length > MAX_LENGTH || !(lower || upper || digits || symbols)) {
                 throw new IllegalArgumentException("BAD_POLICY");
             }
+        }
+    }
+
+    /**
+     * WebAuthn {@code userVerification} (WebAuthn Level 3 §5.8.6). pm prompts for presence only, so
+     * {@code required} is refused.
+     */
+    enum UserVerification {
+        /** The relying party requires user verification. */
+        REQUIRED,
+        /** The relying party prefers user verification. */
+        PREFERRED,
+        /** The relying party does not want user verification. */
+        DISCOURAGED
+    }
+
+    /**
+     * The user entity of a create request (WebAuthn Level 3 §5.4.3).
+     *
+     * @param id user handle, canonical base64url of 1 to 64 bytes
+     * @param name account name, 1 to {@link Messages#MAX_USERNAME} characters, no controls
+     * @param displayName display name, 0 to {@link Messages#MAX_USERNAME} characters, no controls
+     */
+    record User(String id, String name, String displayName) {
+        public User {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(displayName, "displayName");
+        }
+    }
+
+    /**
+     * Create a passkey for {@code rpId} on {@code origin} (ADR 0016 M6.3 addendum): the
+     * extension's {@code navigator.credentials.create} with {@code publicKey} options. Binary
+     * fields are canonical unpadded base64url text, checked by {@link Messages}.
+     *
+     * @param id correlation id
+     * @param origin the page origin
+     * @param rpId the requested RP ID (the effective domain when the page named none)
+     * @param clientDataJson the exact client data JSON the page will receive, base64url
+     * @param user the user entity
+     * @param algorithms COSE algorithm identifiers of {@code pubKeyCredParams}, in order; empty
+     *     means the WebAuthn default (ES256 and RS256)
+     * @param excludeCredentials credential IDs the relying party already holds for this user
+     * @param userVerification the requested user verification
+     */
+    record WebauthnCreate(String id, String origin, String rpId, String clientDataJson, User user,
+                          List<Long> algorithms, List<String> excludeCredentials,
+                          UserVerification userVerification) implements Request {
+        public WebauthnCreate {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(origin, "origin");
+            Objects.requireNonNull(rpId, "rpId");
+            Objects.requireNonNull(clientDataJson, "clientDataJson");
+            Objects.requireNonNull(user, "user");
+            algorithms = List.copyOf(algorithms);
+            excludeCredentials = List.copyOf(excludeCredentials);
+            Objects.requireNonNull(userVerification, "userVerification");
+        }
+    }
+
+    /**
+     * Sign in to {@code rpId} on {@code origin} with a passkey (ADR 0016 M6.3 addendum): the
+     * extension's {@code navigator.credentials.get} with {@code publicKey} options.
+     *
+     * @param id correlation id
+     * @param origin the page origin
+     * @param rpId the requested RP ID
+     * @param clientDataJson the exact client data JSON the page will receive, base64url
+     * @param allowCredentials credential IDs the relying party accepts; empty for any
+     *     (discoverable credentials)
+     * @param credential the credential the user picked in the extension, or empty to let pm pick
+     *     the only match
+     * @param userVerification the requested user verification
+     */
+    record WebauthnGet(String id, String origin, String rpId, String clientDataJson, List<String> allowCredentials,
+                       Optional<String> credential, UserVerification userVerification) implements Request {
+        public WebauthnGet {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(origin, "origin");
+            Objects.requireNonNull(rpId, "rpId");
+            Objects.requireNonNull(clientDataJson, "clientDataJson");
+            allowCredentials = List.copyOf(allowCredentials);
+            Objects.requireNonNull(credential, "credential");
+            Objects.requireNonNull(userVerification, "userVerification");
         }
     }
 }

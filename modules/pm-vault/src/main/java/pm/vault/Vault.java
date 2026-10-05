@@ -2,6 +2,7 @@ package pm.vault;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -148,11 +149,14 @@ public final class Vault implements AutoCloseable {
      * @throws IllegalArgumentException {@code BAD_KEY} for a new passkey record without a valid
      *     key (such as a view of a removed passkey); the vault is unchanged and the caller keeps
      *     {@code r}
+     * @throws IllegalStateException {@code LOCKED} after close; {@code REENTRANT} from inside a
+     *     {@link #signWithPasskey} port, where the vault is read-only
      */
     public void put(VaultRecord r) {
         Objects.requireNonNull(r, "r");
         locked(() -> {
             ensureOpen();
+            ensureNotSigning();
             if (r instanceof PasskeyRecord) {
                 putPasskey(PasskeyRecord.class.cast(r));
             } else {
@@ -184,11 +188,14 @@ public final class Vault implements AutoCloseable {
      *
      * @param id record id
      * @return true if a record was removed
+     * @throws IllegalStateException {@code LOCKED} after close; {@code REENTRANT} from inside a
+     *     {@link #signWithPasskey} port
      */
     public boolean remove(UUID id) {
         Objects.requireNonNull(id, "id");
         return locked(() -> {
             ensureOpen();
+            ensureNotSigning();
             VaultRecord removed = byId.remove(id);
             if (removed == null) {
                 return false;
@@ -200,6 +207,153 @@ public final class Vault implements AutoCloseable {
     }
 
     /**
+     * Enrolls a new passkey (ADR 0016 M6.3 addendum, SR-115): generates a P-256 key inside
+     * {@code pm-crypto} from {@code Csprng}, builds the record here with a random 32-byte credential
+     * ID, counter 0 and a random record id, and writes the whole vault atomically before
+     * returning. Only the public credential comes back; the private key never leaves the vault.
+     * If the write fails the record is dropped from memory and nothing is returned, so a relying
+     * party is never given a credential the vault does not hold. The caller has already decided
+     * that {@code rpId} is valid for the requesting origin (the WebAuthn layer, SR-116).
+     *
+     * @param title record title (at most 256 characters)
+     * @param rpId relying-party ID, as {@link PasskeyRecord} requires: a canonical lower-case
+     *     host name, not an IP address
+     * @param userHandle WebAuthn {@code user.id}, 1 to 64 bytes; copied
+     * @param accountName WebAuthn {@code user.name}, already made display-safe, with a visible
+     *     character
+     * @param displayName WebAuthn {@code user.displayName}, display-safe, possibly empty
+     * @return the record id, RP ID, credential ID and COSE public key of the saved passkey
+     * @throws PasskeyException {@code LOCKED}, {@code REENTRANT} (called from inside an
+     *     {@link AssertionPort}), {@code BAD_INPUT} (a field breaks the record's rules; nothing
+     *     changed) or {@code SAVE_FAILED} (the cause attached; nothing is enrolled)
+     */
+    public PasskeyCreated createPasskey(String title, String rpId, byte[] userHandle, String accountName,
+                                        String displayName) throws PasskeyException {
+        Objects.requireNonNull(title, "title");
+        Objects.requireNonNull(rpId, "rpId");
+        byte[] handle = Objects.requireNonNull(userHandle, "userHandle").clone();
+        Objects.requireNonNull(accountName, "accountName");
+        Objects.requireNonNull(displayName, "displayName");
+        return locked(() -> {
+            if (closed) {
+                throw new PasskeyException(PasskeyException.Code.LOCKED, null);
+            }
+            if (signing) {
+                throw new PasskeyException(PasskeyException.Code.REENTRANT, null);
+            }
+            byte[] credentialId = PasskeyKey.newCredentialId();
+            byte[] cose;
+            PasskeyRecord created;
+            try (PasskeyKey key = PasskeyKey.generate()) {
+                cose = key.cosePublicKey();
+                created = newPasskey(key, title, rpId, credentialId, handle, accountName, displayName);
+            }
+            boolean pending = contentChanged;
+            byId.put(created.id(), created);
+            try {
+                persist(true);
+            } catch (VaultException e) {
+                throw dropUnsaved(created, pending, e);
+            } catch (RuntimeException e) {
+                throw dropUnsaved(created, pending, e);
+            }
+            return new PasskeyCreated(created.id(), created.rpId(), credentialId, cose);
+        });
+    }
+
+    /** The record for a freshly generated key. Caller holds the lock. */
+    private PasskeyRecord newPasskey(PasskeyKey key, String title, String rpId, byte[] credentialId, byte[] handle,
+                                     String accountName, String displayName) throws PasskeyException {
+        Instant now = clock.instant();
+        SecretBytes stored = PasskeyStorage.toStorage(key);
+        try {
+            return PasskeyRecordAccess.hook().create(Csprng.uuid(), title, rpId, credentialId, handle, accountName,
+                    displayName, stored, 0, now, now, now);
+        } catch (IllegalArgumentException e) {
+            stored.close();
+            throw new PasskeyException(PasskeyException.Code.BAD_INPUT, e);
+        }
+    }
+
+    /** Removes an enrollment whose save failed and returns the failure. Caller holds the lock. */
+    private PasskeyException dropUnsaved(PasskeyRecord created, boolean pending, Exception cause) {
+        byId.remove(created.id());
+        created.close();
+        contentChanged = pending;
+        return new PasskeyException(PasskeyException.Code.SAVE_FAILED, cause);
+    }
+
+    /**
+     * Changes the title, account name and display name of passkey {@code id} (ADR 0016 M6.3
+     * addendum). Its RP ID, credential ID, user handle, key, counter, creation and last use stay as
+     * they are. Like {@link #put}, the change reaches disk on the next {@link #save()}.
+     *
+     * @param id the passkey record's id
+     * @param title new title
+     * @param accountName new account name (visible, display-safe)
+     * @param displayName new display name (display-safe, possibly empty)
+     * @return false if the vault holds no passkey with that id; nothing changed
+     * @throws IllegalArgumentException if a new value breaks the record's rules; nothing changed
+     * @throws PasskeyException {@code REENTRANT} if called from inside an {@link AssertionPort}, as
+     *     {@link #createPasskey} is; nothing changed
+     */
+    public boolean editPasskey(UUID id, String title, String accountName, String displayName)
+            throws PasskeyException {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(title, "title");
+        Objects.requireNonNull(accountName, "accountName");
+        Objects.requireNonNull(displayName, "displayName");
+        return locked(() -> {
+            ensureOpen();
+            refuseWhileSigning();
+            if (!(byId.get(id) instanceof PasskeyRecord)) {
+                return false;
+            }
+            PasskeyRecord live = PasskeyRecord.class.cast(byId.get(id));
+            // A keyless record carrying the new names; putPasskey merges only the editable fields.
+            putPasskey(PasskeyRecordAccess.hook().create(id, title, live.rpId(), live.credentialId(),
+                    live.userHandle(), accountName, displayName, closedKey(), live.signCount(), live.created(),
+                    clock.instant(), live.lastUsed()));
+            contentChanged = true;
+            return true;
+        });
+    }
+
+    /**
+     * Changes only the title of passkey {@code id}; see {@link #editPasskey}.
+     *
+     * @return false if the vault holds no passkey with that id
+     * @throws IllegalArgumentException if the title breaks the record's rules
+     * @throws PasskeyException {@code REENTRANT} if called from inside an {@link AssertionPort}
+     */
+    public boolean renamePasskey(UUID id, String title) throws PasskeyException {
+        Objects.requireNonNull(id, "id");
+        return locked(() -> {
+            ensureOpen();
+            refuseWhileSigning();
+            if (!(byId.get(id) instanceof PasskeyRecord)) {
+                return false;
+            }
+            PasskeyRecord live = PasskeyRecord.class.cast(byId.get(id));
+            return editPasskey(id, title, live.accountName(), live.displayName());
+        });
+    }
+
+    /** {@code REENTRANT} inside {@link #signWithPasskey}'s port. Caller holds the lock. */
+    private void refuseWhileSigning() throws PasskeyException {
+        if (signing) {
+            throw new PasskeyException(PasskeyException.Code.REENTRANT, null);
+        }
+    }
+
+    /** A closed key buffer: the record built with it has no key. */
+    private static SecretBytes closedKey() {
+        SecretBytes none = SecretBytes.takeOwnership(new byte[PasskeyRecord.PRIVATE_KEY_BYTES]);
+        none.close();
+        return none;
+    }
+
+    /**
      * Encrypts the records under a fresh data key and writes the vault. Steps: new
      * {@code dataSalt}; {@code saved = clock}; {@code save_seq + 1}; encode the header;
      * compute the AAD; derive DK = HKDF(VK, dataSalt, "pm/data/v1"); seal; then
@@ -208,9 +362,14 @@ public final class Vault implements AutoCloseable {
      *
      * @throws VaultException {@code LOCKED} after close, {@code STORAGE} if the write fails,
      *                        {@code CORRUPT} if the save counter is exhausted or sealing fails
+     * @throws IllegalStateException {@code REENTRANT} from inside a {@link #signWithPasskey} port
      */
     public void save() throws VaultException {
-        persist(true);
+        locked(() -> {
+            ensureNotSigning();
+            persist(true);
+            return null;
+        });
     }
 
     /**
@@ -276,9 +435,12 @@ public final class Vault implements AutoCloseable {
      * </ol>
      * The counter is on disk before any signature exists, so a crash at any point can lose a
      * signature but never lets a later signature carry a counter at or below one already
-     * released. A value whose save failed stays in memory and is never handed out again. A call
-     * from inside {@code port} on the same thread is refused with {@code REENTRANT}, so signing
-     * order is always counter order.
+     * released. A value whose save failed stays in memory and is never handed out again. Inside
+     * {@code port} the vault is read-only on the signing thread: a passkey call is refused with
+     * {@code PasskeyException} {@code REENTRANT}, and {@link #put}, {@link #remove}, {@link #save()}
+     * and {@link #close()} with {@code IllegalStateException} {@code REENTRANT}, so signing order is
+     * always counter order and the record being signed with cannot be removed or locked away
+     * mid-signature. Another thread's call just waits for the lock.
      *
      * @param id the passkey record's id
      * @param clientDataHash SHA-256 of the client data, exactly 32 bytes
@@ -457,10 +619,16 @@ public final class Vault implements AutoCloseable {
         return locked(() -> closed);
     }
 
-    /** Locks the vault: zeroes the VK and closes every held and retired record. Idempotent. */
+    /**
+     * Locks the vault: zeroes the VK and closes every held and retired record. Idempotent.
+     *
+     * @throws IllegalStateException {@code REENTRANT} from inside a {@link #signWithPasskey} port;
+     *     the vault stays open and the signature completes. Another thread waits for the lock.
+     */
     @Override
     public void close() {
         locked(() -> {
+            ensureNotSigning();
             if (!closed) {
                 closed = true;
                 try (vaultKey) {
@@ -572,6 +740,16 @@ public final class Vault implements AutoCloseable {
     private void ensureOpen() {
         if (closed) {
             throw new IllegalStateException(LOCKED_MESSAGE);
+        }
+    }
+
+    /**
+     * Caller holds the lock. Inside a {@link #signWithPasskey} port the vault is read-only: the
+     * lock is reentrant, so only the signing thread itself can get here while {@code signing}.
+     */
+    private void ensureNotSigning() {
+        if (signing) {
+            throw new IllegalStateException(PasskeyException.Code.REENTRANT.name());
         }
     }
 }

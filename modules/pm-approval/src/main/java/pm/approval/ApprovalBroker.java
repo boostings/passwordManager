@@ -226,7 +226,7 @@ public final class ApprovalBroker {
         if (!wasPending) {
             return;
         }
-        // Export and share can never leave a policy behind (row 5): such an approval counts once.
+        // Export, share and passkey can never leave a policy behind (row 5): such an approval counts once.
         Decision effective = decision.allowed() && prompt.request().operation().alwaysPrompts()
                 ? Decision.ALLOWED_ONCE : decision;
         audit.record(AuditEvent.approval(prompt.request(), osUser, effective));

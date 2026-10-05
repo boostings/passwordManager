@@ -274,3 +274,149 @@ byte. `verify` does not change. The cost is 2^20 of the
   is `SAVE_FAILED`, releases nothing and burns the value; a port that throws or returns null is
   `SIGN_FAILED` after the save; a broken key is refused at put; 4 threads x 10 signers give
   1..40 exactly once in order; exhaustion at 2^32 - 1 leaves the file byte-identical).
+
+## Addendum (2026-10-04, M6.3, Lane D): WebAuthn authenticator over native messaging
+
+### Enrollment and edits in the vault (SR-115)
+`Vault.createPasskey(title, rpId, userHandle, accountName, displayName)` generates the credential
+ID and the P-256 key inside `pm.vault`, builds the record (`PasskeyRecordAccess.Hook.create`, the
+package-private constructor reached through the unexported `pm.vault.internal`), saves the whole
+vault and only then returns `PasskeyCreated`: record id, RP ID, credential ID and COSE public key.
+The private key never crosses the API. A record the model refuses is `BAD_INPUT` with nothing
+changed; a failed save (checked or unchecked) removes and closes the new record, restores the
+pending-edit flag and is `SAVE_FAILED`; a locked vault is `LOCKED`, a call from inside the
+signing port `REENTRANT`. `editPasskey(id, title, accountName, displayName)` and `renamePasskey`
+change the names only, through the same merge as `Vault.put` (key and counter kept), and are
+saved by the next `save()`; like `createPasskey`, both are `REENTRANT` (nothing changed) when
+called from inside the signing port. So are `put`, `remove`, `save` and `close` there, with
+`IllegalStateException` `REENTRANT` since they have no checked failure channel: inside the port
+the vault is read-only, so the record being signed with cannot be removed and the vault cannot be
+locked mid-signature. The lock is reentrant, so only the signing thread itself reaches these
+checks; another thread's call waits for the lock as before. An enrollment is a whole-vault save, so it rotates `.bak` as
+saving after adding any item does (unlike M6.2's counter-only saves); this is accepted because
+every enrollment needs its own approved prompt (below), so a page cannot rotate backups silently.
+
+### `pm.browser.webauthn` (SR-116 to SR-118)
+- RP ID (`RpId.validate`): WebAuthn Level 3 §4 "RP ID", §5.1.3 step 8 and §5.1.4.1 step 7, which
+  use the HTML Standard's "is a registrable domain suffix of or is equal to" (§7.1.1.2). The origin
+  must be `https`, or `http` on `localhost`; its host must not be an IP address; the RP ID must be
+  a canonical host name (the `Origin` rules of M5.2: lower-case ASCII, A-labels, no port, no
+  trailing dot, not an IP address) equal to the origin's host or a suffix of it at a label
+  boundary that is not itself a public suffix and does not cut through the host's public suffix.
+  Anything else is `BAD_RP_ID`. Related origins (§5.11) are not supported. Deviations from the
+  HTML table: `0x10203`/`0.1.2.3` and `[0::1]`/`::1` are refused because `Origin` refuses
+  non-canonical IPv4 and IPv6, and WebAuthn refuses IP effective domains anyway.
+- Public Suffix List: vendored unmodified as `pm/browser/webauthn/public_suffix_list.dat` from
+  https://publicsuffix.org/list/public_suffix_list.dat, `VERSION: 2026-10-01_23-02-52_UTC`,
+  `COMMIT: 6cd82aff889e3d64e5e03bc5c1f43da1934a960a`, fetched 2026-10-04, SHA-256
+  `e0fe072d26b0536525badea237953ff451c9f8e64c9d02c6daa81a4491d2fc66`, licensed MPL-2.0 (notice in
+  `public_suffix_list.NOTICE`; SBOM note in docs/release/packaging.md). The digest is checked on
+  load, so the list cannot change without a code change. ICANN and private sections both apply.
+  The list is read on the first WebAuthn request, not at class initialisation: `RpId.vendored()`
+  loads it once under a lock and keeps the result, and `PublicSuffixList.pinned(Source)` answers
+  empty for a missing or different file. Then every `webauthn.create` and `webauthn.get` is
+  `PSL_UNAVAILABLE` and every other request, and the host, keep working. (The first M6.3 build
+  loaded it in a static initialiser, whose `ExceptionInInitializerError` escaped the host's fault
+  barrier, which catches runtime exceptions only, and ended the host.) The source is injectable
+  (`RpId.from(Source)`, `Bridge.factory(..., RpId)`) so tests can supply a damaged file.
+  Unicode rules are converted to A-labels with an RFC 3492 Punycode encoder in the package
+  (`java.net.IDN` implements IDNA2003 and is not used, as for `Origin`); all 10,333 rules
+  round-trip.
+- Client data (`ClientData.hash`): 1 to 4096 bytes of UTF-8 JSON; one object whose `type` is the
+  ceremony's, `challenge` a non-empty string, `origin` exactly the canonical origin text,
+  `crossOrigin` absent or `false`, no `topOrigin` (pm serves only top-level documents, ADR 0014);
+  duplicate members are malformed. Else `BAD_CLIENT_DATA`. The hash is SHA-256 of the exact bytes.
+- Authenticator data (`AuthenticatorData`): assertions carry flags `0x19` (UP, BE, BS) and the
+  persisted counter; registrations `0x59` (UP, BE, BS, AT), counter 0, an all-zero AAGUID, a
+  32-byte credential ID and the 77-byte COSE key. UV is never set (pm has no user verification
+  of its own beyond the broker prompt) and `userVerification: "required"` is refused
+  (`UV_REQUIRED`). BE and BS are set because the vault is a backed-up, multi-device store. No
+  extensions (ED never set). The parser accepts only these shapes (37 bytes, or 55 + credential
+  ID + one canonical ES256 COSE key) and is used by tests and checks.
+- Attestation: `none` only (`AttestationObject.none`): `{"fmt": "none", "attStmt": {}, "authData":
+  ...}` through the vault's deterministic CBOR writer (`pm.vault.cbor`, now exported to
+  `pm.browser`), which matches the §16.2 vector byte for byte.
+- Signing goes only through `Vault.signWithPasskey`: the bridge passes a function from the
+  persisted counter to the authenticator data; the vault advances and saves the counter, checks
+  the data is bound to the record (M6.2) and signs. `VaultPasskeys` is the `PasskeyPort` over an
+  open vault; vault refusals reach the browser as codes only (`LOCKED` → `DENIED_LOCKED`,
+  `NOT_FOUND`, `COUNTER_EXHAUSTED`, `BAD_INPUT` → `BAD_FIELD`, else `INTERNAL`).
+
+### Native messaging actions (SR-115, SR-119)
+`webauthn.create` and `webauthn.get` (schema: `docs/schemas/native-messaging-webauthn.cddl`;
+exact member sets, canonical base64url, bounded sizes). Order of checks, all before any prompt:
+unlocked broker, canonical origin, RP ID, client data, algorithms (create: a non-empty list
+without -7 is `UNSUPPORTED_ALGORITHM`), user verification, the user fields (create), then for a
+get the credential choice against the vault. Get: candidates are passkeys held for the RP ID
+and, if `allowCredentials` is non-empty, listed there; a named `credential` not in a non-empty
+allow list is `NOT_ALLOWED`, one not among the candidates `NOT_FOUND`; with none named, zero
+candidates is `NOT_FOUND` and more than one `AMBIGUOUS` (the extension chooses, M6.4). Each
+action then asks the broker for one grant, operation `PASSKEY`, duration 0, scoped to the
+extension, the canonical origin and a profile: `passkey-create` for enrollment (effect
+`WRITE_FILE`), `pk-<record id in base 36>` for a sign-in (effect `SEND`). The display line names
+origin and RP ID: `<origin> - create a passkey for "<rpId>", account "<name>"` and `<origin> -
+sign in to "<rpId>" with a passkey, account "<name>"`. The port consumes the grant before the
+vault acts; a reply is built only if it did (`INTERNAL` otherwise). The port does not trust its
+caller for the binding: `VaultPasskeys` first checks that the grant is operation `PASSKEY`, has
+this action's profile (`PasskeyPort.createProfile()`, or `PasskeyPort.signInProfile(id)` of the
+passkey being used) and an origin that may use the RP ID (the enrollment's, or the stored
+passkey's), and refuses any other grant with `GRANT_MISMATCH` before consuming it: nothing is
+created or signed and the counter is unchanged. So an autofill grant (which a session or policy
+answer can make silent) or another passkey's grant cannot be spent on a passkey, whoever calls
+the port (M6.4 wires it); the bridge's own check stays. A host built without passkeys
+(`PasskeyPort.NONE`) answers `UNKNOWN_TYPE`. No extension JavaScript is part of M6.3 (M6.4).
+
+Every enrollment and every sign-in prompts. The authenticator data pm returns sets UP, which
+claims a test of user presence for that very ceremony (WebAuthn L3 §6.3.2 step 3 and §6.3.3,
+the authorization gesture), so no standing grant may stand in for one. `PASSKEY` is the approval model's third
+always-prompt operation (decision-table row 5, with export and share; docs/security/
+approval-model.md): the broker never satisfies it from a session grant or temporary policy, a
+"session" or "policy" answer counts as approve-once and records nothing, and `new Policy(...,
+PASSKEY, ...)` is refused. `ApprovalRequest.allowsStandingGrant()` is false for it, so the TUI
+prompt (`ApprovalDialog`) offers only `y once` and `n deny` and ignores `s` and `p`, rather than
+promising a grant the broker would not store. These are the changes outside the lane's files:
+pm-approval (`Operation.PASSKEY`, `alwaysPrompts`, `allowsStandingGrant`) and the dialog's key
+line and `s`/`p` handling in pm-tui.
+
+Create with `excludeCredentials`: the check runs after the prompt, as §6.3.2 step 3 requires
+("authorization gesture ... confirming user consent"): if the user approves and the vault holds
+a passkey for the same RP ID whose credential ID is listed, the grant is consumed, nothing is
+enrolled and the reply is `EXCLUDED`; if the user denies, the reply is `DENIED`, the same as
+for any create. So a page learns whether this vault holds a credential it knows only after the
+user agreed to enroll (WebAuthn L3 §14.5.1).
+
+### Residual risks and follow-ups
+- AMBIGUOUS leaves account selection to the extension (M6.4); there is no discoverable-credential
+  picker in the host.
+- `NOT_ALLOWED`, `NOT_FOUND` and `AMBIGUOUS` are answered before any prompt, to the extension
+  only. Told to a page, they would reveal, without consent, whether this vault holds a
+  credential for the RP (WebAuthn L3 §14.5.1 and §14.5.2, registration and authentication
+  ceremony privacy: without the user's consent a page must not learn which credentials the user
+  holds). M6.4 must not pass them, or any timing or
+  shape that separates them from a denial, to the page: it falls back to the browser's native
+  WebAuthn flow, or shows its own UI and answers the page only as the browser would
+  (`NotAllowedError` after the user dismisses it).
+- Production wiring: no production entry point yet runs `NativeHost` with
+  `Bridge.factory(..., VaultPasskeys, ...)`; in M6.3 the WebAuthn path runs only under tests.
+  M6.4 wires the vault-backed port (and `RpId.vendored()`) into the production host, together with
+  the extension side, and the always-prompt and §14.5 rules above apply there unchanged.
+- The Public Suffix List snapshot ages; a suffix added later is not refused until the snapshot is
+  updated (procedure in the NOTICE). A damaged snapshot disables WebAuthn only
+  (`PSL_UNAVAILABLE`).
+- Tests: `WebAuthnVectorsTest` (§16.2 registration authData and attestationObject byte for byte,
+  assertion authData byte for byte, all §16.2/16.4/16.5/16.6 signatures verify against the
+  parsed keys, §16.6 1023-byte credential ID, §16.4 crossOrigin and §16.5 topOrigin client data
+  refused, our attestation object decoded by an independent CBOR decoder), `RpIdTest` (WebAuthn §4
+  examples and the HTML §7.1.1.2 table; a damaged or missing list is read once and answers
+  `PSL_UNAVAILABLE`), `PublicSuffixListTest` (pinned digest, list algorithm, RFC 3492 vectors,
+  damaged sources empty), `PslUnavailableHostTest` (the host answers WebAuthn with
+  `PSL_UNAVAILABLE` and still serves `lookup`), `AuthenticatorDataTest`, `WebauthnMessagesTest`,
+  `WebauthnBridgeTest` (end to end with a real broker and vault; counters strictly increase over
+  N sign-ins and a restore of an older backup does not lower them; a session or policy answer,
+  and a broker lock and unlock, still leave every get and every create prompting, with flags
+  0x19 on each assertion; `EXCLUDED` only after approval, `DENIED` on denial; every refusal; the
+  port refuses a silent autofill grant, another passkey's grant and another origin's grant with
+  `GRANT_MISMATCH`, counter unchanged), `ApprovalBrokerTest.row5PasskeyPromptsEveryTimeWhateverTheAnswer`,
+  `ApprovalDialogTest.aPasskeyPromptOffersOnlyOnceOrDenyAndIgnoresSAndP`, `PasskeyEnrollmentTest`
+  (edit, rename, put, remove, save and close `REENTRANT` inside the signing port),
+  `PasskeyCounterTest.anotherThreadsRemoveWaitsForTheSignature`.

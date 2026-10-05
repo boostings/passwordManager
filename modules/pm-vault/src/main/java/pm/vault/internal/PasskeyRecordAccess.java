@@ -4,6 +4,7 @@ import java.lang.invoke.MethodHandles;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import pm.crypto.SecretBytes;
 import pm.vault.record.PasskeyRecord;
@@ -47,6 +48,18 @@ public final class PasskeyRecordAccess {
          * {@code live}'s key; identity, counter, creation and last use stay {@code live}'s.
          */
         PasskeyRecord edited(PasskeyRecord live, PasskeyRecord edit);
+
+        /**
+         * A new passkey record (M6.3 enrollment and edits): the package-private constructor, for
+         * {@code Vault.createPasskey} and {@code Vault.editPasskey} only. Takes ownership of
+         * {@code privateKey}; a closed secret makes a keyless record (an edit).
+         *
+         * @throws IllegalArgumentException if a field breaks the record's rules; the caller keeps
+         *     {@code privateKey} and must close it
+         */
+        PasskeyRecord create(UUID id, String title, String rpId, byte[] credentialId, byte[] userHandle,
+                             String accountName, String displayName, SecretBytes privateKey, long signCount,
+                             Instant created, Instant updated, Instant lastUsed);
 
         /** Whether the stored key loads (d in range, d·G equal to the stored point); false for a view. */
         boolean keyIsValid(PasskeyRecord record);

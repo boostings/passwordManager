@@ -223,6 +223,28 @@ final class PasskeyCounterTest {
         assertEquals(THREADS * SIGNS_PER_THREAD, countOnDisk());
     }
 
+    /**
+     * Inside the port the signing thread may not remove the record ({@code REENTRANT},
+     * {@code PasskeyEnrollmentTest}); another thread's remove is not refused: it waits for the
+     * lock and runs after the signature.
+     */
+    @Test
+    void anotherThreadsRemoveWaitsForTheSignature() throws PasskeyException, VaultException, InterruptedException {
+        AtomicReference<Future<Boolean>> remove = new AtomicReference<>();
+        try (Vault v = vaultWithPasskey(0);
+             ExecutorService pool = Executors.newSingleThreadExecutor()) {
+            PasskeyAssertion a = v.signWithPasskey(PK_ID, CLIENT_DATA_HASH, persisted -> {
+                remove.set(pool.submit(() -> v.remove(PK_ID)));
+                assertThrows(java.util.concurrent.TimeoutException.class,
+                        () -> remove.get().get(200, TimeUnit.MILLISECONDS), "the remove waits for the lock");
+                return port(persisted);
+            });
+            assertEquals(1, a.signCount());
+            assertTrue(get(remove.get()));
+            assertTrue(v.records().isEmpty());
+        }
+    }
+
     @Test
     void theCounterStopsAtTwoToTheThirtyTwoMinusOne() throws PasskeyException, VaultException, IOException, StorageException, InterruptedException,
             CryptoException {

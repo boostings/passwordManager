@@ -290,6 +290,14 @@ public final class PasskeyRecord implements VaultRecord {
         }
 
         @Override
+        public PasskeyRecord create(UUID id, String title, String rpId, byte[] credentialId, byte[] userHandle,
+                                    String accountName, String displayName, SecretBytes privateKey, long signCount,
+                                    Instant created, Instant updated, Instant lastUsed) {
+            return new PasskeyRecord(id, title, rpId, credentialId, userHandle, accountName, displayName, privateKey,
+                    signCount, created, updated, lastUsed);
+        }
+
+        @Override
         public boolean keyIsValid(PasskeyRecord record) {
             return record.keyIsValid();
         }

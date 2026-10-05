@@ -68,6 +68,15 @@ and checks the verifier catches a changed byte, a malformed line and a `../` nam
   resolved and verified them, so each file's SHA-256 matches the SBOM. They are kept on the module
   path rather than linked into the runtime: `bcprov` is a signed modular jar, which jlink accepts
   only by dropping its signature (`--ignore-signing-information`).
+- Third-party data inside a pm jar (M6.3): `pm-browser` carries an unmodified copy of the Public
+  Suffix List, `pm/browser/webauthn/public_suffix_list.dat`, from
+  https://publicsuffix.org/list/public_suffix_list.dat (`VERSION: 2026-10-01_23-02-52_UTC`,
+  `COMMIT: 6cd82aff889e3d64e5e03bc5c1f43da1934a960a`, fetched 2026-10-04, SHA-256
+  `e0fe072d26b0536525badea237953ff451c9f8e64c9d02c6daa81a4491d2fc66`), licensed MPL-2.0, with
+  its notice `public_suffix_list.NOTICE` beside it. It is data, not a dependency, so the SBOM
+  lists it only through the `pm-browser` jar's hash; the release notes must name it with its
+  licence. `PublicSuffixList` refuses a file with another digest: WebAuthn requests then get
+  `PSL_UNAVAILABLE` and everything else keeps working (ADR 0016 M6.3 addendum).
 - `bin/pm`: a POSIX shell launcher (`exec runtime/bin/java -p app -m pm.cli/pm.cli.Main`). It clears
   `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS` and `CLASSPATH`, ignores `CDPATH`, and
   accepts only `PM_MAX_HEAP` from the environment: 1 to 5 digits with an `m` or `g` suffix,

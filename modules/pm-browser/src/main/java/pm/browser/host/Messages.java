@@ -1,8 +1,11 @@
 package pm.browser.host;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -38,6 +41,26 @@ public final class Messages {
     private static final Set<String> SAVE_FIELDS = Set.of("type", "id", "origin", "username", "password");
     private static final Set<String> GENERATE_FIELDS = Set.of("type", "id", "origin", "username", "policy");
     private static final Set<String> POLICY_FIELDS = Set.of("length", "lower", "upper", "digits", "symbols");
+
+    // ---- WebAuthn (M6.3, ADR 0016 M6.3 addendum) ----
+    /** Longest {@code clientDataJSON}, in bytes. */
+    public static final int MAX_CLIENT_DATA = 4_096;
+    /** Longest user handle, in bytes (WebAuthn Level 3 §5.4.3). */
+    public static final int MAX_USER_HANDLE = 64;
+    /** Longest credential ID, in bytes (WebAuthn Level 3 §6.5.1). */
+    public static final int MAX_CREDENTIAL_ID = 1_023;
+    /** Most entries in {@code allowCredentials} or {@code excludeCredentials}. */
+    public static final int MAX_CREDENTIALS = 64;
+    /** Most algorithms in {@code algorithms}. */
+    public static final int MAX_ALGORITHMS = 16;
+    private static final Pattern RP_ID_TEXT = Pattern.compile("[\\x21-\\x7e]{1,253}");
+    private static final String TYPE_WEBAUTHN_CREATE = "webauthn.create";
+    private static final String TYPE_WEBAUTHN_GET = "webauthn.get";
+    private static final Set<String> WEBAUTHN_CREATE_FIELDS = Set.of("type", "id", "origin", "rpId",
+            "clientDataJSON", "user", "algorithms", "excludeCredentials", "userVerification");
+    private static final Set<String> WEBAUTHN_GET_FIELDS = Set.of("type", "id", "origin", "rpId",
+            "clientDataJSON", "allowCredentials", "credential", "userVerification");
+    private static final Set<String> USER_FIELDS = Set.of("id", "name", "displayName");
 
     private Messages() {
     }
@@ -103,7 +126,77 @@ public final class Messages {
             String username = text(o.get("username"), 0, MAX_USERNAME);
             return new Request.Generate(id(o), origin(o), username, policy(o.get("policy")));
         }
+        if (TYPE_WEBAUTHN_CREATE.equals(type)) {
+            fields(o, WEBAUTHN_CREATE_FIELDS);
+            return new Request.WebauthnCreate(id(o), origin(o), matching(o.get("rpId"), RP_ID_TEXT),
+                    binary(o.get("clientDataJSON"), 1, MAX_CLIENT_DATA), user(o.get("user")),
+                    algorithms(o.get("algorithms")), credentials(o.get("excludeCredentials")),
+                    userVerification(o.get("userVerification")));
+        }
+        if (TYPE_WEBAUTHN_GET.equals(type)) {
+            fields(o, WEBAUTHN_GET_FIELDS);
+            Json chosen = o.get("credential");
+            Optional<String> credential = chosen instanceof Json.Null
+                    ? Optional.empty()
+                    : Optional.of(binary(chosen, 1, MAX_CREDENTIAL_ID));
+            return new Request.WebauthnGet(id(o), origin(o), matching(o.get("rpId"), RP_ID_TEXT),
+                    binary(o.get("clientDataJSON"), 1, MAX_CLIENT_DATA), credentials(o.get("allowCredentials")),
+                    credential, userVerification(o.get("userVerification")));
+        }
         throw new HostException(HostException.Code.UNKNOWN_TYPE);
+    }
+
+    private static Request.User user(Json value) throws HostException {
+        if (!(value instanceof Json.Obj u)) {
+            throw badField();
+        }
+        fields(u, USER_FIELDS);
+        return new Request.User(binary(u.get("id"), 1, MAX_USER_HANDLE), text(u.get("name"), 1, MAX_USERNAME),
+                text(u.get("displayName"), 0, MAX_USERNAME));
+    }
+
+    /** {@code pubKeyCredParams} algorithms: at most {@link #MAX_ALGORITHMS} integers. */
+    private static List<Long> algorithms(Json value) throws HostException {
+        List<Long> out = new ArrayList<>();
+        for (Json item : array(value, MAX_ALGORITHMS)) {
+            out.add(integer(item));
+        }
+        return out;
+    }
+
+    /** At most {@link #MAX_CREDENTIALS} credential IDs, each 1 to 1023 bytes. */
+    private static List<String> credentials(Json value) throws HostException {
+        List<String> out = new ArrayList<>();
+        for (Json item : array(value, MAX_CREDENTIALS)) {
+            out.add(binary(item, 1, MAX_CREDENTIAL_ID));
+        }
+        return out;
+    }
+
+    private static List<Json> array(Json value, int max) throws HostException {
+        if (!(value instanceof Json.Arr a) || a.items().size() > max) {
+            throw badField();
+        }
+        return a.items();
+    }
+
+    private static Request.UserVerification userVerification(Json value) throws HostException {
+        return switch (str(value).text()) {
+            case "required" -> Request.UserVerification.REQUIRED;
+            case "preferred" -> Request.UserVerification.PREFERRED;
+            case "discouraged" -> Request.UserVerification.DISCOURAGED;
+            default -> throw badField();
+        };
+    }
+
+    /** Canonical unpadded base64url of {@code min..max} bytes; returns the text. */
+    private static String binary(Json value, int min, int max) throws HostException {
+        String text = str(value).text();
+        int length = Base64Url.decode(text).length;
+        if (length < min || length > max) {
+            throw badField();
+        }
+        return text;
     }
 
     private static Request.Policy policy(Json value) throws HostException {

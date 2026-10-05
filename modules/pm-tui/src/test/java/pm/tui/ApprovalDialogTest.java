@@ -150,6 +150,47 @@ class ApprovalDialogTest {
         }
     }
 
+    /** SR-119: a passkey request may not be covered by a grant, so it offers only once and deny. */
+    @Test
+    void aPasskeyPromptOffersOnlyOnceOrDenyAndIgnoresSAndP() throws IOException {
+        try (TuiHarness h = unlocked()) {
+            CompletableFuture<Outcome> f = askPasskey(h);
+            pastGuard(h);
+            String screen = h.screenText();
+            assertTrue(screen.contains(ApprovalDialog.KEYS_ONCE), screen);
+            assertFalse(screen.contains(ApprovalDialog.KEYS), screen);
+            assertFalse(screen.contains("this session"), screen);
+            h.type("s");
+            assertFalse(h.screenText().contains(ApprovalDialog.CONFIRM_SESSION));
+            h.press(KeyType.Enter, KeyType.Enter);
+            assertFalse(f.isDone(), "s then Enter does nothing");
+            h.type("p");
+            assertFalse(h.screenText().contains(ApprovalDialog.CONFIRM_POLICY));
+            h.press(KeyType.Enter, KeyType.Enter);
+            assertFalse(f.isDone(), "p then Enter does nothing");
+            assertTrue(h.screenText().contains(ApprovalDialog.KEYS_ONCE));
+            h.type("y");
+            assertTrue(h.screenText().contains(ApprovalDialog.CONFIRM_ONCE));
+            h.press(KeyType.Enter);
+            assertEquals(Decision.ALLOWED_ONCE, f.join().decision());
+            assertTrue(host.core.temporaryPolicies().isEmpty());
+        }
+    }
+
+    private CompletableFuture<Outcome> askPasskey(TuiHarness h) {
+        String origin = "https://login.example.com";
+        ApprovalRequest q = new ApprovalRequest(UUID.randomUUID(),
+                new ApprovalRequest.Requester(ApprovalRequest.Kind.EXTENSION, "abcdefghijklmnopabcdefghijklmnop"),
+                ApprovalRequest.Operation.PASSKEY, ApprovalRequest.Scope.profile(origin, "pk-abc"), Duration.ZERO,
+                new ApprovalRequest.Display(List.of(), Optional.of(origin
+                        + " - sign in to \"example.com\" with a passkey, account \"alice\""),
+                        ApprovalRequest.Effect.SEND), h.clock.instant());
+        assertFalse(q.allowsStandingGrant());
+        CompletableFuture<Outcome> f = host.core.withToken(t -> host.core.submit(q, t, Optional.of("alice")));
+        h.tick();
+        return f;
+    }
+
     @Test
     void nAndEscapeDeny() throws IOException {
         try (TuiHarness h = unlocked()) {

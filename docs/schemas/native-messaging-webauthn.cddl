@@ -1,0 +1,69 @@
+; Native messaging: the WebAuthn requests and replies (M6.3, ADR 0016 M6.3 addendum, SR-115).
+; JSON, described in CDDL (RFC 8610 §3.10 JSON prelude). Decoded by pm.browser.host.Messages;
+; every request object must have exactly the members listed (no optional members, no extras),
+; otherwise BAD_FIELD. All binary values are canonical unpadded base64url (RFC 4648 §5): no
+; padding, no other alphabet, no non-zero trailing bits; anything else is BAD_FIELD. The common
+; members (`id`, `origin`) follow ADR 0014 §3.
+
+b64url<min, max> = tstr .regexp "[A-Za-z0-9_-]*"   ; decodes to min..max bytes
+
+uv = "required" / "preferred" / "discouraged"     ; "required" is refused (UV_REQUIRED)
+
+webauthn-create-request = {
+  type: "webauthn.create",
+  id: tstr,                          ; 1-64 of [A-Za-z0-9_-], echoed
+  origin: tstr,                      ; 1-256 printable ASCII, canonicalised by the bridge
+  rpId: tstr,                        ; 1-253 printable ASCII; checked by pm.browser.webauthn.RpId
+  clientDataJSON: b64url<1, 4096>,   ; the exact bytes the page will receive
+  user: {
+    id: b64url<1, 64>,               ; user handle
+    name: tstr,                      ; 1-1024 chars, no controls; stored after displaySafe
+    displayName: tstr,               ; 0-1024 chars, no controls
+  },
+  algorithms: [0*16 int],            ; COSE algorithm ids; non-empty without -7 is UNSUPPORTED_ALGORITHM
+  excludeCredentials: [0*64 b64url<1, 1023>],
+  userVerification: uv,
+}
+
+webauthn-create-reply = {
+  type: "webauthn.create",
+  id: tstr,
+  origin: tstr,                      ; canonical origin
+  rpId: tstr,
+  credentialId: b64url<32, 32>,
+  attestationObject: b64url<1, 2048>, ; {"fmt": "none", "attStmt": {}, "authData": bstr}, CTAP2 canonical CBOR
+  authenticatorData: b64url<164, 164>, ; flags 0x59 (UP BE BS AT), counter 0, AAGUID zero
+  publicKey: b64url<77, 77>,         ; COSE_Key EC2 P-256 (kty 2, alg -7, crv 1)
+  publicKeyAlgorithm: -7,
+}
+
+webauthn-get-request = {
+  type: "webauthn.get",
+  id: tstr,
+  origin: tstr,
+  rpId: tstr,
+  clientDataJSON: b64url<1, 4096>,
+  allowCredentials: [0*64 b64url<1, 1023>], ; empty: any passkey held for rpId
+  credential: b64url<1, 1023> / null, ; the passkey the user picked; null: the only candidate
+  userVerification: uv,
+}
+
+webauthn-get-reply = {
+  type: "webauthn.get",
+  id: tstr,
+  origin: tstr,
+  rpId: tstr,
+  credentialId: b64url<1, 1023>,
+  authenticatorData: b64url<37, 37>, ; flags 0x19 (UP BE BS), the persisted counter
+  signature: b64url<8, 72>,          ; DER ECDSA P-256 over authenticatorData || SHA-256(clientDataJSON)
+  userHandle: b64url<1, 64>,
+}
+
+; Error replies are {"type": "error", "id": tstr / null, "code": tstr} (ADR 0014 §3). WebAuthn
+; codes: BAD_RP_ID, BAD_CLIENT_DATA, UNSUPPORTED_ALGORITHM, UV_REQUIRED, EXCLUDED (only after the
+; user approved the create), NOT_ALLOWED, NOT_FOUND, AMBIGUOUS, COUNTER_EXHAUSTED, BAD_FIELD,
+; DENIED (with a Decision name such as DENIED_LOCKED), INTERNAL, PSL_UNAVAILABLE (the vendored
+; Public Suffix List is missing or not the pinned file; WebAuthn only), GRANT_MISMATCH (the passkey
+; port was handed a grant for another operation, profile or origin; a correct bridge never causes
+; it); UNKNOWN_TYPE from a host built without passkey support. NOT_ALLOWED, NOT_FOUND and AMBIGUOUS come before any prompt and
+; are for the extension only: M6.4 must not let a page tell them apart (ADR 0016 M6.3 addendum).

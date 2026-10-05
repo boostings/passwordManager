@@ -52,11 +52,17 @@ public record ApprovalRequest(UUID requestId, Requester requester, Operation ope
         /** Send secrets to a paired device. */
         SHARE,
         /** Sign with an SSH key. */
-        SSH_SIGN;
+        SSH_SIGN,
+        /**
+         * Enroll or sign in with a passkey (WebAuthn, ADR 0016 M6.3 addendum). The authenticator
+         * data pm returns claims user presence, so every enrollment and every sign-in needs its
+         * own prompt (WebAuthn L3 §6.3.2 step 3, §6.3.3).
+         */
+        PASSKEY;
 
-        /** Export and share always prompt; no policy may cover them (decision-table row 5). */
+        /** Export, share and passkey always prompt; no policy may cover them (decision-table row 5). */
         boolean alwaysPrompts() {
-            return this == EXPORT || this == SHARE;
+            return this == EXPORT || this == SHARE || this == PASSKEY;
         }
     }
 
@@ -173,6 +179,15 @@ public record ApprovalRequest(UUID requestId, Requester requester, Operation ope
         if (operation == Operation.ENV_INJECT && (display.argv().isEmpty() || display.effect() != Effect.INJECT)) {
             throw new IllegalArgumentException("BAD_DISPLAY"); // what is shown must be what runs
         }
+    }
+
+    /**
+     * True if an approval of this request may become a session or temporary policy. False for
+     * export, share and passkey (decision-table row 5): the broker counts any approval of those
+     * once and keeps no policy, so a prompt should offer only approve-once and deny.
+     */
+    public boolean allowsStandingGrant() {
+        return !operation.alwaysPrompts();
     }
 
     /** The program name only, for the audit log; full argv may embed secrets (approval-model §7). */

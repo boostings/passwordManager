@@ -24,13 +24,17 @@ import pm.approval.PendingApproval;
  * Keys are ignored for {@link #INPUT_GUARD} after it appears, so typing meant for another window
  * cannot approve. {@code y} then Enter approves once; {@code s} or {@code p} then Enter shows a
  * confirmation line and a second Enter approves for the session or for {@link #POLICY_DURATION};
- * {@code n} or Esc denies. Only one prompt is shown at a time, in arrival order.
+ * {@code n} or Esc denies. A request no grant may cover ({@link ApprovalRequest#allowsStandingGrant()}
+ * false, such as a passkey) offers only {@link #KEYS_ONCE}, and {@code s} and {@code p} do nothing
+ * (SR-119). Only one prompt is shown at a time, in arrival order.
  */
 final class ApprovalDialog implements InputForm {
     static final String TITLE = "Approval requested";
     static final Duration INPUT_GUARD = Duration.ofMillis(500);
     static final Duration POLICY_DURATION = Duration.ofHours(1);
     static final String KEYS = "y once   s this session   p 1 hour   n deny";
+    /** The keys for a request that must prompt every time. */
+    static final String KEYS_ONCE = "y once   n deny";
     static final String GUARDED = "keys open in a moment…";
     static final String CONFIRM_ONCE = "Approve this run once? Enter to confirm, n to deny.";
     static final String CONFIRM_SESSION = "Allow this same request until the vault locks? Enter to confirm.";
@@ -53,6 +57,8 @@ final class ApprovalDialog implements InputForm {
     private final PmTheme theme;
     private final Instant opensAt;
     private final Instant deniedAt;
+    /** False when only "once" and "deny" are offered. */
+    private final boolean standing;
     // GUI-thread confined.
     private Choice choice = Choice.NONE;
     private boolean confirming;
@@ -65,6 +71,7 @@ final class ApprovalDialog implements InputForm {
         this.opensAt = shown.plus(INPUT_GUARD);
         this.deniedAt = prompt.arrived().plus(ApprovalBroker.PROMPT_TIMEOUT);
         ApprovalRequest q = prompt.request();
+        this.standing = q.allowsStandingGrant();
 
         GridLayout layout = new GridLayout(1);
         layout.setLeftMarginSize(SIDE_MARGIN);
@@ -153,7 +160,7 @@ final class ApprovalDialog implements InputForm {
     @Override
     public void animate(Instant now) {
         if (!now.isBefore(opensAt) && GUARDED.equals(status.getText())) {
-            status.setText(KEYS);
+            status.setText(standing ? KEYS : KEYS_ONCE);
             status.setForegroundColor(theme.color(PmTheme.Tone.TEXT));
         }
         long left = Math.max(0, Duration.between(now, deniedAt).toSeconds());
@@ -178,12 +185,19 @@ final class ApprovalDialog implements InputForm {
         }
         switch (Character.toLowerCase(key.getCharacter())) {
             case 'y' -> choose(Choice.ONCE, CONFIRM_ONCE);
-            case 's' -> choose(Choice.SESSION, CONFIRM_SESSION);
-            case 'p' -> choose(Choice.POLICY, CONFIRM_POLICY);
+            case 's' -> chooseStanding(Choice.SESSION, CONFIRM_SESSION);
+            case 'p' -> chooseStanding(Choice.POLICY, CONFIRM_POLICY);
             case 'n' -> answer(pending::deny);
             default -> {
                 // other keys do nothing
             }
+        }
+    }
+
+    /** {@code s} and {@code p}: ignored when the request may not be covered by a grant (SR-119). */
+    private void chooseStanding(Choice c, String text) {
+        if (standing) {
+            choose(c, text);
         }
     }
 

@@ -36,7 +36,39 @@ public final class HostException extends Exception {
         /** The approval broker refused; the message is the broker's {@link Decision} name. */
         DENIED,
         /** A port broke its contract (for example, did not consume its grant); nothing was released. */
-        INTERNAL
+        INTERNAL,
+        /**
+         * WebAuthn (M6.3): the RP ID is not a registrable domain suffix of, or equal to, the
+         * origin's effective domain, or the origin cannot have one (not {@code https}, other than
+         * {@code http://localhost}; an IP address).
+         */
+        BAD_RP_ID,
+        /** WebAuthn: the client data is not JSON of the expected type for exactly this origin. */
+        BAD_CLIENT_DATA,
+        /** WebAuthn create: the vault already holds a credential named in {@code excludeCredentials}. */
+        EXCLUDED,
+        /** WebAuthn get: the chosen credential is not in a non-empty {@code allowCredentials}. */
+        NOT_ALLOWED,
+        /** WebAuthn get: the passkey's counter is at 2^32 - 1; it can never sign again. */
+        COUNTER_EXHAUSTED,
+        /** WebAuthn: user verification was required; pm offers user presence only. */
+        UV_REQUIRED,
+        /** WebAuthn create: none of the offered algorithms is ES256 (-7). */
+        UNSUPPORTED_ALGORITHM,
+        /** WebAuthn get: several passkeys match and the request named none of them. */
+        AMBIGUOUS,
+        /**
+         * WebAuthn: the vendored Public Suffix List is missing or is not the pinned file, so no RP
+         * ID can be checked. Every WebAuthn request gets this; other requests are unaffected.
+         */
+        PSL_UNAVAILABLE,
+        /**
+         * WebAuthn: the passkey port was handed a grant that is not for this action: not operation
+         * {@code PASSKEY}, another profile (another passkey, or a sign-in grant for an enrollment),
+         * or an origin that may not use the RP ID. Nothing was created or signed and the grant is
+         * left unused. A correct bridge never causes it.
+         */
+        GRANT_MISMATCH
     }
 
     private final Code reason;

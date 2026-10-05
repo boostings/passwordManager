@@ -12,7 +12,7 @@ import java.util.Optional;
  *
  * @param requesterKind requester kind it covers
  * @param label requester label it covers (untrusted, compared exactly)
- * @param operation operation it covers; never export or share
+ * @param operation operation it covers; never export, share or passkey
  * @param scope project, profile and variables it covers
  * @param expires end of a temporary policy; empty for a session policy
  */

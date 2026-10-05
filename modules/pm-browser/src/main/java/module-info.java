@@ -7,4 +7,5 @@ module pm.browser {
 
     exports pm.browser.host;
     exports pm.browser.bridge;
+    exports pm.browser.webauthn;
 }

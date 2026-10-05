@@ -14,5 +14,6 @@ module pm.vault {
     exports pm.vault.record;
     // The codec is shared, never public: the audit log and the LAN wire format use the same
     // deterministic subset and limits.
-    exports pm.vault.cbor to pm.approval, pm.sharing;
+    // M6.3: pm.browser writes the WebAuthn attestation object with the same deterministic encoder.
+    exports pm.vault.cbor to pm.approval, pm.sharing, pm.browser;
 }

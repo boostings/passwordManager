@@ -96,6 +96,33 @@ class ApprovalBrokerTest {
         assertEquals(Decision.ALLOWED_ONCE, second.join().decision());
     }
 
+    /** A passkey asserts user presence, so no answer may let the next one through silently (M6.3). */
+    @Test
+    void row5PasskeyPromptsEveryTimeWhateverTheAnswer() {
+        String origin = "https://login.example.com";
+        assertFalse(Requests.passkey(T0, origin, "pk-1").allowsStandingGrant());
+        assertFalse(Requests.export(T0, "app").allowsStandingGrant());
+        assertFalse(Requests.share(T0, "app").allowsStandingGrant());
+        assertTrue(Requests.inject(T0, "app", "dev").allowsStandingGrant());
+
+        CompletableFuture<Outcome> first = submit(Requests.passkey(T0, origin, "pk-1"));
+        assertFalse(first.isDone());
+        onlyPrompt().approveForSession();
+        assertEquals(Decision.ALLOWED_ONCE, first.join().decision(), "a session answer counts once");
+        CompletableFuture<Outcome> second = submit(Requests.passkey(T0, origin, "pk-1"));
+        assertFalse(second.isDone(), "the same passkey prompts again despite the session answer");
+        onlyPrompt().approveForPolicy(Duration.ofHours(24));
+        assertEquals(Decision.ALLOWED_ONCE, second.join().decision(), "a policy answer counts once");
+        assertTrue(broker.temporaryPolicies().isEmpty(), "no policy was stored");
+
+        broker.lock();
+        broker.unlock();
+        token = broker.withToken(byte[]::clone);
+        assertFalse(submit(Requests.passkey(T0, origin, "pk-1")).isDone(), "and still after a lock and unlock");
+        assertThrows(IllegalArgumentException.class, () -> new Policy(ApprovalRequest.Kind.EXTENSION, "x",
+                ApprovalRequest.Operation.PASSKEY, ApprovalRequest.Scope.profile(origin, "pk-1"), Optional.empty()));
+    }
+
     @Test
     void row6SessionPolicyCoversSameScopeUntilLock() {
         CompletableFuture<Outcome> first = submit(Requests.inject(T0, "app", "dev", "DB", "KEY"));

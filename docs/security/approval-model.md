@@ -11,7 +11,7 @@ approval-request = {
   schema_version: 1,
   request_id:     bytes .size 16,          ; random, single-use (SR-104)
   requester:      requester,
-  operation:      "env-inject" / "reveal" / "export" / "autofill" / "share" / "ssh-sign",
+  operation:      "env-inject" / "reveal" / "export" / "autofill" / "share" / "ssh-sign" / "passkey",
   scope:          scope,
   duration_s:     uint .le 86400,          ; requested validity if policy asked
   display:        display,
@@ -67,7 +67,7 @@ Evaluation order for an incoming request `q`:
 | 2 | session token invalid or os_user mismatch | DENIED_AUTH (no prompt, audit) |
 | 3 | `request_id` seen before | DENIED_REPLAY |
 | 4 | schema invalid / size > 64 KiB | DENIED_MALFORMED |
-| 5 | operation = export or share | always PROMPT (no policy may cover these) |
+| 5 | operation = export, share or passkey | always PROMPT (no policy may cover these; a session or policy answer counts once and stores nothing, so the TUI prompt offers only once and deny; passkey since M6.3, ADR 0016) |
 | 6 | active session policy matches (requester.session, project, profile, vars ⊆) | ALLOWED_SESSION |
 | 7 | stored temporary policy matches and not expired | ALLOWED_POLICY |
 | 8 | pending prompt queue ≥ 5 | DENIED_BUSY |
