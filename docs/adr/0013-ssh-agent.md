@@ -56,9 +56,31 @@ depends on the package) and `noCryptoFacadeOverSshKeys` (no other `pm.crypto` pa
   absolute. Its parent directory is canonicalised and must not be group- or world-writable. The
   socket itself is read with `NOFOLLOW_LINKS` and must be a socket (not a link or regular file)
   owned by the current user. After connecting, the listening process is checked with
-  `SO_PEERCRED` (as the approval broker does on its side): it must run as the current user, which
-  closes the window in which the checked socket could be swapped before the connect. Anything else
-  is `UNSAFE_SOCKET`; a missing or dead socket is `NO_AGENT`.
+  `SO_PEERCRED` (as the approval broker does on its side): it must run as the current user (or as
+  root for macOS's own agent, below), which closes the window in which the checked socket could be
+  swapped by another user before the connect. Anything else is `UNSAFE_SOCKET`; a missing or dead socket is `NO_AGENT`.
+- **macOS's own agent** (SR-140, addendum of 2026-10-06). The agent macOS starts for every login
+  listens on `/private/var/run/com.apple.launchd.*/Listeners`, and that socket is held by
+  launchd, pid 1, running as root, which starts `ssh-agent` on the first connection (checked on
+  macOS 27: `LOCAL_PEERCRED` gives uid 0 and `LOCAL_PEERPID` pid 1). M4 accepted only a peer
+  running as the user, so every `pm ssh` command failed against the agent most Mac users have
+  (launch audit V1). A root peer means "launchd holds this socket", not "root serves it", and
+  launchd holds every user's job sockets the same way, so trusting root everywhere would let a
+  socket swapped in by another user (for example through a folder ACL, which pm cannot read on
+  macOS) pass as long as that user's own launchd job held it. The peer may therefore be root
+  only when the canonical socket is launchd's listener for this user: `Listeners` in a
+  `com.apple.launchd.*` folder directly inside `/private/var/run`, the folder owned by the user
+  with mode exactly `0700`, read without following links. Only the user and root can change that
+  folder (another user cannot add an ACL to a folder they do not own), and `/private/var/run` is
+  writable only by root and the daemon group, so no one who was kept out before is admitted:
+  root can already read the vault file, the process memory and the agent (threat model AT-2, out
+  of scope). Everywhere else the peer must be the user, as in M4. In the same change the canonical
+  parent directory must be owned by the user or root (before, any owner passed if the mode was
+  not group- or world-writable), so another user's directory is refused before anything is
+  connected. Root is recognised by its account name, `root`, as returned for the peer's uid.
+  Residual: `AgentSocket` reads POSIX modes only, so a folder of the user's whose ACL grants
+  another user write still passes the directory check (unchanged since M4); the peer check is
+  what refuses a socket that user swaps in, and it stays strict there.
 - **Export fallback** (SR-063). `SshKeyExport.write` is the one way private bytes leave: an
   explicit export writes the OpenSSH file with `CREATE_NEW`, `NOFOLLOW_LINKS` and mode `0600` set
   at creation, so it never overwrites, never follows a link and is never briefly readable by
@@ -96,6 +118,11 @@ depends on the package) and `noCryptoFacadeOverSshKeys` (no other `pm.crypto` pa
     at most the 10 s deadline, and are then zero-filled (the kernel buffer until the agent reads
     it).
 - Windows named-pipe agents (OpenSSH for Windows, Pageant) are out of scope for M4.
+- On macOS, `SshAgentClientTest.theMacOsLaunchdAgentSocketIsAccepted` checks the user's real
+  launchd socket under `/private/var/run` when there is one (it sends nothing; it lists the folder
+  rather than reading `SSH_AUTH_SOCK`, so ENV02-J needs no exception); elsewhere, CI included, it
+  is skipped,
+  so the root-peer path is otherwise covered only by `trusted` unit cases.
 - No private key file is committed as a test fixture: an `ssh-keygen` fixture is flagged by
   gitleaks (checked 2026-10-03, "leaks found: 1"). Tests build `openssh-key-v1` files from keys
   the JDK generates, laid out as `ssh-keygen` writes them, and talk to a test agent on a socket

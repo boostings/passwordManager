@@ -100,7 +100,7 @@ public final class SshAgentClient implements AutoCloseable {
             throw new SshException(SshException.Code.NO_AGENT);
         }
         try {
-            AgentSocket.checkPeer(client.channel, owner);
+            AgentSocket.checkPeer(client.channel, owner, real);
             client.channel.configureBlocking(false);
         } catch (IOException e) {
             client.close();

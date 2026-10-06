@@ -64,6 +64,7 @@ read tags, so the tag-to-row mapping is checked by review, not by the gate.
 | TM-61 | SR-017 | MSC02-J | ArchUnit `ModuleBoundaryTest.onlyCryptoUsesJca`. No class outside `pm.crypto` depends on `javax.crypto` or `java.security`, other than `Principal`. The M4 code is covered too: SSH keys and the agent live in `pm.crypto.ssh`, and breach SHA-1 goes through `pm.crypto.Hash` | M4 | Implemented (M4.5: the rule predates M4 and passes over all M4 code in the gate; this row said Planned) |
 | TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |
 | — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Implemented (M4.3) |
+| — | SR-140 | FIO00-J, FIO15-J | `SshAgentClientTest.theUserAndRootAreTrustedAndNoOneElse`, `.aRootPeerIsTrustedOnlyWhereAllowed`, `.launchdsListenerIsRecognisedByPlaceOwnerAndMode`, `.refusesADirectoryOwnedBySomeoneElse`, `.refusesASocketOwnedBySomeoneElse`, `.theMacOsLaunchdAgentSocketIsAccepted` (macOS launchd socket only) | M7 | Implemented (M7.9) |
 | — | SR-062 | IDS00-J, NUM00-J, MSC05-J | `SshKeyTest`, `SshAgentClientTest` | M4 | Implemented (M4.3) |
 | — | SR-063 | FIO01-J, FIO16-J | `SshKeyExportTest` | M4 | Implemented (M4.3) |
 | — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Implemented (M4.3) |

@@ -12,14 +12,18 @@ import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.time.Duration;
 import java.util.List;
 import java.util.function.UnaryOperator;
+import jdk.net.ExtendedSocketOptions;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -370,21 +374,133 @@ class SshAgentClientTest {
         UserPrincipal me = sock.getFileSystem().getUserPrincipalLookupService()
                 .lookupPrincipalByName(System.getProperty("user.name"));
         try (SocketChannel ch = SocketChannel.open(UnixDomainSocketAddress.of(sock))) {
-            assertDoesNotThrow(() -> AgentSocket.checkPeer(ch, me));
+            assertDoesNotThrow(() -> AgentSocket.checkPeer(ch, me, sock));
             // The peer runs as this user, not root: a swapped socket served by another user is refused.
             assertEquals(SshException.Code.UNSAFE_SOCKET,
-                    assertThrows(SshException.class, () -> AgentSocket.checkPeer(ch, root)).code());
+                    assertThrows(SshException.class, () -> AgentSocket.checkPeer(ch, root, sock)).code());
             shut(ch);
             assertEquals(SshException.Code.UNSAFE_SOCKET,
-                    assertThrows(SshException.class, () -> AgentSocket.checkPeer(ch, me)).code());
+                    assertThrows(SshException.class, () -> AgentSocket.checkPeer(ch, me, sock)).code());
         }
     }
 
     @Test
     void refusesASocketOwnedBySomeoneElse() throws IOException {
         agent = TestAgent.start(sock);
-        UserPrincipal root = sock.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName("root");
+        UserPrincipal root = user("root");
         assertEquals(SshException.Code.UNSAFE_SOCKET,
                 assertThrows(SshException.class, () -> SshAgentClient.connect(sock, root).close()).code());
+        // The directory check passes on the name; the socket must belong to this very account.
+        UserPrincipal namesake = () -> System.getProperty("user.name");
+        assertEquals(SshException.Code.UNSAFE_SOCKET,
+                assertThrows(SshException.class, () -> AgentSocket.check(sock, namesake)).code());
+    }
+
+    @Test
+    void refusesADirectoryOwnedBySomeoneElse() throws IOException {
+        agent = TestAgent.start(sock);
+        UserPrincipal nobody = user("nobody");
+        assertEquals(SshException.Code.UNSAFE_SOCKET,
+                assertThrows(SshException.class, () -> AgentSocket.check(sock, nobody)).code());
+    }
+
+    @Test
+    void theUserAndRootAreTrustedAndNoOneElse() throws IOException {
+        UserPrincipal me = user(System.getProperty("user.name"));
+        UserPrincipal root = user("root");
+        UserPrincipal nobody = user("nobody");
+        assertTrue(AgentSocket.trusted(me, me));
+        assertTrue(AgentSocket.trusted(root, me));
+        assertFalse(AgentSocket.trusted(nobody, me));
+        assertFalse(AgentSocket.trusted(me, nobody));
+    }
+
+    /** SR-140: a peer running as root is trusted only where root is launchd holding this user's listener. */
+    @Test
+    void aRootPeerIsTrustedOnlyWhereAllowed() throws IOException {
+        UserPrincipal me = user(System.getProperty("user.name"));
+        UserPrincipal root = user("root");
+        UserPrincipal nobody = user("nobody");
+        assertTrue(AgentSocket.peerTrusted(me, me, false));
+        assertTrue(AgentSocket.peerTrusted(root, me, true));
+        assertFalse(AgentSocket.peerTrusted(root, me, false));
+        assertFalse(AgentSocket.peerTrusted(nobody, me, true));
+    }
+
+    /**
+     * SR-140: launchd's listener is recognised by its place, name, owner and mode, read without
+     * following links; anything else is a socket a root peer may not serve.
+     */
+    @Test
+    void launchdsListenerIsRecognisedByPlaceOwnerAndMode() throws IOException {
+        UserPrincipal me = user(System.getProperty("user.name"));
+        Path run = Files.createDirectory(tmp.resolve("run"));
+        Path folder = Files.createDirectory(run.resolve("com.apple.launchd.abc"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        Path listeners = folder.resolve("Listeners");
+        assertTrue(AgentSocket.launchdListener(listeners, me, run));
+        // Another socket name, another folder name, a folder one level deeper, no folder at all.
+        assertFalse(AgentSocket.launchdListener(folder.resolve("s"), me, run));
+        Path agent = Files.createDirectory(run.resolve("agent"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        assertFalse(AgentSocket.launchdListener(agent.resolve("Listeners"), me, run));
+        Path deeper = Files.createDirectory(folder.resolve("com.apple.launchd.x"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        assertFalse(AgentSocket.launchdListener(deeper.resolve("Listeners"), me, run));
+        assertFalse(AgentSocket.launchdListener(tmp.getRoot(), me, run));
+        // Someone else's folder, or one with any other permission bit.
+        assertFalse(AgentSocket.launchdListener(listeners, user("nobody"), run));
+        Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString("rwxr-x---"));
+        assertFalse(AgentSocket.launchdListener(listeners, me, run));
+        Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString("rwx------"));
+        // A link to the folder, a file in its place, a folder that is gone.
+        Path link = Files.createSymbolicLink(run.resolve("com.apple.launchd.link"), folder);
+        assertFalse(AgentSocket.launchdListener(link.resolve("Listeners"), me, run));
+        Path file = Files.createFile(run.resolve("com.apple.launchd.file"));
+        assertFalse(AgentSocket.launchdListener(file.resolve("Listeners"), me, run));
+        assertFalse(AgentSocket.launchdListener(run.resolve("com.apple.launchd.gone").resolve("Listeners"), me, run));
+    }
+
+    /**
+     * SR-140: macOS's own agent socket is held by launchd (pid 1, root), which starts ssh-agent on
+     * the first connection. Runs only where this user has such a socket
+     * ({@code /private/var/run/com.apple.launchd.*}{@code /Listeners}); it checks the path and the
+     * peer and sends nothing.
+     */
+    @Test
+    void theMacOsLaunchdAgentSocketIsAccepted() throws IOException, SshException {
+        Path launchd = launchdSocket();
+        Assumptions.assumeTrue(launchd != null, "no launchd agent socket");
+        UserPrincipal me = AgentSocket.currentUser(launchd);
+        Path real = AgentSocket.check(launchd, me);
+        try (SocketChannel ch = SocketChannel.open(UnixDomainSocketAddress.of(real))) {
+            assertEquals("root", ch.getOption(ExtendedSocketOptions.SO_PEERCRED).user().getName());
+            assertTrue(AgentSocket.launchdListener(real, me, AgentSocket.LAUNCHD_RUN));
+            assertDoesNotThrow(() -> AgentSocket.checkPeer(ch, me, real));
+            // The same root peer behind any other path could be another user's launchd job.
+            assertEquals(SshException.Code.UNSAFE_SOCKET,
+                    assertThrows(SshException.class, () -> AgentSocket.checkPeer(ch, me, sock)).code());
+        }
+    }
+
+    /** This user's launchd-held socket, or null; other users' launchd folders are not readable. */
+    private static Path launchdSocket() throws IOException {
+        Path run = Path.of("/private/var/run");
+        if (!Files.isDirectory(run)) {
+            return null;
+        }
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(run, "com.apple.launchd.*")) {
+            for (Path d : dirs) {
+                Path listeners = d.resolve("Listeners");
+                if (Files.isReadable(d) && Files.exists(listeners, LinkOption.NOFOLLOW_LINKS)) {
+                    return listeners;
+                }
+            }
+        }
+        return null;
+    }
+
+    private UserPrincipal user(String name) throws IOException {
+        return sock.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName(name);
     }
 }
