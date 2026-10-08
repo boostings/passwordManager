@@ -1,2 +1,2 @@
-/** Placeholder package for pm-tui; populated from M1. */
+/** The Lanterna full-screen app: unlock, dashboard, item cards, dialogs, approvals and idle lock. */
 package pm.tui;

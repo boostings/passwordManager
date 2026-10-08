@@ -10,7 +10,7 @@ desktop application.
 | ID | Requirement | Verification | ASVS | CERT |
 | --- | --- | --- | --- | --- |
 | SR-010 | Master passphrase is stretched with Argon2id at or above the floors in ADR 0007; parameters are stored in the authenticated header | T-KDF-01 | V2.4 | MSC02-J |
-| SR-011 | The passphrase strength meter runs locally and blocks passphrases under the minimum estimated entropy | T-UI-01 | V2.1 | — |
+| SR-011 | The passphrase strength meter runs locally and blocks passphrases under the minimum estimated entropy (**not implemented in v1**: only an empty passphrase is refused; R-013) | T-UI-01 | V2.1 | — |
 | SR-012 | The vault key is random (CSPRNG) and is never derived from a passphrase | T-KEY-01 | V6.2 | MSC02-J |
 | SR-013 | Every unlock method wraps the vault key in an independent slot; removing a slot revokes only that method | T-KEY-02 | V6.2 | — |
 | SR-014 | Bulk encryption uses AES-256-GCM with a per-save HKDF-derived data key (or XChaCha20-Poly1305); no persisted nonce counters | T-ENC-01, R | V6.2 | — |
@@ -23,7 +23,7 @@ desktop application.
 | SR-030 | The recovery key is shown once, requires explicit confirmation, and the display buffer is cleared on dismissal | T-UI-02 | V2.5 | — |
 | SR-040 | Vault directory and file are created with owner-only permissions before any bytes are written, never in a shared or temp directory | T-FS-01 (3 OSes) | V12.3 | FIO00-J, FIO01-J |
 | SR-041 | Vault writes are atomic (write temp in same directory, fsync, rename); a crash at any point leaves the previous vault intact | T-FS-02 | V12.3 | FIO02-J |
-| SR-050 | OS-keychain unlock is off by default; enabling it shows the same-user-malware warning; the keychain holds only a slot wrapping key | T-UI-03, R | V2.10 | — |
+| SR-050 | OS-keychain unlock is off by default; enabling it shows the same-user-malware warning; the keychain holds only a slot wrapping key (v1 has no keychain unlock) | T-UI-03, R | V2.10 | — |
 | SR-051 | Wrong passphrase/tag failures take the same code path length as success (KDF completes, constant-time compare); no early return reveals vault existence beyond the file's presence | R, M7 manual timing | V2.2 | — |
 
 ## Approval broker and environments (SR-1xx)
@@ -118,7 +118,7 @@ desktop application.
 | SR-507 | No Java native serialization; `ObjectInputStream` is absent from the codebase | CI (ArchUnit) | V5.5 | SER12-J |
 | SR-600 | Every dependency is pinned and checksum/signature-verified; Critical/High vulnerabilities block merge; an SBOM ships with every release | CI | V14.2 | — |
 | SR-601 | Installers are signed per platform; JARs and runtime image are reproducible across two builders; installer contents match | CI (release) | V14.2 | ENV01-J |
-| SR-602 | Updates are signature-verified against a pinned key before application | T-UPD-01 | V14.2 | — |
+| SR-602 | Updates are signature-verified against a pinned key before application (v1 has no updater) | T-UPD-01 | V14.2 | — |
 | SR-700 | Backup restore validates the whole archive first and rejects any entry whose canonical path escapes the target | T-BKP-01 | V12.3 | IDS04-J, FIO16-J |
 | SR-701 | Format-version downgrade is refused unless explicitly forced with a fresh backup | T-MIG-01 | — | — |
 | SR-702 | A format migration runs only after the old file authenticates; it keeps an owner-only rollback copy until the migrated file verifies on re-open, and on any failure leaves the original file in place (M7, ADR 0015) | T-MIG-01 | V12.3 | FIO02-J, ERR03-J |

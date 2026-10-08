@@ -43,9 +43,9 @@ val hostArch: String = when (val a = System.getProperty("os.arch")) {
     else -> a
 }
 val pmVersion: String = project.version.toString()
-// jpackage needs a numeric version whose first component is not zero on macOS; the project
-// version (0.0.1-M0) is not one. Override with -Ppm.packageVersion=1.2.3 for a real release.
-val packageVersion: String = (findProperty("pm.packageVersion") as String?) ?: "1.0.0"
+// jpackage needs a numeric version whose first component is not zero on macOS. The project
+// version is used as it is; -Ppm.packageVersion=1.2.3 overrides it for the installers only.
+val packageVersion: String = (findProperty("pm.packageVersion") as String?) ?: pmVersion
 val distName = "pm-$pmVersion-$hostOs-$hostArch"
 val sbomName = "pm-$pmVersion.cdx.json"
 val manifestName = "SHA256SUMS"

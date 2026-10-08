@@ -12,33 +12,36 @@ Every test ID named in an M3 or M4 row is a JUnit `@Tag` on the tests that imple
 - T-FUZZ-SSH on `OpenSshKeyFuzzTest` and `AgentReplyFuzzTest`.
 - T-FUZZ-BREACH on `BreachRangeFuzzTest`.
 
-T-PKG-01..04 (M7.3 rows) are not yet tagged. M4 rows that name only class or method names (no
+T-PKG-01..04 (M7.3 rows) are Gradle tasks and a script, not JUnit tests, so they carry no `@Tag`:
+the ID is in the comment at each check (T-PKG-01 in `jlinkImage`, T-PKG-02/03 at
+`releaseMetadataCheck` in `tools/packaging/release.gradle.kts`, T-PKG-04 in
+`tools/packaging/repro-check.sh`). T-UI-05 is the `@Tag` on `RecordActionsTest` (M7.8). M4 rows that name only class or method names (no
 T-ID) point at those tests directly. At M4.5, every M4 row was spot-checked against the tree: each
 named test class and method exists. `certReport` aggregates scanner findings only. It does not
 read tags, so the tag-to-row mapping is checked by review, not by the gate.
 
 | Threat | SR | CERT | Test / check | Milestone | Status |
 | --- | --- | --- | --- | --- | --- |
-| TM-01 | SR-504 | — | T-UI-06 | M1 | Planned |
-| TM-02 | SR-030 | — | T-UI-02 | M1 | Planned |
-| TM-03 | — | — | R (TUI review) + docs | M1 | Planned |
-| TM-04 | SR-109 | — | T-UI-04 | M2 | Planned |
-| TM-10 | SR-010, SR-011 | MSC02-J | T-KDF-01, T-UI-01 | M1 | Planned |
-| TM-11 | SR-015, SR-020, SR-701 | — | T-ENC-02, T-TAMPER-01, T-MIG-01 | M1 | Planned |
-| TM-12 | SR-014 | — | T-ENC-01 + R | M1 | Planned |
-| TM-13 | SR-040 | FIO00-J, FIO01-J | T-FS-01 | M1 | Planned |
-| TM-14 | SR-041 | FIO02-J | T-FS-02 | M1 | Planned |
-| TM-15 | SR-505, SR-502 | OBJ07-J, OBJ14-J | T-MEM-01, T-PKG-01 | M1, M7 | Planned |
-| TM-16 | SR-051, SR-016 | — | Semgrep cert.CT-compare + M7 manual | M1 | Planned |
-| TM-17 | SR-021, SR-507 | MSC05-J, SER12-J | T-FUZZ-VAULT, ArchUnit | M1 | Planned |
-| TM-18 | SR-050 | — | T-UI-03 | M1 | Planned |
-| TM-20 | SR-100, SR-101 | MET03-J, SEC02-J | ArchUnit, T-IPC-01 | M2 | Planned |
-| TM-21 | SR-102 | IDS07-J | T-ENV-01 | M2 | Planned |
-| TM-22 | SR-103, SR-104 | — | T-POLICY-01, T-POLICY-02 | M2 | Planned |
-| TM-23 | SR-112 | — | T-AUDIT-01 | M2 | Planned |
-| TM-24 | SR-106 | FIO03-J | T-ENV-02 | M2 | Planned |
-| TM-25 | SR-108 | FIO00-J, FIO16-J | T-IPC-02 | M2 | Planned |
-| TM-26 | SR-111 | — | T-POLICY-03 | M2 | Planned |
+| TM-01 | SR-504 | — | T-UI-06: `IdleLockTest` (fires at 5 min, a key defers it, close cancels), `RecordActionsTest` idle lock over a card | M1 | Implemented (M1, idle timer); lock on system sleep or screen lock not in v1 (platform-matrix.md) |
+| TM-02 | SR-030 | — | T-UI-02: `MainArgsTest.initCreatesVaultAndPrintsRecoveryKeyExactlyOnce` (shown once, then Enter), `VaultServiceTest.closingCreatedVaultZeroesTheRecoveryKey` | M1 | Implemented (M1) |
+| TM-03 | — | — | R: the app runs in the terminal's alternate screen (Lanterna `TerminalScreen`), passwords are masked unless revealed for 15 s (`RecordActionsTest`); the CLI prints a secret only for `show --reveal` and `generate` (`RecordCommandsTest`, `GenerateCommandTest`); terminals that log output are a documented limitation (user guide) | M1, M7 | Implemented (M7.8) |
+| TM-04 | SR-109 | — | T-UI-04: `ApprovalDialogTest.keysInTheFirstHalfSecondAreIgnored`, `.sessionApprovalNeedsAConfirmationEnter`, `.nAndEscapeDeny` | M2 | Implemented (M2) |
+| TM-10 | SR-010, SR-011 | MSC02-J | T-KDF-01: `KdfTest` (RFC 9106 vector, independent oracle), `Argon2ParamsTest.floorIsAdr0007Floor`, `EnvelopeCodecTest.aadIsExactlyTheFilePrefixBeforeTheCiphertext` (parameters in the authenticated header). T-UI-01: none | M1 | SR-010 Implemented (M1). SR-011 **not implemented in v1**: any non-empty passphrase is accepted (`VaultService.checkNewPassphrase`); residual R-013 |
+| TM-11 | SR-015, SR-020, SR-701 | — | T-ENC-02: `EnvelopeCodecTest` (AAD is the whole prefix), `AeadTest.flippingAnyAadBitFailsAuth`; T-TAMPER-01: `TamperTest.everySingleByteFlipFailsBeforeAnyRecordIsParsed`; T-MIG-01: `MigrationTest`, `GoldenFixtureTest`, `EnvelopeCodecTest.rejectsNewerVersionAsUnsupported` | M1, M7 | Implemented (M1, M7.1) |
+| TM-12 | SR-014 | — | T-ENC-01: `VaultServiceTest.saveUsesFreshDataSaltAndClockTime`, `AeadTest.sealConsumesKeySoSecondSealThrows` (a data key seals once) | M1 | Implemented (M1) |
+| TM-13 | SR-040 | FIO00-J, FIO01-J | T-FS-01: `OwnerOnlyTest` (POSIX modes and owner-only ACL), `OwnerOnlyModelTest`, `AtomicWriteCrashTest.stagingFileIsPrivateBeforeAnyBytesAreWritten`, `VaultPermissionsTest`, `SymlinkRefusedTest.sharedExistingDirectoryIsRejectedWithoutChangingItsPermissions` | M1 | Implemented (M1, M7.10); Windows runs only in the CI matrix |
+| TM-14 | SR-041 | FIO02-J | T-FS-02: `AtomicWriteCrashTest.failedReplacementLeavesExactlyAnOldOrNewVault`, `VaultFileStoreModelTest` | M1 | Implemented (M1) |
+| TM-15 | SR-505, SR-502 | OBJ07-J, OBJ14-J | T-MEM-01: `SecretBytesTest` (zeroed on close, use after close throws, `cloneThrows`), `SecretCharsTest`; T-PKG-01 (M7.3 row below) | M1, M7 | Implemented (M1, M7.3); residual R-003 |
+| TM-16 | SR-051, SR-016 | — | Semgrep CT-compare rule; `ConstantTimeTest`; `ConstantTimeReviewTest` (no short-circuit compare of secrets outside pm-crypto, planted compare detected); a wrong passphrase runs the full Argon2id (`VaultServiceTest.wrongPassphraseIsWrongCredential`) | M1 | Implemented (M1); the M7 manual timing measurement was not done |
+| TM-17 | SR-021, SR-507 | MSC05-J, SER12-J | T-FUZZ-VAULT: `EnvelopeFuzzTest`, `CborReaderFuzzTest`, `RecordCodecFuzzTest`; ArchUnit `ModuleBoundaryTest.noNativeSerialization` | M1 | Implemented (M1) |
+| TM-18 | SR-050 | — | — | — | Not in v1: there is no OS-keychain unlock (platform-matrix.md), so R-002 cannot arise |
+| TM-20 | SR-100, SR-101 | MET03-J, SEC02-J | ArchUnit `ModuleBoundaryTest.onlyTheEnvRunnerSpawnsProcesses`; T-IPC-01: `BrokerIpcTest.peerRunningAsAnotherUserIsDenied`, `.wrongTokenIsDeniedAndAudited`, `.stolenOldTokenIsUselessAfterRotation` | M2 | Implemented (M2); Windows reports no peer user, so the token and folder ACL are the checks there |
+| TM-21 | SR-102 | IDS07-J | T-ENV-01: `EnvRunnerTest.argvShownIsArgvExecutedWithoutShellExpansion`, `ApprovalDialogTest.promptShowsRequesterScopeAndEveryArgvElementOnItsOwnLine` | M2 | Implemented (M2) |
+| TM-22 | SR-103, SR-104 | — | T-POLICY-01: `EnvRunnerTest.variablesOutsideTheApprovedScopeAreRefused`, `ApprovalBrokerTest.row6SessionPolicyCoversSameScopeUntilLock`; T-POLICY-02: `ApprovalBrokerTest.approveOnceCannotBeReused`, `.row3ReplayedOrStaleRequestsAreRefused` | M2 | Implemented (M2) |
+| TM-23 | SR-112 | — | T-AUDIT-01: `AuditLogTest`, `AuditChainTest`, `AuditLogProcessTest` | M2, M7 | Implemented (M2, M7.12) |
+| TM-24 | SR-106 | FIO03-J | T-ENV-02: `EnvRunNoDiskWriteTest.envRunChangesNothingOnDiskButOneAuditEntry`; `tools/ci/env-run-trace.sh` under strace (CI, Linux) | M2 | Implemented (M2) |
+| TM-25 | SR-108 | FIO00-J, FIO16-J | T-IPC-02: `BrokerIpcTest.unsafeRunDirectoriesAreRefused`, `.linkedTokenFileIsRefused`, `.regularFileAtSocketPathIsRefused`, `.liveSocketIsLeftAloneAndStaleOneIsReplaced` | M2 | Implemented (M2) |
+| TM-26 | SR-111 | — | T-POLICY-03: `ApprovalBrokerTest.unansweredPromptTimesOutAsDeny`, `ApprovalDialogTest.anUnansweredPromptIsDeniedAfterTheTimeout` | M2 | Implemented (M2) |
 | TM-30 | SR-200, SR-201 | — | T-LAN-01, T-LAN-02 (CLI and TUI): `LanEndToEndTest.pairShareReceiveRevokeAndRefuseAnUnpairedPeer` (both screens show the same code; an unpaired vault is turned away), `LanEndToEndTest.aRejectedCodePinsNothing`, `LanScreensTest.pairShareReceiveAndRevokeBetweenTwoScreens`, `LanScreensTest.aRejectedCodePinsNothingAndADeniedShareSendsNothing`, `LanScreensTest.anAnswerOnlyReachesTheQuestionOnScreenAndASecondOneWaits`. M3.6 has no discovery: the user types the address and trust comes only from the confirmed ceremony | M3 | Implemented (M3.6) |
 | TM-31 | SR-201 | MSC00-J | T-LAN-02: `PairingTest` (pm-crypto), `TlsTest`, `PairingSessionTest` (relaying MITM gets different digits, forwarded MAC fails), `PairerTest` (loopback mutual TLS 1.3), `PairingSessionFuzzTest`; external review | M3 | Implemented (M3.1, M3.3); external review open |
 | TM-32 | SR-203 | — | T-LAN-04: `LockoutTest`, `PairerTest.failuresAreCountedAndTheThirdLocksPairing` | M3 | Implemented (M3.3) |
@@ -62,7 +65,7 @@ read tags, so the tag-to-row mapping is checked by review, not by the gate.
 | TM-52 | SR-308 | — | T-EXT-06 (`extension/test/manifest.test.js`) + `extension-permission-review.md` (M5.5) | M5.3 | Implemented (M5.3, M5.5) |
 | TM-52, TM-54 | SR-113 | IDS01-J, FIO13-J | T-EXT-08 (`BrowserApprovalTest`: exact origin, escape and lookalike rendering, origins of 56, 79, 88 and 254 characters shown whole and in order at 80x24 and 110x30 or denied, exact-fit and one-row-short, too-small and shrinking terminals deny, 64 wide characters wrapped by columns inside the border, once/deny keys only, peer line and unknown sender, approve once, deny, timeout, disconnect cancels; `BrowserRelayTest`: no TUI is `DENIED_LOCKED`, vault-derived socket path, the JDK's path limit bound at limit-1 and limit and refused at limit+1, a bind refused for length reported as path too long (never in use), no socket left behind, live socket and lock not stolen, stale socket replaced, default vault only, allowlist checked per request and again when the answer arrives (an extension taken off while its prompt waits gets `DENIED_AUTH`, nothing released, and the broker's `ALLOWED_ONCE` entry is followed by the relay's `DENIED_AUTH` entry for the same request ID), a password read from a slow vault while the extension is taken off is never sent (`DENIED_AUTH`, no `password` member, the refusal audited after the approval), the prompt names the claimed host instance, a header without a well-formed host instance closed unanswered, session approval does not cover another connection, one waiting prompt per host instance, lookup audit with origin and count, no audit no answer, burst refused and audited once, per-host and global buckets refill, header and write deadlines, host disconnect withdraws the prompt, `webauthn.create`/`webauthn.get` answered by the relay byte for byte like an unknown type for valid, partial and empty bodies, never encoded, no prompt; `BrowserApprovalTest`: an approval for an extension taken off the allowlist releases nothing and is audited as overruled with `DENIED_AUTH`, its prompt is never shown, an approval that arrives as the host goes releases nothing and is audited as overruled with `DENIED`; `PasskeyFreeHostTest`: the passkey-free host answers passkey requests byte for byte like an unknown type; `BrowserHostTest`: the production host answers valid, partial and empty `webauthn.create`/`webauthn.get` bodies byte for byte like an unknown type; `BrokerIpcTest`: live broker socket left alone, stale one replaced; `SocketApprovalHostTest`; `BrowserHostTest`) | M5.4 | Tested |
 | TM-51 | SR-114, SR-301 | FIO00-J, FIO01-J, FIO16-J | T-EXT-07 (`BrowserCommandsTest`: exact manifest and `0600`, idempotent, symlink, foreign owner, group-writable and foreign-manifest refusals with the allowlist untouched, launcher below a 0777 folder refused, a linked `Application Support/Google` leading to a 0777 folder and a 0777 `XDG_CONFIG_HOME` refused with nothing written, checkout launcher refused, absolute `XDG_CONFIG_HOME` on Linux, manifest behind a link not read, uninstall clears the allowlist, `uninstall --extension-id` removes that ID's manifests and entry, install A then B keeps both in `allowed_origins` and uninstall A leaves exactly B in the manifest, the allowlist and status, an ID another browser's manifest still allows stays allowlisted, each browser's manifest its own record (B installed in Chromium leaves out Chrome's A; `uninstall --browser chromium --extension-id A` then installing C in Chromium leaves A out of Chromium's manifest and Chrome's alone; the allowlist stays the union; a Chromium-wide uninstall takes off only the IDs Chromium alone allowed), every status state, the IDs each manifest allows and the allowlist, Windows writes nothing) | M5.4 | Tested |
-| TM-60 | SR-013 | — | T-KEY-02 | M1 | Planned |
+| TM-60 | SR-013 | — | T-KEY-02: `SlotCryptoTest.slotUuidSeparatesKeksFromTheSameInput`, `VaultServiceTest.createThenUnlockWithPassphraseThenWithRecoveryKey`, `PassphraseChangeTest` (re-wrapping the passphrase slot leaves the recovery slot working) | M1, M7 | Implemented (M1, M7.6) for the two v1 slots; no command removes a slot |
 | TM-61 | SR-017 | MSC02-J | ArchUnit `ModuleBoundaryTest.onlyCryptoUsesJca`. No class outside `pm.crypto` depends on `javax.crypto` or `java.security`, other than `Principal`. The M4 code is covered too: SSH keys and the agent live in `pm.crypto.ssh`, and breach SHA-1 goes through `pm.crypto.Hash` | M4 | Implemented (M4.5: the rule predates M4 and passes over all M4 code in the gate; this row said Planned) |
 | TM-61 | SR-060 | MSC03-J, FIO13-J | ArchUnit `onlyTheCliReachesSshKeys`, `SshKeyTest` | M4 | Implemented (M4.3) |
 | — | SR-061 | FIO00-J, FIO15-J, FIO16-J | `SshAgentClientTest` | M4 | Implemented (M4.3) |
@@ -72,17 +75,17 @@ read tags, so the tag-to-row mapping is checked by review, not by the gate.
 | — | SR-064 | ERR01-J | `SshKeyTest` | M4 | Implemented (M4.3) |
 | TM-61 (hostile key file or agent reply) | SR-062, SR-064 | IDS00-J, NUM00-J, MSC05-J | T-FUZZ-SSH: `OpenSshKeyFuzzTest` and `AgentReplyFuzzTest`. These check the exact documented code (an independent armour grammar and header model for key files; a differential agent-reply reference), bounded allocation (the agent ceiling tied to the 256 KiB frame limit), spec limits written in the harness, and a round trip. They include deterministic at-limit and one-past-limit tests (`limitsHoldAtAndJustPastTheirValues`: 64 KiB file, 4 KiB comment, 1,024/1,025 identities, 256 KiB frame ± 1). The M4.5 review's grammar oracle found lax base64 and a mid-line END accepted (fixed in `OpenSshFormat`, `SshKeyTest.refusesLaxBase64AndAnEndLineThatDoesNotStartALine`) and a FAILURE reply with trailing bytes accepted (fixed in `SshAgentClient`). Runs and planted-bug proofs are in `docs/security/fuzz/M4-fuzz-runs.md` | M4 | Implemented (M4.5) |
 | TM-70 | SR-074 | MSC00-J | T-HEALTH-01 (`BreachClientTest`, network capture) | M4 | Implemented (M4.2) |
-| TM-71 | SR-602 | — | T-UPD-01 | M7 | Planned |
-| TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01 | M1 | Planned |
-| TM-81 | SR-701, SR-702 | FIO02-J, ERR03-J | T-MIG-01 (MigrationTest, GoldenFixtureTest) | M7 | Planned |
-| TM-82 | SR-700, SR-703, SR-704 | FIO01-J, FIO02-J, ERR03-J | T-BKP-01 (VaultBackupsTest, BackupDirectoryTest) | M7 | Planned |
-| TM-81 | SR-105 | MSC05-J | T-FUZZ-ENV | M2 | Planned |
-| TM-82 | SR-110 | — | T-ENV-03 | M2 | Planned |
-| TM-90 | SR-600 | — | CI dependency verification + scan | M0 | Planned |
-| TM-91 | SR-601 | ENV01-J | CI reproducible build | M7 | Planned |
-| TM-92 | SR-800 | MSC03-J | CI gitleaks | M0 | Planned |
-| TM-93 | SR-801 | ENV05-J, ENV06-J | T-PKG-01 | M7 | Planned |
-| all | SR-900 | all | certReport | M0 | Planned |
+| TM-71 | SR-602 | — | — | — | Not in v1: pm has no updater; a release is downloaded by hand and checked against `SHA256SUMS`, which is not signed (R-008) |
+| TM-80 | SR-700 | IDS04-J, FIO16-J | T-BKP-01: `VaultBackupsTest`, `BackupFormatTest` (a backup is one file with no entries to escape; restore verifies it whole first) | M7 | Implemented (M7.2) |
+| TM-81 | SR-701, SR-702 | FIO02-J, ERR03-J | T-MIG-01 (MigrationTest, GoldenFixtureTest) | M7 | Implemented (M7.1) |
+| TM-82 | SR-700, SR-703, SR-704 | FIO01-J, FIO02-J, ERR03-J | T-BKP-01 (VaultBackupsTest, BackupDirectoryTest) | M7 | Implemented (M7.2) |
+| TM-81 | SR-105 | MSC05-J | T-FUZZ-ENV: `DotEnvFuzzTest` (seed corpus, oversized input refused up front), `DotEnvTest` | M2 | Implemented (M2) |
+| TM-82 | SR-110 | — | T-ENV-03: `EnvCommandsTest.exportNeedsPlaintextFlagAndNeverOverwrites`, `.importIntoAGitTreeWithoutAnIgnoreRuleWarns`, `.gitignoreRulesAreMatchedLikeGit` | M2 | Implemented (M2): export needs `--plaintext` and a new file and warns about a git working tree; it does not refuse git-tracked paths |
+| TM-90 | SR-600 | — | `gradle/verification-metadata.xml` (strict, checked by the CI dependency job); SBOM (T-PKG-02/03 below) | M0, M7 | Partly implemented: pinned and verified, SBOM ships; no vulnerability scan (OWASP Dependency-Check needs an NVD API key) |
+| TM-91 | SR-601 | ENV01-J | T-PKG-04 (row below) | M7 | Partly implemented: archives reproducible on one machine; installers unsigned (R-008); second builder pending |
+| TM-92 | SR-800 | MSC03-J | `gitleaksScan` in the gate and the CI secret-scan step | M0 | Implemented (M0) |
+| TM-93 | SR-801 | ENV05-J, ENV06-J | T-PKG-01 (M7.3 row below) | M7 | Implemented (M7.3) |
+| all | SR-900 | all | `certReport` (0 findings required) and `check` | M0 | Implemented (every phase) |
 
 ## M4 generation and health
 

@@ -1,36 +1,51 @@
 # passwordManager
 
-A local, offline password manager written in Java 21 with JPMS modules, built as a five-person
-class project. Secrets are stored in a single encrypted vault file: Argon2id stretches the
-passphrase, AES key wrap protects the vault key, and AES-256-GCM with a fresh per-save key
-encrypts the records (ADRs 0003 to 0008). You use it through a command-line interface (`pm`) and
-a Lanterna text UI. All Java must follow the SEI CERT Java rules in [RULES.md](RULES.md), and a
-Gradle gate enforces them.
+pm is a local, offline password manager written in Java 21 with JPMS modules, built as a
+five-person class project. It keeps logins, Wi-Fi networks, SSH keys and per-project environment
+variables in a single encrypted vault file. Argon2id stretches the passphrase, AES key wrap
+protects the vault key, and AES-256-GCM encrypts the records (ADRs 0003 to 0008). A secret leaves
+the vault only after you approve it, and every release is written to a hash-chained audit log
+first.
 
-The current milestone is **M1, local vault foundation**. M1 is not finished yet; see
-[Current state](#current-state).
+You use it through a command-line interface (`pm`), a full-screen Lanterna app, a Chrome-family
+browser extension, and LAN pairing and sharing between your own devices. There is no server, no
+account and no sync service. All Java follows the SEI CERT Java rules in [RULES.md](RULES.md), and
+a Gradle gate enforces them.
+
+**Version 1.0.0.** Milestones M0 to M7 of [plan.md](plan.md) are built; the plan and each phase's
+result are in [docs/plans/M2-M7.md](docs/plans/M2-M7.md). Start with the
+[user guide](docs/user-guide.md). [Release notes](docs/release/release-notes-1.0.0.md) list what
+v1 does and does not include (no passkeys, unsigned installers, Copy only on macOS).
 
 ## Module layout
 
-All modules live under `modules/` and are listed in `settings.gradle.kts`.
+All modules live under `modules/` and are listed in `settings.gradle.kts`. The six Tier 1
+modules are held at 100% branch coverage by `check`.
 
-| Module | JPMS name | Lane | Contents |
-| --- | --- | --- | --- |
-| `pm-crypto` | `pm.crypto` | A | `SecretBytes`/`SecretChars`, CSPRNG, Argon2id, HKDF, AES-KWP, AES-GCM, recovery key, `SafeLog`. The only module allowed to use JCA and Bouncy Castle. |
-| `pm-storage` | `pm.storage` | B | `VaultFileStore` (atomic writes, lock file, backups), `OwnerOnly` permissions |
-| `pm-vault` | `pm.vault` | C, D | `VaultService`, envelope, key slots (C); CBOR codec, record types, search (D) |
-| `pm-tui` | `pm.tui` | E | Lanterna UI: unlock, dashboard, search, add login, idle auto-lock |
-| `pm-cli` | `pm.cli` | E | `pm` entry point (`pm.cli.Main`) |
-| `pm-arch-tests` | | | ArchUnit rules: module boundaries, banned APIs, constant-time compares |
-| `pm-fuzz` | | D | Fuzz harnesses (placeholder) |
-| `pm-domain`, `pm-approval`, `pm-sharing`, `pm-browser`, `pm-platform-{macos,windows,linux}` | | | Placeholders for later milestones |
+| Module | Tier | Contents |
+| --- | --- | --- |
+| `pm-crypto` | 1 | `SecretBytes`/`SecretChars`, CSPRNG, Argon2id, HKDF, AES-KWP, AES-GCM, recovery key, TLS and Ed25519 helpers, SSH key parsing and the ssh-agent client, `SafeLog`. The only module allowed to use JCA and Bouncy Castle |
+| `pm-storage` | 1 | `VaultFileStore` (atomic writes, lock file, `.bak` rotation), backup folders, `OwnerOnly` permissions on POSIX and ACL file systems |
+| `pm-vault` | 1 | `VaultService`, envelope, key slots, passphrase change, format migration, backups, CBOR codec and record types |
+| `pm-approval` | 1 | Approval broker, grants and policies, hash-chained audit log, IPC between `pm env run` and the app |
+| `pm-sharing` | 1 | LAN pairing (TLS 1.3, SAS), one-time shares, the browser receiving page |
+| `pm-browser` | 1 | Native messaging host, origin binding and fill rules, relay to the app; passkey code is present but unreachable in v1 (ADR 0016) |
+| `pm-domain` | 2 | Password generator, health and breach checks, `.env` parsing, environment variables pm reads |
+| `pm-tui` | 2 | Lanterna app: unlock, dashboard, record cards, dialogs, approvals, devices, idle lock |
+| `pm-cli` | 2 | `pm` entry point (`pm.cli.Main`) and every command |
+| `pm-platform-macos` | 2 | macOS clipboard adapter (`pbcopy`/`pbpaste`) |
+| `pm-platform-linux`, `pm-platform-windows` | 2 | Empty in v1 |
+| `pm-arch-tests` | | ArchUnit rules: module tiers, banned APIs (JCA outside pm-crypto, serialization, process spawning outside the env runner and platform adapters), SSH key and passkey reach, constant-time compares |
+| `pm-fuzz` | | Fuzz harnesses for every parser that reads outside input, with seed replay in `check` |
 
-Module graph: `pm.cli -> pm.tui -> pm.vault -> {pm.crypto, pm.storage}`. `pm.crypto` requires
-`org.bouncycastle.provider`, and `pm.tui` requires `com.googlecode.lanterna`.
+`extension/` holds the browser extension (Manifest V3, `node --test` suite) and `tools/` the CERT
+rule packs, packaging and CI scripts.
 
-Key docs: [plan.md](plan.md) (product plan), [docs/plans/M1-team-sprint.md](docs/plans/M1-team-sprint.md)
-(lanes and frozen API contracts), [docs/adr/](docs/adr/), [docs/security/](docs/security/),
-[docs/security/cert-exceptions.md](docs/security/cert-exceptions.md) (every scanner suppression).
+Key docs: [plan.md](plan.md) (product plan), [docs/adr/](docs/adr/), [docs/security/](docs/security/)
+(threat model, requirements, traceability, risk register,
+[security review record](docs/security/security-review-record.md)),
+[docs/security/cert-exceptions.md](docs/security/cert-exceptions.md) (every scanner suppression),
+[docs/platform-matrix.md](docs/platform-matrix.md), [docs/release/packaging.md](docs/release/packaging.md).
 
 ## Prerequisites
 
@@ -50,28 +65,21 @@ If Gradle reports "Cannot find a Java installation ... languageVersion=21" (for 
 
 ## Build and gate
 
-The full gate (compile with `-Werror` and Error Prone, tests, PMD, SpotBugs with FindSecBugs,
-ArchUnit, 100% branch coverage on pm-crypto, Semgrep, then the CERT report):
+The full gate: compile with `-Werror` and Error Prone, tests, PMD, SpotBugs with FindSecBugs,
+ArchUnit, fuzz seed replay, the extension's Node tests, 100% branch coverage on the six Tier 1
+modules, Semgrep and the CERT report, then the gitleaks secret scan:
 
 ```sh
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
   -Dorg.gradle.java.installations.paths=/opt/homebrew/opt/openjdk@21 \
-  check certReport
+  check certReport gitleaksScan
 ```
 
 The report is written to `build/reports/cert-compliance.md` and also printed. A green gate shows
-`**Result: 0 findings.**` followed by `BUILD SUCCESSFUL`.
-
-`check` does not run the secret scan. Run it separately (CI runs it as its own step):
-
-```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
-  -Dorg.gradle.java.installations.paths=/opt/homebrew/opt/openjdk@21 gitleaksScan
-```
-
-`./gradlew verifyAll` runs `check`, `gitleaksScan` and `certReport` together, but it is red for the
-same pm-vault reason. To work on one module, run `./gradlew :modules:pm-crypto:check` (with the
-same JDK flags).
+`**Result: 0 findings.**`, `no leaks found` and `BUILD SUCCESSFUL`. `./gradlew verifyAll` runs the
+same three tasks. To work on one module, run `./gradlew :modules:pm-crypto:check` (with the same
+JDK flags). Release archives and installers are built by `./gradlew release`
+([packaging](docs/release/packaging.md)).
 
 ## Running the CLI
 
@@ -93,8 +101,8 @@ work for scripting and quick lookups.
 ### How it is launched
 
 There is no Gradle `application` plugin and no `run` task. The `pm-cli` module has an
-`installModules` task that copies the pm-cli jar and all of its runtime jars (pm-tui, pm-vault,
-pm-crypto, pm-storage, lanterna-3.1.3, bcprov-jdk18on-1.86) into `modules/pm-cli/build/modules`.
+`installModules` task that syncs the pm-cli jar and all of its runtime jars (the other pm modules,
+Lanterna and Bouncy Castle) into `modules/pm-cli/build/modules`.
 `scripts/pm` runs that task and then launches the CLI on the module path:
 
 ```sh
@@ -132,7 +140,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | `edit <item> [--title T] [--ssid S] [--security WPA2\|WPA3\|WEP\|OPEN] [--hidden \| --not-hidden] [--notes N] [--password \| --generate]` | Changes a Wi-Fi network the same way |
 | `rm <item> [--yes]` | Removes any item after you type `y` (or at once with `--yes`); for an SSH key it reminds you that `ssh-agent` keeps a loaded copy |
 | `wifi add <ssid> [--title T] [--security S] [--hidden] [--notes N]` | Adds a Wi-Fi network; the PSK is prompted twice (none for `OPEN`); security defaults to `WPA2` |
-| `tui` | Opens the full-screen Lanterna UI (unlock window, dashboard, search, add login, idle lock) |
+| `tui` | Opens the full-screen app, the same as `pm` with no command once the vault exists |
 | `generate [--length N] [--classes lower,upper,digits,symbols] [--exclude-ambiguous]` | Prints one random password on stdout and its entropy on stderr. Needs no vault and no terminal, so `pm generate \| pbcopy` works |
 | `generate --passphrase [--words N] [--separator C]` | Same, as a word passphrase |
 | `health [--max-age-days N]` | Reports weak, reused and old passwords by title only, offline |
@@ -226,97 +234,31 @@ Defined in `modules/pm-cli/src/main/java/pm/cli/ExitCodes.java`:
 | 10 | A LAN step did not complete: `pair` was not confirmed, failed or is locked out after repeated failures, a `share` window expired or was revoked (also when the target device was removed), or `receive` found no paired peer, was refused or got an item that did not match the offer. Nothing was pinned or applied |
 | 11 | The change was made (or the item sent) but its audit log entry could not be written: `passphrase`, `recover`, `pair`, a delivered `share`, `receive`, `revoke`. Do not retry the change |
 
-## Current state
+## Status and known limitations (1.0.0)
 
-All five lanes (A crypto, B storage, C vault core, D CBOR and records, E CLI and TUI) are
-implemented and merged. `init`, `add-login`, `list`, `search` and `tui` work against a real vault
-file. The full gate (`check certReport`, nothing excluded) is green with 0 findings.
+The full gate is green with 0 findings. CI (`.github/workflows/ci.yml`) is started by hand
+(`gh workflow run ci.yml --ref main`) and runs the gate on Ubuntu, macOS and Windows.
 
-| Module | Tests |
-| --- | --- |
-| pm-crypto | 147 |
-| pm-cli | 128 |
-| pm-storage | 59 |
-| pm-vault | 258 |
-| pm-tui | 57 |
-| pm-arch-tests | 15 |
-| pm-fuzz | 20 |
+What v1 does not do, and the risks it accepts, are recorded rather than hidden:
 
-Run commands that prompt from a real terminal. Under automation, use `expect`; plain
-`script -q /dev/null` works for `--help` but loses typed-ahead input.
+- No passkeys: pm does not act as a WebAuthn authenticator and stores no passkeys (ADR 0016, v1
+  addendum).
+- Installers are not signed or notarized (R-008). Check `SHA256SUMS`.
+- Copy in the app works on macOS only; a clipboard manager can keep its own copy (R-012).
+- Only macOS is exercised by hand; Windows and Linux rely on the CI matrix, and their native
+  installers have never been built ([platform matrix](docs/platform-matrix.md)).
+- Vaults with 1 GiB Argon2 memory need `PM_JAVA_OPTS=-Xmx1200m` (exit 7 otherwise; ADR 0007).
+- Lanterna 3.1.3 is pinned by checksum only: its signing key (94483BA5F4740C42) is not on any
+  public keyserver.
+- No dependency vulnerability scan runs: OWASP Dependency-Check needs an NVD API key that has not
+  been provisioned. Dependencies are pinned by checksum in `gradle/verification-metadata.xml`.
+- Process gaps (no branch protection, private vulnerability reporting off, no external review of
+  the LAN SAS, no real-browser test) are listed in the
+  [security review record](docs/security/security-review-record.md). Accepted risks are in the
+  [risk register](docs/security/risk-register.md).
 
-Lane B refuses a vault whose parent directory already exists and is readable by group or others,
-so `--vault ~/x.pmv init` with a 755 home directory exits 4 ("vault storage error"). Use a fresh
-subdirectory (B creates it owner-only), or the default path.
+## Contributing
 
-## Remaining work
-
-M1 sprint plan, Phase 3 and 4 (docs/plans/M1-team-sprint.md):
-
-- [ ] E3: `EndToEndTest` in pm-cli: init with the canary passphrase, add-login, list, reopen,
-      list, and a wrong passphrase gives exit 1. Then a manual terminal transcript of a real run.
-- [ ] Lane A: `ConstantTimeReviewTest` (M1.3). The wrong-passphrase full-Argon2 proof (A3b) is
-      already done at slot level.
-- [ ] CI `gate` job green on all three OSes (ubuntu-22.04, macos-14, windows-2022), including
-      Windows ACLs for `OwnerOnly`.
-
-Sign-off and setup:
-
-- [ ] Security owner signs off CE-001 to CE-005 in `docs/security/cert-exceptions.md`. All five
-      are "Pending security-owner sign-off".
-- [ ] `docs/security/milestone-signoff.md` gets an M1 section with `### A` through `### E`, one
-      written by each lane. Then tag `m1`, and tick M1 in `plan.md` §13.
-- [ ] Sprint Phase 0 leftovers: replace the `@TEAM-*` placeholders in `CODEOWNERS` with real
-      handles, and set ADRs 0002, 0003, 0004 and 0006 to Accepted (they are still Proposed).
-- [ ] Repo settings (admin only): disable squash merging
-      (`gh repo edit boostings/passwordManager --enable-squash-merge=false`; squash is still
-      enabled), and turn on branch protection on `main` (require a PR, the `gate (*)` checks and
-      one review).
-- [ ] Dependency-Check needs an NVD API key (user-only follow-up from M0).
-
-Known open items:
-
-- [ ] Lanterna 3.1.3 is pinned by checksum only. Its signing key (94483BA5F4740C42) is not on any
-      public keyserver, so the signature cannot be verified.
-- [ ] If `Session.close` throws while the TUI is locking, the exception escapes `TuiApp.run`, and
-      the CLI turns it into exit 5.
-- [ ] Refusing a symlinked `--vault` path belongs to Lane B (`VaultFileStore.open`, `NOFOLLOW_LINKS`).
-      The CLI does not check for it.
-- [ ] `pm list --help` prints the usage line and exits 0 instead of treating `--help` as a usage
-      error for `list`.
-- [ ] Vaults with 1 GiB Argon2 memory need `-Xmx1150m` or more (for example
-      `PM_JAVA_OPTS=-Xmx1200m scripts/pm ...`). `Kdf` refuses to run when
-      `memoryKiB * 1024 * 1.1` exceeds the free heap (ADR 0007).
-- [ ] Jacoco 100% branch coverage is enforced only for pm-crypto. The other Tier 1 modules have
-      the rule configured but not wired into `check` (post-sprint task).
-
-## Team workflow
-
-Lanes and file ownership (full table in
-[docs/plans/M1-team-sprint.md §0](docs/plans/M1-team-sprint.md)):
-
-| Lane | Area | Owns |
-| --- | --- | --- |
-| A | Crypto (also the security owner) | `modules/pm-crypto/**` |
-| B | Storage | `modules/pm-storage/**`, `CODEOWNERS` |
-| C | Vault core | `pm/vault/*.java`, `pm/vault/envelope/**`, `pm/vault/slot/**`, pm-vault build and module-info, `docs/schemas/vault-header.cddl` |
-| D | Records and CBOR | `pm/vault/cbor/**`, `pm/vault/record/**`, `modules/pm-fuzz/**`, `docs/schemas/records.cddl`, ADR 0006 |
-| E | CLI, TUI and integration | `modules/pm-cli/**`, `modules/pm-tui/**`, `gradle/verification-metadata.xml` |
-
-Rules:
-
-- Use one branch per PR, named `m1/<lane>/<topic>`. Never commit to `main`.
-- Commit messages use the format `M1.<phase> <lane>: <imperative summary>`, for example
-  `M1.2 A: implement AES-256-GCM seal/open`. Every commit compiles and passes the gate.
-- The gate must be green (`BUILD SUCCESSFUL` and `0 findings`) before you push. Paste its last
-  lines into the PR.
-- All Java (main, test and build code) must follow [RULES.md](RULES.md). Any CERT violation found
-  in review blocks the PR. Every scanner suppression needs a row in
-  [docs/security/cert-exceptions.md](docs/security/cert-exceptions.md).
-- **Never squash-merge.** Use rebase-merge or a merge commit so everyone's individual commits are kept.
-- Tier 1 modules (pm-crypto, pm-vault, pm-storage) need two approvals; other modules need one.
-  Reviewers work through `docs/security/code-review-checklist.md`.
-- Ask in chat before editing another lane's files. A change to a §2 contract is made by its owner
-  in a small PR, and everyone rebases on it.
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest (ADR-before-code, fuzz harness for every new
-  input, and what must never be committed).
+See [CONTRIBUTING.md](CONTRIBUTING.md): RULES.md compliance, ADR before code, a fuzz harness for
+every new input, a CERT exception row for every suppression, and the gate output in every PR.
+Security problems go through [SECURITY.md](SECURITY.md), not public issues.

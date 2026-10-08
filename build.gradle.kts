@@ -19,7 +19,7 @@ subprojects {
     apply(plugin = "jacoco")
 
     group = "pm"
-    version = "0.0.1-M0"
+    version = "1.0.0"
 
     java {
         toolchain { languageVersion.set(JavaLanguageVersion.of(21)) }

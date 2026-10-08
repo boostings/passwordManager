@@ -1,6 +1,6 @@
 package pm.platform.linux;
 
-/** Marker for the pm-platform-linux module so tooling has a class to analyze; removed when real code lands. */
+/** Marker for the pm-platform-linux module so tooling has a class to analyze (empty in v1). */
 public final class ModuleMarker {
     private ModuleMarker() {
     }

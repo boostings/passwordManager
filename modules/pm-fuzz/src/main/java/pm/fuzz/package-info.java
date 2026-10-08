@@ -1,2 +1,2 @@
-/** Placeholder package for pm-fuzz; populated from M1. */
+/** Empty main source set: the fuzz harnesses and their oracles live in the test source set. */
 package pm.fuzz;

@@ -32,9 +32,9 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21        # any JDK 21 with jmods/
 | `releaseSmoke` | runs `bin/pm --help` and the jpackage launcher under a pseudo-terminal, mounts the dmg and runs its launcher, and compares payload hashes (below) |
 
 `-Ppm.installers=false` skips the native installers (the dmg step alone takes about two minutes
-because jpackage lays out the Finder window). `-Ppm.packageVersion=1.2.3` sets the installer
-version: jpackage on macOS refuses a version whose first number is 0, so the default is `1.0.0`
-until the project version leaves 0.x. Archive names always use the project version.
+because jpackage lays out the Finder window). The installers carry the project version (1.0.0);
+`-Ppm.packageVersion=1.2.3` overrides it for the installers only (jpackage on macOS refuses a
+version whose first number is 0). Archive names always use the project version.
 
 `check` (and so the gate) runs only `releaseMetadataCheck` and the `jlinkImage` it needs (a few
 seconds; jlink and jmods ship with the pinned JDK 21 on every OS). No jpackage, installer or smoke

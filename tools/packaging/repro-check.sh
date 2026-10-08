@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reproducibility check for the release archives and SBOM (SR-601, docs/release/packaging.md).
+# Reproducibility check for the release archives and SBOM (T-PKG-04, SR-601, docs/release/packaging.md).
 #
 #   tools/packaging/repro-check.sh                 build twice from clean on this machine and compare
 #   tools/packaging/repro-check.sh <SHA256SUMS>    build once from clean and compare with another

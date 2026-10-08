@@ -1,37 +1,42 @@
-# Supported Platform Matrix
+# Supported Platform Matrix (v1)
 
-Legend: **S** supported (target for v1) · **C** conditional (works with stated
-caveat) · **U** unsupported in v1 · *spike* needs hands-on verification.
+Legend: **S** supported and exercised on that platform · **B** built for the platform and run by
+the CI matrix when it is dispatched, not exercised by hand · **C** conditional (works with the
+stated caveat) · **Not in v1** not built.
+
+Only macOS (arm64) is exercised by hand for v1. Windows and Linux are covered by the manually
+dispatched CI matrix (`ubuntu-22.04`, `macos-14`, `windows-2022`), which runs the full gate; the
+native installers for those systems have never been built (docs/release/packaging.md).
 
 | Capability | macOS 13+ (arm64/x64) | Windows 10/11 (x64/arm64) | Linux glibc (x64/arm64) |
 | --- | --- | --- | --- |
-| Bundled-runtime installer (`jpackage`) | S — `.dmg`/`.pkg`, signed + notarized | S — `.msi`, Authenticode | S — `.deb`, `.rpm`, tarball; detached sig |
-| TUI (Lanterna) in Terminal.app / iTerm / Windows Terminal / common Linux terminals | S | S (Windows Terminal; legacy conhost **C**: limited colors) | S |
-| Owner-only vault permissions | S (POSIX 0600/0700) | S (NTFS DACL via `AclFileAttributeView`) | S (POSIX) |
-| Atomic rename write | S | C — `Files.move(ATOMIC_MOVE)` works on NTFS; test on network drives is U | S |
-| OS keychain slot | S — Keychain Services via `security`-free JNA-less approach: *spike* (options: `KeychainAccess` through JNI-free `Foundation` bridge is not available in pure Java; likely needs a small signed helper or JNA) | S — DPAPI via `CryptProtectData` (needs JNA or a tiny native helper) *spike* | C — Secret Service D-Bus (GNOME Keyring/KWallet) via pure-Java D-Bus library; absent on headless systems |
-| FIDO2 `hmac-secret` slot | C — CTAP2 over USB HID needs a native HID library (`hidapi` via JNA) *spike*; macOS 14+ may require the Passkeys/ASAuthorization path for platform keys | C — Windows 10 1903+ routes FIDO2 through WebAuthn API (`webauthn.dll`), which supports `hmac-secret` for third-party apps *spike* | C — `hidapi` + udev rules |
-| Local IPC (approval broker) | S — Unix socket | S — named pipe | S — Unix socket |
-| mDNS discovery | S — JmDNS (pure Java) | S | S (avahi optional) |
-| TLS 1.3 mutual with Ed25519 certs | S (JDK 21) | S | S |
-| Native messaging host registration | S | S (HKCU registry) | S |
-| Chrome/Edge/Brave extension | S | S | S |
-| Firefox extension | S | S | S |
-| Safari extension | U for v1 (needs native app) | n/a | n/a |
+| Release archive with its own runtime (`.tar.gz`, `.zip`) | S | B — `bin/pm.bat` | B |
+| Native installer (`jpackage`) | C — `.dmg` and `.pkg` built and smoke-tested; **not signed or notarized** (R-008) | Not in v1 — `.msi` needs WiX 3 on a Windows host; never built | Not in v1 — `.deb`/`.rpm` need a Linux host; never built |
+| TUI (Lanterna) | S — Terminal.app, iTerm | B — Windows Terminal; legacy conhost **C**: limited colors | B |
+| Owner-only vault permissions | S — POSIX 0600/0700 | B — NTFS ACL via `AclFileAttributeView` | B — POSIX |
+| Atomic rename write | S | C — `ATOMIC_MOVE` on NTFS; network drives untested | B |
+| Local IPC (approval broker, browser relay) | S — Unix socket | C — AF_UNIX socket (Windows 10 1803+); the peer's user is not reported, so the folder ACL is the only check | B — Unix socket |
+| LAN pairing and sharing (TLS 1.3, Ed25519 certificates, 6-digit SAS) | S — address and port typed by hand; no discovery | B | B |
+| Native messaging host registration (`pm browser install`) | S — manifest written | C — prints the registry steps to do by hand | B — manifest written |
+| Chrome, Chromium, Edge, Brave extension (unpacked) | S — Node tests with fakes; no real-browser test (security-review-record.md) | B | B |
+| Firefox or Safari extension | Not in v1 | Not in v1 | Not in v1 |
 | Vault-backed browser passkeys | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
 | Passkey storage, import and export | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
 | Browser, OS and hardware-key passkeys keep working with pm installed | S (the extension does not touch WebAuthn) | S | S |
-| ssh-agent integration | S — `SSH_AUTH_SOCK` Unix socket | C — OpenSSH for Windows named pipe `\\.\pipe\openssh-ssh-agent`; Pageant U | S |
+| ssh-agent integration | S — `SSH_AUTH_SOCK` Unix socket, including the launchd agent | Not in v1 — Windows agents use named pipes (ADR 0013) | B — `SSH_AUTH_SOCK` Unix socket |
 | Clipboard copy and clear (TUI, SR-503) | S — `pbcopy`/`pbpaste`; cleared after 30 s (`PM_CLIPBOARD_CLEAR`), on lock and on quit | Not in v1 — Copy says the clipboard is unavailable; Reveal works | Not in v1 — same; X11/Wayland differences, and Wayland may block a programmatic clear |
-| Auto-lock on system sleep/lock | C — no pure-Java signal; poll uptime gap + idle timer *spike* | C — same | C — same |
-| Reproducible JARs + jlink image | S | S | S |
-| Reproducible installer | U by design (signatures) — contents verified instead | U | U |
+| Auto-lock after inactivity (5 min) | S | B | B |
+| Auto-lock on system sleep or screen lock | Not in v1 — idle timer only | Not in v1 | Not in v1 |
+| OS keychain unlock | Not in v1 | Not in v1 | Not in v1 |
+| FIDO2 `hmac-secret` unlock | Not in v1 | Not in v1 | Not in v1 |
+| Reproducible JARs, jlink image and archives | S — two clean builds compared (`repro-check.sh`) | B | B |
+| Reproducible installer | Not by design — contents compared with the image instead (`releaseSmoke`) | n/a | n/a |
 
 ## Terminal minimums
 80×24, 256-color preferred, 16-color fallback, no mouse required. Screen
-reader support is best-effort (Lanterna limitation) and documented.
+reader support is best-effort (Lanterna limitation).
 
-## CI runners (Phase 8)
-GitHub-hosted `macos-14`, `windows-2022`, `ubuntu-22.04`. Hardware-key and
-keychain integration tests run on self-hosted or manual lanes and are tagged
-`@Tag("hardware")` so hosted runners skip them without hiding the gap.
+## CI runners
+GitHub-hosted `macos-14`, `windows-2022`, `ubuntu-22.04`, dispatched by hand
+(`gh workflow run ci.yml`). No hardware-key or keychain lanes exist, because v1
+has neither feature.

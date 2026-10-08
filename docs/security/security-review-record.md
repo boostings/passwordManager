@@ -93,6 +93,12 @@ executed against a throwaway vault, not copied from help text.
   the permission review relies on are INFERRED ([extension-permission-review.md](extension-permission-review.md)).
 - **Unsigned releases.** There is no code signing, no notarization and no signed `SHA256SUMS`; the
   credentials do not exist on the build machine ([packaging.md](../release/packaging.md)).
+- **No dependency vulnerability scan.** OWASP Dependency-Check was never wired: the CI step only
+  printed a warning, and it needs an NVD API key that has not been provisioned. Dependencies are
+  pinned and checksum-verified, and an SBOM ships (M7.11).
+- **Requirements not built in v1** (found at M7.11, when every traceability row still marked
+  Planned was checked against the tree): SR-011, the master-passphrase strength rule (R-013, open);
+  SR-050, keychain unlock; SR-602, signed updates; the M7 manual timing measurement for SR-051.
 - **Windows and Linux are not exercised on this machine.** The CI matrix covers them when
   dispatched. Native installers for those systems were never built.
 
@@ -108,6 +114,7 @@ user should know about:
   manifest.
 - R-011: a same-user process can reach the browser relay socket. Every release still needs a
   prompt. Accepted.
+- R-013: no strength rule for the master passphrase (SR-011 not built). Open.
 - R-012: a password copied in the app is readable by every same-user program, and a clipboard
   manager can keep it, until pm clears it. Accepted; Copy is macOS-only in v1.
 - ADR 0008: known limitations of best-effort zeroing.

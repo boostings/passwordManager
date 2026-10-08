@@ -17,8 +17,9 @@ what runs where. To report a security problem, see [SECURITY.md](../SECURITY.md)
   Changed or truncated files are detected and refused. Someone who copies your vault file or a
   backup learns nothing without your passphrase or recovery key.
 - **Protected:** releases. A secret leaves the vault for a command, an ssh-agent, a browser page
-  or another device only after you say yes, either at a prompt or through a time-limited policy
-  you created. Each release is written to a hash-chained audit log first.
+  or another device only after you say yes: at a prompt, through a time-limited policy you
+  created, or by unlocking the vault to run that one command (`ssh add`, `ssh export`,
+  `env export`). Each release is written to a hash-chained audit log first.
 - **Not protected:** a machine that is already compromised. Malware running as you, or as an
   administrator, while the vault is unlocked can read what pm can read
   ([threat model](security/threat-model.md), R-001). Java also cannot promise that every copy of
@@ -60,7 +61,8 @@ command except `generate` prints `interactive terminal required` and exits with 
 pm
 ```
 
-On the first run pm asks for a new passphrase twice and creates the vault. It then prints the
+On the first run pm asks for a new passphrase twice and creates the vault. pm does not refuse a
+weak passphrase, so choose a long one: `pm generate --passphrase --words 6` makes one. It then prints the
 **recovery key once**. Write the key down and keep it offline, away from the machine. It is the
 only way back in if you forget the passphrase; nobody, the developers included, can recover a
 vault without one of the two. Press Enter, and the app opens at the unlock screen.

@@ -5,17 +5,21 @@
 **All Java in this repository must comply with [`RULES.md`](RULES.md)**, the
 SEI CERT Oracle Coding Standard for Java digest. This applies to production,
 test, and build code, and to code written by humans and by AI agents alike.
-Compliance is enforced by CI (`./gradlew check certReport`) and by review. A
-CERT violation identified in review is a blocking change request.
+Compliance is enforced by the gate (`./gradlew check certReport gitleaksScan`,
+also run by the manually dispatched CI workflow) and by review. A CERT violation
+identified in review is a blocking change request.
 
 Read `RULES.md` and [`docs/security/threat-model.md`](docs/security/threat-model.md)
 before your first change. See `plan.md` Part III for the enforcement program and
-the exception process. Never add a `@SuppressWarnings("cert:...")` without a
-ledger entry in `docs/security/cert-exceptions.md`.
+the exception process. Never add a suppression (`@SuppressWarnings("PMD...")`, a
+SpotBugs exclude, a `nosemgrep` comment) without a row in
+`docs/security/cert-exceptions.md` and its CE number next to the suppression.
 
 ## Workflow
 
-1. Branch from `main`. Direct pushes to `main` are blocked.
+1. Branch from `main` and open a pull request. Branch protection is not turned on
+   yet (see `docs/security/security-review-record.md`), so this is a rule, not a
+   setting: do not push to `main` directly.
 2. Any decision touching crypto, storage format, protocols, approvals, or trust
    boundaries needs an ADR in `docs/adr/` **before** code.
 3. Keep commits small; every commit compiles and passes tests.
@@ -25,10 +29,11 @@ ledger entry in `docs/security/cert-exceptions.md`.
    new inputs and their fuzz harness, secrets handled and how they are cleared,
    threat IDs addressed.
 6. Tier 1 modules (`pm-crypto`, `pm-vault`, `pm-storage`, `pm-approval`,
-   `pm-sharing`, `pm-browser`) require two approving reviews; everything else
-   requires one. `CODEOWNERS` routes this automatically.
+   `pm-sharing`, `pm-browser`) need two approving reviews; everything else
+   needs one. `CODEOWNERS` requests the reviewers; the count is enforced only
+   once branch protection is on.
 7. Run the full gate locally and paste its output in the PR before requesting
-   review.
+   review. Tier 1 modules must stay at 100% branch coverage; `check` fails below it.
 
 ## Project coding rules (superset of RULES.md)
 
@@ -39,8 +44,10 @@ ledger entry in `docs/security/cert-exceptions.md`.
 - No reflection on project classes; no `setAccessible(true)`.
 - No `System.exit()` outside `Main`. No `Thread.stop`, `ThreadGroup`, or
   finalizers.
-- All file I/O goes through `pm-storage`; all crypto through `pm-crypto`.
-- Log only through the project logger, which redacts and refuses secrets.
+- Vault, backup and audit-log I/O goes through `pm-storage`; any other file pm
+  writes is created owner-only and never overwritten. All crypto goes through
+  `pm-crypto`.
+- Log only through `pm.crypto.log.SafeLog`, which redacts and refuses secrets.
 - Canonicalize paths before validating them. Treat environment variables and
   config values as untrusted input.
 
@@ -52,5 +59,6 @@ data must be obviously fake.
 
 ## Commit messages
 
-Imperative subject line under 72 characters. For work executed against
-`docs/plans/M0.md`, include the phase number.
+For work executed against a plan in `docs/plans/`, start the subject with the
+phase number and lane letter (for example `M7.8 E: ...`) and tick the phase in
+the plan with a one-line result.

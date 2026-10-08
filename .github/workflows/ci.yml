@@ -65,5 +65,5 @@ jobs:
         with: { distribution: temurin, java-version: '21' }
       - name: Dependency verification metadata must be present and strict
         run: test -f gradle/verification-metadata.xml && grep -q '<verify-metadata>true</verify-metadata>' gradle/verification-metadata.xml
-      - name: OWASP Dependency-Check
-        run: ./gradlew --no-daemon dependencyCheckAggregate || echo "::warning::dependencyCheck task not yet wired (Phase 8 follow-up)"
+      - name: OWASP Dependency-Check (not wired in v1)
+        run: echo "::warning::No dependency vulnerability scan ran. OWASP Dependency-Check needs an NVD API key that has not been provisioned (README, Status and known limitations)."
