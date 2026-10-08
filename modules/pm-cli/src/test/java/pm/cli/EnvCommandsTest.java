@@ -8,9 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
@@ -213,6 +217,57 @@ class EnvCommandsTest {
     }
 
     @Test
+    void anExportRefusedByTheAuditLogSaysWhy() throws IOException, UsageException {
+        // m712-002/-003/-004: each audit failure is named; only a plain I/O error keeps the generic text.
+        addProject();
+        Files.writeString(repo.resolve(".gitignore"), "*.env\n", StandardCharsets.UTF_8);
+        assertEquals(ExitCodes.OK, run(unlocking(), "env", "import", envFile("in.env", "A=1\n").toString()));
+        Path log = vaultDir().resolve(EnvCommands.AUDIT_FILE);
+        Path head = vaultDir().resolve(EnvCommands.AUDIT_FILE + ".head");
+        assertEquals(ExitCodes.OK, run(unlocking(), "env", "export", repo.resolve("1.env").toString(), "--plaintext"));
+        assertEquals(ExitCodes.OK, run(unlocking(), "env", "export", repo.resolve("2.env").toString(), "--plaintext"));
+        Files.writeString(log, Files.readAllLines(log, StandardCharsets.US_ASCII).get(0) + "\n",
+                StandardCharsets.US_ASCII); // the last entry cut off
+        String broken = exportRefused();
+        assertEquals(UsageException.brokenLog(1), broken);
+        assertTrue(broken.startsWith("audit log tampered or truncated after entry 1,"), broken);
+
+        Path archive = Files.createDirectory(tmp.resolve("archive")).resolve(EnvCommands.AUDIT_FILE);
+        Files.move(log, archive); // only the log, not its head
+        assertEquals(UsageException.brokenLog(0), exportRefused());
+        assertFalse(Files.exists(log), "no empty log that a second 'mv' could put over the archive");
+
+        Files.delete(head);
+        Files.createDirectory(log);
+        assertEquals(Messages.AUDIT_UNAVAILABLE.text(), exportRefused(), "a plain I/O failure");
+        Files.delete(log);
+        Files.writeString(log, "", StandardCharsets.US_ASCII); // the umask's mode, readable by others
+        Files.setPosixFilePermissions(log, mode("rw-r--r--"));
+        assertEquals(Messages.AUDIT_UNSAFE.text(), exportRefused());
+        Files.setPosixFilePermissions(log, PosixFilePermissions.fromString("rw-------"));
+        try (FileChannel channel = FileChannel.open(log, StandardOpenOption.WRITE)) {
+            channel.write(ByteBuffer.wrap(new byte[] {'\n'}), AuditLog.MAX_FILE_BYTES); // sparse
+        }
+        assertEquals(Messages.AUDIT_TOO_LARGE.text(), exportRefused());
+        Files.writeString(log, "", StandardCharsets.US_ASCII);
+        try (FileChannel channel = FileChannel.open(log, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                FileLock held = channel.lock()) {
+            assertTrue(held.isValid());
+            assertEquals(Messages.AUDIT_BUSY.text(), exportRefused(), "after waiting AuditLog.LOCK_WAIT");
+        }
+        assertEquals(ExitCodes.OK, run(unlocking(), "env", "export", repo.resolve("3.env").toString(), "--plaintext"));
+    }
+
+    /** Runs an export the audit log refuses and returns what the user was told. */
+    private String exportRefused() {
+        Path out = repo.resolve("refused.env");
+        FakeConsoleIo io = unlocking();
+        assertEquals(ExitCodes.USAGE, run(io, "env", "export", out.toString(), "--plaintext"), io::errText);
+        assertFalse(Files.exists(out), "no audit, no export");
+        return io.errText().strip();
+    }
+
+    @Test
     void noProjectForTheDirectoryIsAUsageError() throws IOException {
         FakeConsoleIo io = new FakeConsoleIo().secret(UNLOCK_PHRASE);
         assertEquals(ExitCodes.USAGE, run(io, "env", "list"));
@@ -377,5 +432,10 @@ class EnvCommandsTest {
         assertFalse(GitGuard.matches("/out", Path.of("a/out/x.env")), "anchored at the ignore file's directory");
         assertFalse(GitGuard.matches(".env", Path.of(".env.example")));
         assertEquals(root, root.resolve("x").getParent());
+    }
+
+    /** A mode from its text; the audit log tests need a loose one on purpose. */
+    private static java.util.Set<java.nio.file.attribute.PosixFilePermission> mode(String mode) {
+        return PosixFilePermissions.fromString(mode);
     }
 }

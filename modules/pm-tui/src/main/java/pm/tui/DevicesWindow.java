@@ -540,7 +540,7 @@ final class DevicesWindow implements InputForm {
         List<String> rotate = Devices.sharedWith(session, device).stream().map(DevicesWindow::itemLine).toList();
         String name = DisplaySafe.text(device.title());
         if (!audit("revoke", device.title(), "REMOVED")) {
-            notice.error(AUDIT_FAILED, clock.instant());
+            notice.error(controller.host().auditFailure(AUDIT_FAILED), clock.instant());
             return;
         }
         byte[] key = device.rawPublicKey();

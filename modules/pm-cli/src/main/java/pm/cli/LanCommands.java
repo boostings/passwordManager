@@ -702,7 +702,8 @@ final class LanCommands {
         try {
             append(vaultPath, kind, subject, decision, program);
         } catch (AuditException e) {
-            throw new UsageException(ifFailed);
+            // A plain I/O failure keeps the caller's text; a broken, busy or unsafe log says so.
+            throw e.code() == AuditException.Code.IO ? new UsageException(ifFailed) : UsageException.audit(e);
         }
     }
 

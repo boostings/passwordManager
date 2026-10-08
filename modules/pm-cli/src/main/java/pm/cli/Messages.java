@@ -51,6 +51,12 @@ enum Messages {
     RECEIVED_AUDIT_FAILED("the item was received and saved, but its audit log entry could not be written"),
     REVOKED_AUDIT_FAILED("the share was revoked, but its audit log entry could not be written"),
     REMOVE_AUDIT_UNAVAILABLE("the audit log could not be written, so the device was not removed"),
+    AUDIT_BROKEN("audit log tampered or truncated after entry "),
+    AUDIT_BROKEN_ARCHIVE(", so nothing was done; to start a new log, quit pm and move audit.log and"
+            + " audit.log.head together into an archive folder"),
+    AUDIT_BUSY("the audit log is in use by another pm process; try again"),
+    AUDIT_UNSAFE("audit log is a link or is readable by other users, so nothing was done"),
+    AUDIT_TOO_LARGE("audit log is too large, so nothing was done; archive it with its .head file"),
     NO_SUCH_DEVICE("no paired device has this name or fingerprint; 'pm devices' lists them"),
     AMBIGUOUS_DEVICE("more than one paired device has this name; give its fingerprint instead"),
     NO_SUCH_ITEM("no item has this title; 'pm list' shows them"),

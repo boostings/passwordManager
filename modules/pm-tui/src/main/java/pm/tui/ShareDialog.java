@@ -245,7 +245,7 @@ final class ShareDialog implements InputForm {
             return;
         }
         if (!audit("approval", "ALLOWED_ONCE")) {
-            notice.error(AUDIT_FAILED, clock.instant());
+            notice.error(controller.host().auditFailure(AUDIT_FAILED), clock.instant());
             return;
         }
         SendWindow window;
@@ -297,7 +297,7 @@ final class ShareDialog implements InputForm {
     @SuppressWarnings("PMD.CloseResource") // CE-035: watch closes the window when it ends
     private void sendToBrowser(Duration ttl) {
         if (!audit("approval", "ALLOWED_ONCE")) {
-            notice.error(AUDIT_FAILED, clock.instant());
+            notice.error(controller.host().auditFailure(AUDIT_FAILED), clock.instant());
             return;
         }
         BrowserWindow window;

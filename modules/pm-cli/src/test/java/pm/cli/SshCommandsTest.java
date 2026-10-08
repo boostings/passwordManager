@@ -352,6 +352,19 @@ class SshCommandsTest {
     }
 
     @Test
+    void anExportRefusedByABrokenAuditLogSaysWhereItBroke() throws IOException, UsageException {
+        // m712-002: the specific reason, with the last intact entry, instead of the generic text.
+        imported();
+        Path log = java.util.Objects.requireNonNull(vaultPath().getParent()).resolve(AuditLog.FILE_NAME);
+        Files.writeString(log, "not a log\n", StandardCharsets.US_ASCII);
+        Files.setPosixFilePermissions(log, PosixFilePermissions.fromString("rw-------"));
+        FakeConsoleIo io = unlocking();
+        assertEquals(ExitCodes.USAGE, run(io, "ssh", "export", TITLE, "out_key"));
+        assertEquals(UsageException.brokenLog(0), io.errText().strip());
+        assertFalse(Files.exists(work.resolve("out_key")), "no audit, no export");
+    }
+
+    @Test
     void aFailedExportIsAuditedAsFailed() throws IOException, UsageException {
         imported();
         Path locked = Files.createDirectory(work.resolve("ro"),

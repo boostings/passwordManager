@@ -211,7 +211,7 @@ final class Cli {
         try {
             return dispatch(args, io, opener, terminal);
         } catch (UsageException e) {
-            io.err().println(e.reason().text());
+            io.err().println(e.text());
             return ExitCodes.USAGE;
         } catch (VaultException e) {
             io.err().println(ExitCodes.messageFor(e).text());

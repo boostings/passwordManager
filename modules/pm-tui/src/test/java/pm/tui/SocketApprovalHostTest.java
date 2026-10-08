@@ -5,9 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.util.Map;
@@ -15,9 +19,11 @@ import java.util.Optional;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import pm.approval.AuditEvent;
 import pm.approval.AuditLog;
 import pm.approval.ipc.RunDir;
 import pm.domain.env.Env;
+import pm.vault.record.LoginRecord;
 
 /** The TUI's broker: served only while unlocked, nothing left behind on exit, no broker on a bad log. */
 class SocketApprovalHostTest {
@@ -49,6 +55,69 @@ class SocketApprovalHostTest {
         }
         assertFalse(Files.exists(run.resolve(RunDir.AUTH_FILE)));
         assertFalse(Files.exists(run.resolve(RunDir.SOCKET)));
+    }
+
+    @Test
+    void aRefusedAuditEntryIsShownWithTheLogsOwnReason() throws IOException {
+        // m712-002/-003: share and device notices name a broken or busy log; a plain I/O error keeps
+        // the caller's own text.
+        Env env = env();
+        Path log = tmp.resolve(AuditLog.FILE_NAME);
+        String fallback = ShareDialog.AUDIT_FAILED;
+        try (ApprovalHost host = ApprovalHost.socket(tmp, env, Clock.systemUTC(), "alice")) {
+            assertTrue(host.audit(AuditEvent.of("share")));
+            assertEquals(fallback, host.auditFailure(fallback));
+            Files.writeString(log, "not a log\n", StandardCharsets.US_ASCII);
+            assertFalse(host.audit(AuditEvent.of("share")));
+            assertEquals("audit log tampered or truncated after entry 0", host.auditFailure(fallback));
+            Files.delete(log);
+            Files.createDirectory(log);
+            assertFalse(host.audit(AuditEvent.of("share")));
+            assertEquals(fallback, host.auditFailure(fallback), "a plain I/O failure");
+            Files.delete(log);
+            Files.delete(tmp.resolve(AuditLog.FILE_NAME + ".head"));
+            assertTrue(host.audit(AuditEvent.of("share")), "a new log after both files were archived");
+            try (FileChannel channel = FileChannel.open(log, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                    FileLock held = channel.lock()) {
+                assertTrue(held.isValid());
+                assertFalse(host.audit(AuditEvent.of("share")), "after waiting AuditLog.LOCK_WAIT");
+                assertEquals("the audit log is in use by another pm process; try again", host.auditFailure(fallback));
+            }
+            assertTrue(host.audit(AuditEvent.of("share")));
+            assertEquals(fallback, host.auditFailure(fallback), "a success clears the last reason");
+        }
+        assertEquals(fallback, ApprovalHost.none().auditFailure(fallback));
+    }
+
+    @Test
+    void theShareDialogNamesABrokenLogAndSharesNothing() throws IOException {
+        Env env = env();
+        Path log = Files.createFile(tmp.resolve(AuditLog.FILE_NAME),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        Files.writeString(log, "not a log\n", StandardCharsets.US_ASCII);
+        try (TuiHarness h = new TuiHarness(new FakeVaultPort("share passphrase", "share recovery"),
+                ApprovalHost.socket(tmp, env, Clock.systemUTC(), "alice"))) {
+            h.controller.useLanBind(InetAddress.getLoopbackAddress());
+            h.unlockWith("share passphrase");
+            h.controller.openShare(firstLogin(h));
+            h.pump();
+            ShareDialog share = h.controller.shownForm(ShareDialog.class);
+            share.press(ShareDialog.BROWSER);
+            h.pump();
+            share.press(ShareDialog.APPROVE);
+            h.pump();
+            assertTrue(h.screenText().contains("audit log tampered or truncated after entry 0"), h::screenText);
+            assertFalse(h.screenText().contains(ShareDialog.AUDIT_FAILED),
+                    "the specific reason replaces the generic one");
+            assertFalse(share.windowOpen(), "no audit, no share");
+            h.controller.lock();
+        }
+    }
+
+    @SuppressWarnings("PMD.CloseResource") // CE-035: records are the fake session's
+    private static LoginRecord firstLogin(TuiHarness h) {
+        return h.port.last().records().stream().filter(LoginRecord.class::isInstance)
+                .map(LoginRecord.class::cast).findFirst().orElseThrow();
     }
 
     @Test

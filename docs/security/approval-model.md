@@ -137,8 +137,16 @@ no run.
 
 Append-only file `audit.log` in the vault directory, 0600, one CBOR entry per
 line (base64), hash-chained. The TUI's broker and CLI commands write the same file through
-`AuditLog.append`, which holds an exclusive file lock while it re-verifies the chain and appends,
-so concurrent writers cannot fork the chain:
+`AuditLog.append`, often from separate processes (and vaults in one folder share one log). Each
+writer holds an exclusive lock on `audit.log` from reading the chain to replacing
+`audit.log.head`, and reads and writes the log only through the locked descriptor: on POSIX
+systems the lock belongs to the process and is dropped as soon as the process closes *any*
+descriptor of the file. `AuditLog.check` reads under a shared lock, and the threads of one
+process take turns on top of the file lock. So concurrent writers cannot fork the chain (SR-150).
+Both the file lock and the per-process turn are polled, never awaited without end: a caller that
+has not got them after 10 s (`AuditLog.LOCK_WAIT`, for example because another pm process was
+stopped with Ctrl-Z in the middle of an append) writes nothing and reports
+"the audit log is in use by another pm process; try again" (`BUSY`, SR-158):
 
 ```cddl
 audit-entry = {
@@ -153,11 +161,63 @@ audit-entry = {
 Entry `seq`/`prev` chain is verified on open; a break is reported to the user
 as "audit log tampered or truncated after entry N". A chain cannot notice entries
 cut from the end, so a 0600 sidecar `audit.log.head` holds the last `seq` and
-its SHA-256 after each append (it may lag the log by one entry after a crash,
-never lead it). A same-user process can rewrite both files; the log detects
+its SHA-256 after each append (it may lag the log by one entry, never lead it).
+A same-user process can rewrite both files; the log detects
 accidents and naive edits, not a same-user attacker (threat model T-12). No Secret-class field is
 ever written (`data-classification.md`); full argv is excluded because
 arguments may embed secrets.
+
+An append is all or nothing (SR-159). If writing the entry, flushing it or
+replacing the head fails (a full disk can refuse the head's new file while the
+short log line still fits), the writer cuts the log back to its length before
+the append and flushes it, still under the lock, and the operation is refused
+with the I/O message: a refused operation leaves no entry. Only if that cut fails
+too, or the process dies between the entry and the head, does the entry stay
+with the head one behind; the next append first brings such a head up to date
+(and writes nothing if it cannot), so the head never falls two behind and a
+retry after the disk has room again succeeds.
+
+**What the user sees.** The CLI prints the reason on standard error and exits 2:
+"audit log tampered or truncated after entry N, so nothing was done; ..." for a
+break, the `BUSY` text above, "audit log is a link or is readable by other users,
+so nothing was done", "audit log is too large, so nothing was done; archive it
+with its .head file", and the command's own generic text (such as "the audit log
+could not be written, so nothing was exported") only for a plain I/O failure
+(`env run` without a broker, `env export`, `ssh add`, `ssh export`, `share`,
+`devices remove`; SR-160). Where the change is already made when its entry is
+written (`pair`, a delivered or closed share, `receive`, `revoke`, `passphrase`,
+`recover`), the command instead says what did happen ("the item was received and
+saved, but its audit log entry could not be written") and exits 11 (SR-134). The
+TUI's share and Devices screens show the log's own message in their notice line
+in the same cases. Two TUI paths still show only a generic text: sending an SSH
+key to the agent ("The audit log could not be written, so the key was not sent.")
+and broker start-up, which on a broken or busy log silently runs without a
+broker, so `pm env run` falls back to the CLI path and prints the CLI message.
+
+**When the log reports a break.** pm never repairs the log, because it
+cannot tell an accident from an edit. While the chain is broken, every
+append fails, so the broker denies requests (the TUI does not start its
+broker on a broken log), and CLI commands that must be audited stop (`env export`, for example, exports
+nothing and exits 2). Pre-release builds before M7.12 released
+the lock early (they re-read the log through a second descriptor), so two
+writers at the same moment could append two entries with the same `seq` and
+`prev`. Such a fork is reported like any other break, as "audit log tampered
+or truncated after entry N", N being the last entry before the duplicate.
+pm does not decide whether that was a fork or tampering: the user does, by
+reading the file (the two lines after entry N decode to the same `seq` and
+`prev`). To start a new log, in this order:
+
+1. Quit every pm process that uses vaults in that folder (TUI and CLI).
+2. Move `audit.log` **and** `audit.log.head` out of the folder together into a
+   new, dated archive folder, without overwriting anything there (for example
+   `mkdir audit-2026-10-06 && mv -n audit.log audit.log.head audit-2026-10-06/`).
+   Keep them as evidence; do not edit them. Moving only `audit.log` is reported
+   as truncation after entry 0, because the head still names the old last entry;
+   pm then creates no new `audit.log` (SR-150), so moving the head afterwards
+   loses nothing.
+3. The next audited operation starts a new chain at entry 1.
+
+A log over 64 MiB (`TOO_LARGE`) is archived the same way.
 
 ## 8. Failure modes
 

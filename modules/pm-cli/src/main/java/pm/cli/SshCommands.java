@@ -299,7 +299,7 @@ final class SshCommands {
                     Optional.of(requester), Optional.ofNullable(properties.apply("user.name")), Optional.empty(),
                     Optional.empty(), 1, Optional.of(decision), Optional.of(target + " " + fingerprint)));
         } catch (AuditException e) {
-            throw new UsageException(Messages.AUDIT_UNAVAILABLE);
+            throw UsageException.audit(e);
         }
     }
 

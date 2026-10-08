@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -21,6 +22,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import pm.approval.AuditLog;
 import pm.crypto.Argon2Params;
 import pm.domain.env.Env;
 import pm.tui.lan.BrowserWindow;
@@ -124,6 +126,21 @@ class LanCommandsTest {
         }
         assertFalse(out.contains(Messages.BROWSER_URL.text()), "no link without approval");
         assertFalse(out.contains(LOGIN_SECRET) || io.errText().contains(LOGIN_SECRET));
+        assertTrue(markers().isEmpty(), "no share id was issued");
+    }
+
+    @Test
+    void anApprovedShareRefusedByABrokenAuditLogSaysWhereItBrokeAndOpensNothing() throws IOException {
+        // m712-002: the user is told the log is broken and after which entry, not just that it failed.
+        Path log = Files.createFile(vault.resolveSibling(AuditLog.FILE_NAME),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        Files.writeString(log, "not a log\n", StandardCharsets.US_ASCII);
+        FakeConsoleIo io = unlocking().line(LanCommands.CONFIRM);
+        assertEquals(ExitCodes.USAGE, run(io, "share", "GitHub", "--browser", "--bind",
+                InetAddress.getLoopbackAddress().getHostAddress()), io::errText);
+        assertEquals(UsageException.brokenLog(0), io.errText().strip());
+        assertTrue(io.errText().startsWith("audit log tampered or truncated after entry 0,"), io::errText);
+        assertFalse(io.outText().contains(Messages.BROWSER_URL.text()), "no audit, no share");
         assertTrue(markers().isEmpty(), "no share id was issued");
     }
 

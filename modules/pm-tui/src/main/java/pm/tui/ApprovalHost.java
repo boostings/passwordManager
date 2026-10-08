@@ -47,6 +47,15 @@ public interface ApprovalHost extends AutoCloseable {
     }
 
     /**
+     * What to show after {@link #audit} returned false: the log's own message when it is tampered,
+     * cut, busy, unsafe or too large (approval-model §7), else {@code fallback}, the caller's text
+     * for a plain read or write failure.
+     */
+    default String auditFailure(String fallback) {
+        return fallback;
+    }
+
+    /**
      * The LAN state every pm process of this vault must see: removed-device markers next to the
      * vault file and the pairing lockout in the run directory (M3.6, lan-share.md §8.1).
      *

@@ -16,6 +16,8 @@ public final class AuditException extends Exception {
         UNSAFE_FILE,
         /** The log is larger than {@link AuditLog#MAX_FILE_BYTES}. */
         TOO_LARGE,
+        /** Another pm process held the log for longer than {@link AuditLog#LOCK_WAIT}; nothing was written. */
+        BUSY,
         /** Reading or writing failed. */
         IO
     }
@@ -30,6 +32,9 @@ public final class AuditException extends Exception {
         if (cause != null) {
             // Keep the type only: messages of I/O errors carry paths.
             addSuppressed(new Exception(cause.getClass().getName()));
+            for (Throwable also : cause.getSuppressed()) {
+                addSuppressed(new Exception(also.getClass().getName())); // such as a rollback that failed too
+            }
         }
     }
 
@@ -49,6 +54,7 @@ public final class AuditException extends Exception {
             case TAMPERED, TRUNCATED -> "audit log tampered or truncated after entry " + lastGood;
             case UNSAFE_FILE -> "audit log is a link or is readable by other users";
             case TOO_LARGE -> "audit log is too large; archive it";
+            case BUSY -> "the audit log is in use by another pm process; try again";
             case IO -> "audit log could not be read or written";
         };
     }

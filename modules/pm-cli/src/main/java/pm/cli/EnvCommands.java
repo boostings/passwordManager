@@ -488,7 +488,7 @@ final class EnvCommands {
         try {
             AuditLog.append(dir.resolve(AUDIT_FILE), clock, event);
         } catch (AuditException e) {
-            throw new UsageException(Messages.AUDIT_UNAVAILABLE);
+            throw UsageException.audit(e);
         }
     }
 

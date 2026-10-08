@@ -55,6 +55,8 @@ final class SocketApprovalHost implements ApprovalHost {
     private BrokerServer server;
     private BrowserRelay relay;
     private Optional<String> note;
+    /** The log's message for the last failed {@link #audit}; empty after a success or a plain I/O failure. */
+    private Optional<String> lastAuditFailure = Optional.empty();
 
     SocketApprovalHost(Path vaultDir, Env env, Clock clock, String osUser, Optional<Path> vaultFile,
             boolean defaultVault) {
@@ -117,10 +119,18 @@ final class SocketApprovalHost implements ApprovalHost {
     public boolean audit(AuditEvent event) {
         try {
             AuditLog.append(vaultDir.resolve(AuditLog.FILE_NAME), clock, event);
+            lastAuditFailure = Optional.empty();
             return true;
         } catch (AuditException e) {
+            lastAuditFailure = Optional.of(e).filter(f -> f.code() != AuditException.Code.IO)
+                    .map(AuditException::userMessage);
             return false;
         }
+    }
+
+    @Override
+    public String auditFailure(String fallback) {
+        return lastAuditFailure.orElse(fallback);
     }
 
     @Override
