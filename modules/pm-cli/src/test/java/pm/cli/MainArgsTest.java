@@ -498,6 +498,9 @@ class MainArgsTest {
         m.put(VaultException.Code.LOCKED, 4);
         m.put(VaultException.Code.STORAGE, 4);
         m.put(VaultException.Code.INSUFFICIENT_MEMORY, 7);
+        m.put(VaultException.Code.CONFLICT, 4);
+        m.put(VaultException.Code.PASSPHRASE_CHANGED_UNCONFIRMED, 4);
+        m.put(VaultException.Code.PASSPHRASE_CHANGE_UNKNOWN, 4);
         return m;
     }
 

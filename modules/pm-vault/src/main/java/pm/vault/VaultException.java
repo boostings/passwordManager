@@ -28,7 +28,28 @@ public final class VaultException extends Exception {
          * The vault and the credential may both be fine; the fix is a larger {@code -Xmx}, so
          * this is never reported as {@link #CORRUPT}.
          */
-        INSUFFICIENT_MEMORY
+        INSUFFICIENT_MEMORY,
+        /**
+         * A save, or a passphrase change, was refused and nothing was written: the vault file is
+         * not the one this vault last read or wrote (another vault over the same file saved since,
+         * or the file is no longer a vault this build reads), and writing would silently undo that
+         * other save (SR-151). Lock this vault and unlock again to work on the file as it is now.
+         */
+        CONFLICT,
+        /**
+         * A passphrase change failed, but the file on disk holds the new passphrase slot: the new
+         * passphrase and the recovery key open it, the old passphrase does not. The write could not
+         * be confirmed; the cause is the failure. The vault stays open and holds the header that is
+         * on disk, so its later saves keep the new passphrase (SR-152).
+         */
+        PASSPHRASE_CHANGED_UNCONFIRMED,
+        /**
+         * A passphrase change failed, and the file could not be read back or holds neither the old
+         * nor the new passphrase slot, so which passphrase opens it is unknown; the cause is the
+         * failure. A change never alters the recovery slot, so the recovery key opens the file as
+         * long as it is a file this vault wrote (SR-152).
+         */
+        PASSPHRASE_CHANGE_UNKNOWN
     }
 
     private final Code failure;

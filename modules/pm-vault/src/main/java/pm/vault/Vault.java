@@ -5,12 +5,14 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import pm.crypto.Aead;
 import pm.crypto.ConstantTime;
@@ -26,6 +28,7 @@ import pm.storage.StorageException;
 import pm.storage.VaultFileStore;
 import pm.vault.envelope.EnvelopeCodec;
 import pm.vault.envelope.EnvelopeHeader;
+import pm.vault.envelope.SlotHeader;
 import pm.vault.internal.PasskeyRecordAccess;
 import pm.vault.record.PasskeyRecord;
 import pm.vault.record.RecordSearch;
@@ -55,7 +58,9 @@ import pm.vault.record.VaultRecord;
  * signature has no checked failure channel.
  *
  * <p><b>Threads.</b> Every method takes a private lock (LCK00-J), so an auto-lock from
- * another thread cannot interleave with a save or edit.
+ * another thread cannot interleave with a save or edit. A save also takes a lock shared by every
+ * vault over the same store, under which it checks that the file is still the one this vault last
+ * read or wrote (SR-151); the store's file lock keeps other processes out for its lifetime.
  */
 public final class Vault implements AutoCloseable {
 
@@ -71,7 +76,16 @@ public final class Vault implements AutoCloseable {
     private static final int FLAG_AT = 0x40;
     private static final int FLAG_ED = 0x80;
 
+    /**
+     * One save lock per store instance, shared by every vault over it (a {@link VaultService}
+     * hands out any number), so a save's check of the file and its write are one step. Weak keys:
+     * a store nobody references any more frees its entry.
+     */
+    private static final Map<VaultFileStore, ReentrantLock> SAVE_LOCKS =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
     private final ReentrantLock lock = new ReentrantLock();
+    private final ReentrantLock saveLock;
     private final VaultFileStore store;
     private final Clock clock;
     private final PayloadCodec codec;
@@ -96,6 +110,7 @@ public final class Vault implements AutoCloseable {
     Vault(VaultFileStore store, Clock clock, PayloadCodec codec, EnvelopeHeader header,
           SecretBytes vk, List<VaultRecord> initial) {
         this.store = Objects.requireNonNull(store, "store");
+        this.saveLock = SAVE_LOCKS.computeIfAbsent(store, s -> new ReentrantLock());
         this.clock = Objects.requireNonNull(clock, "clock");
         this.codec = Objects.requireNonNull(codec, "codec");
         this.currentHeader = Objects.requireNonNull(header, "header");
@@ -361,7 +376,10 @@ public final class Vault implements AutoCloseable {
      * only after the write succeeds (ERR03-J).
      *
      * @throws VaultException {@code LOCKED} after close, {@code STORAGE} if the write fails,
-     *                        {@code CORRUPT} if the save counter is exhausted or sealing fails
+     *                        {@code CORRUPT} if the save counter is exhausted or sealing fails,
+     *                        {@code CONFLICT} (nothing written) if the file's save_seq is not the
+     *                        one this vault last read or wrote, or the file no longer parses
+     *                        (SR-151); a missing file is written again
      * @throws IllegalStateException {@code REENTRANT} from inside a {@link #signWithPasskey} port
      */
     public void save() throws VaultException {
@@ -378,7 +396,16 @@ public final class Vault implements AutoCloseable {
      * recovery points out (ADR 0016 addendum).
      */
     private void persist(boolean rotateBackups) throws VaultException {
-        locked(() -> {
+        persist(rotateBackups, WriteProbe.NONE);
+    }
+
+    /**
+     * {@link #persist(boolean)} with a test probe at each {@link WriteStep}. The in-memory header
+     * becomes the written one only after the write succeeds (ERR03-J). The file is checked and
+     * written under the store's save lock.
+     */
+    private void persist(boolean rotateBackups, WriteProbe probe) throws VaultException {
+        lockedForSave(() -> {
             if (closed) {
                 throw new VaultException(VaultException.Code.LOCKED, null);
             }
@@ -394,6 +421,7 @@ public final class Vault implements AutoCloseable {
                 throw new VaultException(VaultException.Code.STORAGE,
                         new StorageException(StorageException.Code.TOO_LARGE, null));
             }
+            probe.at(WriteStep.SEALED);
             try {
                 boolean exists;
                 try {
@@ -404,17 +432,206 @@ public final class Vault implements AutoCloseable {
                     }
                     throw ex;
                 }
+                if (exists) {
+                    refuseIfChanged(store.readAll());
+                }
                 if (exists && rotateBackups) {
                     store.backup();
                 }
+                probe.at(WriteStep.BACKED_UP);
                 store.writeAtomically(file);
             } catch (StorageException e) {
                 throw new VaultException(VaultException.Code.STORAGE, e);
             }
+            probe.at(WriteStep.WRITTEN);
             currentHeader = next;
             contentChanged = false;
             return null;
         });
+    }
+
+    /**
+     * Points in the save of a passphrase change where tests inject a crash or a failure. Inside
+     * {@code VaultFileStore.writeAtomically} the vault file goes from the old bytes to the new
+     * ones in one rename, so a crash at any storage step leaves the file as at {@link #BACKED_UP}
+     * (before the rename) or as at {@link #WRITTEN} (after it). {@link #PUT_BACK} is reached only
+     * after a failure.
+     */
+    enum WriteStep {
+        /** The new file is sealed in memory; nothing on disk has changed. */
+        SEALED,
+        /** {@code .bak.N} has rotated; the vault file is still the old one. */
+        BACKED_UP,
+        /** The new vault file is in place; the in-memory header is still the old one. */
+        WRITTEN,
+        /** The change failed, and the old file is about to be written back. */
+        PUT_BACK
+    }
+
+    /** Test seam: called at each {@link WriteStep}; production does nothing. */
+    @FunctionalInterface
+    interface WriteProbe {
+        /** No-op probe. */
+        WriteProbe NONE = step -> { /* Production checkpoint: no action. */ };
+
+        void at(WriteStep step) throws VaultException;
+    }
+
+    /** Builds the header a passphrase change writes, from the current header and the VK. */
+    @FunctionalInterface
+    interface PassphraseRewrap {
+        /**
+         * Returns {@code current} with a new KDF salt and passphrase slot.
+         *
+         * @param current the header as last written
+         * @param vk      the vault key; not closed and not retained
+         * @return the header to save
+         * @throws VaultException if the new slot cannot be built
+         */
+        EnvelopeHeader rewrap(EnvelopeHeader current, SecretBytes vk) throws VaultException;
+    }
+
+    /**
+     * Saves the vault under the header {@code rewrap} builds ({@link VaultService#changePassphrase}),
+     * with the same {@code .bak.N} rotation and atomic write as {@link #save()}. Under the vault
+     * lock and the store's save lock, and refused like {@code save()} before {@code rewrap} runs:
+     * {@code LOCKED} after close, {@code REENTRANT} inside a {@link #signWithPasskey} port,
+     * {@code CONFLICT} if the file is not the one this vault last read or wrote (SR-151).
+     *
+     * <p>If the save fails in any way, the file bytes read before it are written back unless the
+     * file still holds them (a failure to do so, an Error included, is attached to the original
+     * failure). The file is then read back to report what it holds (SR-152): the old passphrase
+     * slot, and the original failure is rethrown with the in-memory header the old one; the new
+     * slot, and {@code PASSPHRASE_CHANGED_UNCONFIRMED} is thrown with the in-memory header the
+     * one on disk; anything else, or nothing readable, and {@code PASSPHRASE_CHANGE_UNKNOWN} is
+     * thrown with the in-memory header the old one. The vault stays open in every case.
+     *
+     * @throws VaultException {@code LOCKED}, {@code CONFLICT}, {@code STORAGE} (the file cannot be
+     *     read or written; not changed), whatever {@code rewrap} throws, as {@link #save()} (not
+     *     changed), {@code PASSPHRASE_CHANGED_UNCONFIRMED} or {@code PASSPHRASE_CHANGE_UNKNOWN}
+     * @throws IllegalStateException {@code REENTRANT} from inside a {@link #signWithPasskey} port
+     */
+    void changePassphraseSlot(PassphraseRewrap rewrap, WriteProbe probe) throws VaultException {
+        Objects.requireNonNull(rewrap, "rewrap");
+        Objects.requireNonNull(probe, "probe");
+        lockedForSave(() -> {
+            if (closed) {
+                throw new VaultException(VaultException.Code.LOCKED, null);
+            }
+            ensureNotSigning();
+            byte[] original;
+            try {
+                original = store.readAll();
+            } catch (StorageException e) {
+                throw new VaultException(VaultException.Code.STORAGE, e);
+            }
+            // Before the KDF runs; the save below checks again under the same locks.
+            refuseIfChanged(original);
+            EnvelopeHeader previous = currentHeader;
+            EnvelopeHeader changed = rewrap.rewrap(previous, vaultKey);
+            // Same save_seq as previous, so the save below writes changed's successor. Only this
+            // thread can see the swap: it holds the lock until the header is final either way.
+            currentHeader = changed;
+            try {
+                persist(true, probe);
+            } catch (VaultException | RuntimeException | Error e) {
+                // An Error too: an OutOfMemoryError after the rename must not leave the new file.
+                currentHeader = previous;
+                putBack(original, e, probe);
+                settle(previous, changed, e);
+                throw e;
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Writes {@code original} back unless the file already holds it, so a failed passphrase change
+     * leaves the file as it was. Any failure to do so is attached to {@code failure}: the catch
+     * names every Throwable the block can throw (its only checked ones are StorageException and
+     * VaultException), so an Error here cannot replace {@code failure}. Caller holds the locks.
+     */
+    private void putBack(byte[] original, Throwable failure, WriteProbe probe) {
+        try {
+            probe.at(WriteStep.PUT_BACK);
+            if (!ConstantTime.equals(store.readAll(), original)) {
+                store.writeAtomically(original);
+            }
+        } catch (StorageException | VaultException | RuntimeException | Error e) {
+            suppress(failure, e);
+        }
+    }
+
+    /**
+     * After a failed passphrase change, reads the file back and reports which passphrase slot it
+     * holds (SR-152). Returns normally only if it holds {@code previous}'s, so the caller's
+     * failure truthfully means "not changed". Caller holds the locks.
+     *
+     * @throws VaultException {@code PASSPHRASE_CHANGED_UNCONFIRMED} if the file holds
+     *     {@code changed}'s slot (the in-memory header becomes the file's), otherwise
+     *     {@code PASSPHRASE_CHANGE_UNKNOWN}; both with {@code failure} as the cause
+     */
+    private void settle(EnvelopeHeader previous, EnvelopeHeader changed, Throwable failure)
+            throws VaultException {
+        EnvelopeHeader onDisk;
+        try {
+            onDisk = headerOf(store.readAll());
+        } catch (StorageException | RuntimeException | Error e) {
+            suppress(failure, e);
+            onDisk = null;
+        }
+        if (onDisk != null && samePassphraseSlot(onDisk, previous)) {
+            return;
+        }
+        if (onDisk != null && samePassphraseSlot(onDisk, changed)) {
+            // The file this save sealed (only it holds the new slot), so it also holds the records.
+            currentHeader = onDisk;
+            contentChanged = false;
+            throw new VaultException(VaultException.Code.PASSPHRASE_CHANGED_UNCONFIRMED, failure);
+        }
+        throw new VaultException(VaultException.Code.PASSPHRASE_CHANGE_UNKNOWN, failure);
+    }
+
+    /**
+     * Refuses with {@code CONFLICT} unless {@code file}'s save_seq is the one this vault last read
+     * or wrote (SR-151). Another vault over the same store saved since, and writing now would undo
+     * that save without a word: a record, or a passphrase change. Caller holds the locks.
+     */
+    private void refuseIfChanged(byte[] file) throws VaultException {
+        EnvelopeHeader onDisk = headerOf(file);
+        if (onDisk == null || onDisk.saveSeq() != currentHeader.saveSeq()) {
+            throw new VaultException(VaultException.Code.CONFLICT, null);
+        }
+    }
+
+    /**
+     * Returns {@code file}'s header, or null if it is not a vault file of a version this build
+     * reads. Unauthenticated, so it is only compared, never used to open anything.
+     */
+    private static EnvelopeHeader headerOf(byte[] file) {
+        try {
+            int version = EnvelopeCodec.peekVersion(file);
+            return version > EnvelopeCodec.VERSION ? null : EnvelopeCodec.decode(file, version).header();
+        } catch (VaultException e) {
+            return null;
+        }
+    }
+
+    /** Whether two headers hold the same passphrase slot: the KDF parameters and salt, and the MASTER slot. */
+    private static boolean samePassphraseSlot(EnvelopeHeader a, EnvelopeHeader b) {
+        return Arrays.asList(a.kdf(), a.firstSlot(SlotHeader.MASTER))
+                .equals(Arrays.asList(b.kdf(), b.firstSlot(SlotHeader.MASTER)));
+    }
+
+    /**
+     * Attaches {@code extra} to {@code failure}, unless it is the same object: the JVM may throw
+     * one preallocated OutOfMemoryError twice, and self-suppression throws.
+     */
+    private static void suppress(Throwable failure, Throwable extra) {
+        // Throwable.equals is identity.
+        if (!failure.equals(extra)) {
+            failure.addSuppressed(extra);
+        }
     }
 
     /**
@@ -723,6 +940,21 @@ public final class Vault implements AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Runs {@code action} under {@link #lock}, then {@link #saveLock}, always in that order; the
+     * only place the save lock is taken (LCK08-J).
+     */
+    private <T, E extends Exception> T lockedForSave(LockedAction<T, E> action) throws E {
+        return locked(() -> {
+            saveLock.lock();
+            try {
+                return action.run();
+            } finally {
+                saveLock.unlock();
+            }
+        });
     }
 
     /** Body of a locked section; may throw one checked exception type. */

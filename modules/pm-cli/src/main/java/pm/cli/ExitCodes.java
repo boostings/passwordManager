@@ -59,7 +59,7 @@ final class ExitCodes {
             case WRONG_CREDENTIAL -> WRONG_CREDENTIAL;
             case CORRUPT, UNSUPPORTED_VERSION -> CORRUPT;
             case ALREADY_EXISTS -> USAGE;
-            case LOCKED, STORAGE -> STORAGE;
+            case LOCKED, STORAGE, CONFLICT, PASSPHRASE_CHANGED_UNCONFIRMED, PASSPHRASE_CHANGE_UNKNOWN -> STORAGE;
             case INSUFFICIENT_MEMORY -> INSUFFICIENT_MEMORY;
         };
     }
@@ -72,7 +72,8 @@ final class ExitCodes {
             case UNSUPPORTED_VERSION -> Messages.ERR_UNSUPPORTED_VERSION;
             case ALREADY_EXISTS -> Messages.ERR_ALREADY_EXISTS;
             case LOCKED -> Messages.ERR_LOCKED;
-            case STORAGE -> isNotFound(e.getCause()) ? Messages.ERR_NOT_FOUND : Messages.ERR_STORAGE;
+            case STORAGE, CONFLICT, PASSPHRASE_CHANGED_UNCONFIRMED, PASSPHRASE_CHANGE_UNKNOWN ->
+                    isNotFound(e.getCause()) ? Messages.ERR_NOT_FOUND : Messages.ERR_STORAGE;
             case INSUFFICIENT_MEMORY -> Messages.ERR_INSUFFICIENT_MEMORY;
         };
     }

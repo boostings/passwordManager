@@ -77,8 +77,8 @@ public final class VaultService {
      *
      * @param store open file store for the vault path
      * @param clock source of {@code created}/{@code saved} timestamps
-     * @param kdf   Argon2id parameters for new vaults; production passes
-     *              {@code Kdf.tune(500 ms)}, tests pass {@link Argon2Params#FLOOR}
+     * @param kdf   Argon2id parameters for new vaults, used only by {@link #create}; production
+     *              passes {@code Kdf.tune(500 ms)}, tests pass {@link Argon2Params#FLOOR}
      */
     public VaultService(VaultFileStore store, Clock clock, Argon2Params kdf) {
         this(store, clock, kdf, PayloadCodec.RECORDS);
@@ -112,9 +112,11 @@ public final class VaultService {
      * @throws VaultException {@code ALREADY_EXISTS} if a vault file exists, {@code STORAGE}
      *                        if the write fails, {@code INSUFFICIENT_MEMORY} if the heap cannot
      *                        hold the Argon2id run
+     * @throws IllegalArgumentException {@code EMPTY_PASSPHRASE} or {@code MALFORMED_CHARS}
+     *                        ({@link #checkNewPassphrase}); nothing is written
      */
     public CreatedVault create(SecretChars pw) throws VaultException {
-        Objects.requireNonNull(pw, "pw");
+        checkNewPassphrase(pw);
         try {
             if (store.exists()) {
                 throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
@@ -182,6 +184,126 @@ public final class VaultService {
         VaultReader.Envelope env = reader.parse(file);
         try (SecretBytes vk = VaultReader.keyFromRecovery(env.header(), typed)) {
             return openOrMigrate(file, env, vk);
+        }
+    }
+
+    /**
+     * Changes the master passphrase of an unlocked vault (ADR 0004 addendum, SR-130, SR-131).
+     *
+     * <p><b>What changes.</b> The same vault key is wrapped again under a KEK derived from
+     * {@code newPassphrase} with a fresh 32-byte Argon2id salt and the Argon2id parameters already
+     * in the vault's header. m, t and p stay as they are: ADR 0007 tunes them only at creation or
+     * by an explicit re-tune, and this service's own {@code kdf} is not used (the CLI passes the
+     * floor for every command but {@code init}). The passphrase slot keeps its id. The recovery
+     * slot, the vault key and every record are unchanged. The vault is then saved like any
+     * {@link Vault#save()}: {@code save_seq} + 1, pending edits included, the previous file rotated
+     * into {@code .bak.1}, then one atomic rename. Afterwards the old passphrase is refused with
+     * {@code WRONG_CREDENTIAL} like any wrong one, the new one and the recovery key unlock, and
+     * {@code vault} stays unlocked and usable. The file written is the one {@code vault} was
+     * unlocked from or created as.
+     *
+     * <p><b>Who may call it.</b> Any unlocked vault, including one unlocked with the recovery key:
+     * that is the way back from a forgotten passphrase. The current passphrase is not asked for
+     * here; a UI holding a long-lived session asks for the current passphrase or the recovery key
+     * again first, so an unattended unlocked session cannot be used to lock its owner out.
+     *
+     * <p><b>Policy.</b> {@code newPassphrase} must pass the check {@link #create} applies
+     * ({@link #checkNewPassphrase}); the UI also asks for it twice, as {@code pm init} does.
+     *
+     * <p><b>Locking.</b> Runs under the vault lock and the store's save lock, Argon2id included.
+     * Inside a {@link Vault#signWithPasskey} port it is refused with {@code REENTRANT}, like
+     * {@link Vault#save()}, before any work. If the file is not the one {@code vault} last read or
+     * wrote (another vault over the same file saved since), it is refused with {@code CONFLICT}
+     * before the KDF runs and nothing is written (SR-151); so is a later {@code save()} of a vault
+     * that still holds the header from before the change.
+     *
+     * <p><b>Failure.</b> On a failure the file is put back as it was, then read back, and the
+     * exception says which passphrase it holds (SR-152). A failure that comes after the new file
+     * is in place (in production only an Error, since the store does not report a failed directory
+     * sync) writes the old bytes back; a failure of that write, an Error included, is attached to
+     * the failure as suppressed. Then:
+     * <ul>
+     *   <li>the old passphrase slot is on disk: the failure itself is thrown ({@code STORAGE} for
+     *       a failed write, or as {@link Vault#save()}); not changed, the old passphrase and the
+     *       recovery key open the file, and {@code vault} keeps its old header;</li>
+     *   <li>the new slot is on disk: {@code PASSPHRASE_CHANGED_UNCONFIRMED}; changed, the new
+     *       passphrase and the recovery key open the file, and {@code vault} now holds the header
+     *       on disk, so its later saves keep the new passphrase;</li>
+     *   <li>the file cannot be read back or holds neither: {@code PASSPHRASE_CHANGE_UNKNOWN}; the
+     *       recovery key, which a change never alters, opens any file this vault wrote, and
+     *       {@code vault} keeps its old header.</li>
+     * </ul>
+     * In every case {@code vault} stays open.
+     *
+     * <p><b>Not affected.</b> Backups made earlier keep the passphrase they were made under:
+     * {@code .bak.N} files (the {@code .bak.1} this save writes is the file as it was before the
+     * change) and {@link VaultBackups} files open with the old passphrase, which
+     * {@link VaultBackups#verify} and {@link VaultBackups#restore} need since they take no recovery
+     * key, and with the unchanged recovery key. The LAN device identity and the paired-device trust
+     * list are records in the payload and are saved unchanged under the same vault key, so no
+     * device needs pairing again. No audit log exists at this layer; the caller records the change.
+     *
+     * @param vault         an unlocked vault; it stays unlocked
+     * @param newPassphrase the new master passphrase; not closed by this method
+     * @throws VaultException {@code LOCKED} if {@code vault} is locked, {@code CONFLICT} if the
+     *     file changed since {@code vault} last read or wrote it, {@code STORAGE} if the file
+     *     cannot be read or written, {@code INSUFFICIENT_MEMORY} if this JVM's heap cannot hold the
+     *     header's Argon2id memory (possible after a recovery-key unlock, which runs no Argon2id;
+     *     ADR 0007), {@code CORRUPT} if the save counter is exhausted or a crypto step fails; all of
+     *     these mean not changed. {@code PASSPHRASE_CHANGED_UNCONFIRMED} or
+     *     {@code PASSPHRASE_CHANGE_UNKNOWN} as described under Failure
+     * @throws IllegalArgumentException {@code EMPTY_PASSPHRASE} or {@code MALFORMED_CHARS}; nothing
+     *     is written
+     * @throws IllegalStateException {@code REENTRANT} from inside a {@link Vault#signWithPasskey}
+     *     port, or {@code SECRET_CLOSED} if {@code newPassphrase} is closed; nothing is written
+     */
+    public void changePassphrase(Vault vault, SecretChars newPassphrase) throws VaultException {
+        changePassphrase(vault, newPassphrase, Vault.WriteProbe.NONE);
+    }
+
+    /** {@link #changePassphrase(Vault, SecretChars)} with a test probe in the save. */
+    void changePassphrase(Vault vault, SecretChars newPassphrase, Vault.WriteProbe writeProbe)
+            throws VaultException {
+        Objects.requireNonNull(vault, "vault");
+        checkNewPassphrase(newPassphrase);
+        vault.changePassphraseSlot((current, vk) -> rewrapped(current, vk, newPassphrase), writeProbe);
+    }
+
+    /**
+     * The passphrase rule {@link #create} and {@link #changePassphrase} share (SR-131): not empty,
+     * the rule {@code pm init} has applied since M1 ({@code EMPTY_PASSPHRASE}). Well-formed UTF-16
+     * is the other half: the Argon2id input is the UTF-8 encoding, so an unpaired surrogate is
+     * refused with {@code MALFORMED_CHARS} by the same derivation in both, before anything is
+     * written. No strength rule exists yet (SR-011 is planned, not implemented).
+     *
+     * @param pw the passphrase to check; not closed
+     * @throws IllegalArgumentException {@code EMPTY_PASSPHRASE}
+     */
+    static void checkNewPassphrase(SecretChars pw) {
+        Objects.requireNonNull(pw, "pw");
+        if (pw.length() == 0) {
+            throw new IllegalArgumentException("EMPTY_PASSPHRASE");
+        }
+    }
+
+    /**
+     * {@code current} with a fresh KDF salt and the passphrase slot wrapping {@code vk} under the
+     * KEK from {@code pw}; m, t, p, the slot id and every other slot are unchanged.
+     */
+    private static EnvelopeHeader rewrapped(EnvelopeHeader current, SecretBytes vk, SecretChars pw)
+            throws VaultException {
+        KdfHeader old = current.kdf();
+        KdfHeader fresh = new KdfHeader(old.alg(), old.m(), old.t(), old.p(),
+                Csprng.bytes(EnvelopeCodec.SALT_LENGTH));
+        UUID slotId = current.firstSlot(SlotHeader.MASTER).id();
+        try (SecretBytes kek = VaultReader.passphraseKek(pw, fresh, slotId)) {
+            SlotHeader replacement = new SlotHeader(slotId, SlotHeader.MASTER, KeyWrap.wrap(kek, vk));
+            List<SlotHeader> slots = current.slots().stream()
+                    .map(s -> SlotHeader.MASTER.equals(s.type()) ? replacement : s)
+                    .toList();
+            return new EnvelopeHeader(fresh, slots, current.created(), current.saved(), current.saveSeq());
+        } catch (CryptoException e) {
+            throw new VaultException(VaultException.Code.CORRUPT, e);
         }
     }
 

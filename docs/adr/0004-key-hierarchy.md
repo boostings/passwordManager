@@ -77,3 +77,115 @@ DK = HKDF(VK, data_salt, "pm/data/v1") with a zero nonce. Differences:
   T-ENC-01 is an example-based test
   (`VaultServiceTest.saveUsesFreshDataSaltAndClockTime`), not a property test.
   Both gaps remain open.
+
+## Addendum (2026-10-06, M7.6, Lane C): passphrase change
+
+The launch audit found that a user who unlocked with the recovery key could
+never set a new passphrase. `VaultService.changePassphrase(Vault vault,
+SecretChars newPassphrase) throws VaultException` closes that gap (SR-130,
+SR-131).
+
+- **What changes.** The same VK is wrapped again under a KEK derived from the
+  new passphrase. The KDF salt is a fresh 32 bytes. Argon2id m, t and p are the
+  ones already in the header: ADR 0007 tunes them only at creation or by an
+  explicit re-tune, and the CLI passes the floor to `VaultService` for every
+  command but `init`, so using the service's parameters could silently lower a
+  tuned vault. The passphrase slot keeps its UUID, so its HKDF `info` is
+  unchanged. The recovery slot, the VK, `created` and every record are
+  unchanged. The new header is then written by the ordinary save: `save_seq`
+  + 1, fresh `data_salt` and DK, pending edits included, `.bak.N` rotation,
+  then the atomic write. The old passphrase then fails like any wrong one
+  (`WRONG_CREDENTIAL`). The `Vault` stays unlocked and usable.
+- **Who may call it.** Any unlocked vault, including one unlocked with the
+  recovery key. The current passphrase is not asked for again at this layer.
+  A UI that holds a long-lived session should ask for the current passphrase
+  or the recovery key before the change, so that an unattended open session
+  cannot lock its owner out. The CLI and TUI wiring is not part of M7.6.
+- **Policy.** pm sets no strength policy beyond "not empty". Before M7.6 only
+  the CLI enforced it: `Cli.readSecret` refuses empty input with the usage
+  error `EMPTY_PASSPHRASE` (for `pm init` at `Cli.java:312`, and for every
+  passphrase prompt), and the CLI keeps that check unchanged. The vault layer
+  now enforces the same rule itself in `VaultService.checkNewPassphrase`,
+  shared by `create` and `changePassphrase`
+  (`IllegalArgumentException("EMPTY_PASSPHRASE")`), so a caller that skips the
+  CLI cannot set an empty passphrase either.
+  Well-formed UTF-16 is the other half of the rule: the derivation shared by
+  both methods refuses an unpaired surrogate (`MALFORMED_CHARS`) before
+  anything is written. The CLI also asks for a new passphrase twice and
+  refuses a mismatch (`PASSPHRASE_MISMATCH`). That rule belongs to the user
+  interface, not to the vault. SR-011 (strength meter) is still Planned.
+- **Locking.** The change runs under the vault lock, Argon2id included. Inside
+  a `Vault.signWithPasskey` port it is refused with `REENTRANT` before any
+  work, like save, put, remove and close.
+- **Stale writers (SR-151).** A `VaultService` hands out any number of `Vault`
+  objects over one store, and each keeps its own header. Without a check, a
+  second vault unlocked before a change could save afterwards and write the
+  old passphrase slot back without a word (review finding m76-001); the same
+  lost update applied to records. Every save (`Vault.persist`, which the change
+  also uses) now reads the file's header first and refuses with the new code
+  `CONFLICT`, writing nothing (no `.bak.N` rotation either), unless its
+  `save_seq` is the one this vault last read or wrote. A file that no longer
+  parses, or is of a newer format, is also a `CONFLICT`. A missing file is
+  written again, as before. The check and the write are one step: they run
+  under a save lock shared by every `Vault` over the same store instance
+  (a weak map keyed by the store), taken after the vault lock, always in that
+  order. Other processes cannot interleave because `VaultFileStore` holds an
+  exclusive file lock for its whole life. A change from a stale vault is
+  refused the same way before the KDF runs. The remedy for `CONFLICT` is to
+  lock and unlock again. VaultService still allows several open vaults; the
+  check makes that safe without changing callers.
+- **Failure (SR-152).** The file is read before the change. On any failure,
+  the file is left as it was, or written back from those bytes if the
+  failure came after the rename. A failure to write back, an `Error`
+  included, is attached to the failure as suppressed and never replaces it
+  (m76-003). The file is then read back, and its KDF header and MASTER slot
+  are compared with the old and the new ones, so the caller is told which
+  passphrase opens it (m76-002):
+  - old slot on disk: the original failure is thrown (`STORAGE` for a
+    failed write, or whatever the save threw). Not changed. The vault keeps
+    its old header.
+  - new slot on disk: `PASSPHRASE_CHANGED_UNCONFIRMED`, with the failure as
+    the cause. Changed: the new passphrase and the recovery key open the
+    file. The vault takes the header on disk, so its later saves keep the
+    new passphrase instead of quietly writing the old slot back.
+  - unreadable, or neither slot: `PASSPHRASE_CHANGE_UNKNOWN`, with the
+    failure as the cause. The vault keeps its old header; if the new file is
+    in fact in place, the vault's next save is a `CONFLICT`, not a revert.
+    The recovery key opens any file this vault wrote, since a change never
+    alters the recovery slot or the VK.
+  In production nothing after the rename reports a failure except an
+  `Error`: `VaultFileStore` ignores a failed directory sync. The other cases
+  come from a failed write-back after such an `Error`, which the tests
+  reproduce with `Vault.WriteProbe` (including a step, `PUT_BACK`, inside
+  the write-back).
+- **Crash consistency.** A crash before the rename leaves the old file. A
+  crash after it leaves the new file. Either way exactly one of the two
+  passphrases opens the vault, and the recovery key always opens it, because
+  its slot and the VK never change. T-KEY-03 `PassphraseChangeTest` checks
+  this at each `Vault.WriteStep`. The storage-level steps inside
+  `writeAtomically` are T-FS-02 `AtomicWriteCrashTest`. `VaultFileStore`'s
+  crash hook is package-private to `pm.storage`, so the vault-level test
+  uses a probe in `pm.vault` (`Vault.WriteProbe`), in the style of
+  `VaultService.MigrationProbe`.
+- **Earlier backups keep the old passphrase.** The `.bak.1` this save writes
+  is the file as it was before the change. It and the older `.bak.N` files
+  open with the old passphrase and with the unchanged recovery key.
+  `VaultBackups` files work the same way. `VaultBackups.verify` and
+  `restore` take only a passphrase, so an earlier backup needs the
+  passphrase it was made under. Restoring it brings that passphrase back.
+  Restoring an earlier backup over a changed vault finds no passkey counter
+  floor in the target, because the target does not open with the backup's
+  passphrase. Counters are then raised from the backup alone
+  (backup + 2^20, ADR 0016 addendum).
+  *Residual risk:* someone who learned the old passphrase can still open
+  those older files. A user who changes a passphrase because it leaked
+  should delete `.bak.N` and older backups once a new backup exists.
+- **LAN and devices are not affected.** The device identity (Ed25519 key and
+  certificate) and the paired-device trust list are records in the payload.
+  They are saved unchanged under the same VK, so no device needs to pair
+  again. Nothing outside the vault derives keys from the passphrase or a KEK.
+- **Audit.** `pm-vault` has no audit log. `AuditLog` is in `pm-approval`, a
+  higher tier. The caller records "passphrase changed", with no secret.
+- **Secrets.** The new passphrase is not closed (the caller owns it). The KEK
+  and the UTF-8 passphrase bytes are zeroed by the shared derivation. The VK
+  is not copied.
