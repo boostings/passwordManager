@@ -665,3 +665,51 @@ Residual risks accepted at this sign-off:
   cannot interfere, but no real-browser test exists (see the M5 user-only items).
 
 Signed off: Lane A (Jimmy), security owner, for M6.
+
+## M7 — Release hardening (M7.1–M7.12)
+
+**Scope.** Format migration (M7.1), backup and restore (M7.2), packaging (M7.3), SECURITY.md,
+disclosure policy and the security review record (M7.4), passphrase change (M7.6), CLI and TUI
+completeness (M7.7, M7.8), the launchd ssh-agent (M7.9), Tier-1 coverage (M7.10), launch docs and
+version 1.0.0 (M7.11) and the audit log under concurrent writers (M7.12). Each phase's result is in
+`docs/plans/M2-M7.md`; the reviews and their findings are in `security-review-record.md`.
+
+Evidence: local gate on main over this section's working tree, 2026-10-08:
+`./gradlew --rerun-tasks check certReport gitleaksScan`, `BUILD SUCCESSFUL in 1m 41s`, cert report
+`**Result: 0 findings.**`, gitleaks `no leaks found`. Test results from that run: pm-crypto 258, pm-vault 508, pm-storage 114 (8 Windows-only tests skipped on macOS by
+assumption), pm-approval 79, pm-sharing 89, pm-browser 176, pm-domain 76, pm-tui 161, pm-cli 377,
+pm-arch-tests 27, pm-fuzz 176, pm-platform-macos 6, extension 41; 0 failures. The CI matrix
+is dispatched once after the push (manual CI); its result is in `docs/plans/M2-M7.md`.
+
+| Exit criterion (plan.md §13 M7) | Proving test or record | Result |
+| --- | --- | --- |
+| Independent security review with no open critical or high findings | `security-review-record.md`: every phase reviewed adversarially by a team member who did not write it; every HIGH found (M3.7, M4.4, M7.3) fixed with a test | **Partly met.** Internal review only; no external firm. No review finding is open. R-013 (no master-passphrase strength rule, SR-011 never built, found at M7.11) is an open risk with High impact |
+| Reproducible JAR and runtime-image hashes on two machines; installer contents verified | `tools/packaging/repro-check.sh` (T-PKG-04): two clean builds identical on one machine; `releaseSmoke`: app-image and mounted dmg payloads match the image | **Partly met.** One machine only; the second-builder run is user-only (`repro-check.sh <SHA256SUMS>`). pkg, deb, rpm and msi payloads are not compared |
+| Signed installers on all platforms; SBOM with each release | `releaseMetadataCheck` (T-PKG-02/03): CycloneDX SBOM with every jar's purl and SHA-256 | **SBOM met; signing not met.** No signing credentials exist (packaging.md). Installers are unsigned (R-008); Windows and Linux installers were never built |
+| Vulnerability disclosure policy and SECURITY.md | `SECURITY.md`, `docs/security/disclosure-policy.md` (M7.4) | **Met**, with a fallback: GitHub private vulnerability reporting is off on the public repository, so SECURITY.md asks for a contact-request issue |
+| Migration rollback tested from every prior format version | `MigrationTest` (every prior version in the test registry migrates; failures at each step roll back; rollback copy owner-only), `GoldenFixtureTest.everyVersionTheBuildReadsHasAPinnedFixture`, `MigrationRegistryTest.productionReadsOnlyTheCurrentVersion` | **Met for the mechanism.** Format 1 is the only released version, so production has no prior version to migrate; the chain is proved with synthetic versions |
+
+CERT exceptions: the M7.5 sweep (cert-exceptions.md, "M7 review") matched every suppression in the
+tree to a row; CE-035, CE-036, CE-037, CE-087 and CE-088 were re-read against main and signed off;
+CE-089 was added for three M7.10 test suppressions; two dead `checkstyle:ParameterNumber`
+suppressions were removed. No row awaits sign-off.
+
+Traceability: every row once marked Planned now names its tests or says Not in v1 (M7.11), and a
+script check found that every `Class.method` the file cites exists (112 names; the 5 that are not
+methods are ArchUnit rule fields).
+
+Residual risks accepted at this sign-off (risk-register.md):
+
+- **R-008, unsigned releases.** `SHA256SUMS` is the only integrity check, and it is not signed.
+- **R-012, clipboard.** A copied password is readable by same-user programs and clipboard managers
+  until it is cleared.
+- **R-013, master-passphrase strength.** Open, not accepted: the owner decides whether SR-011 is
+  built before the 1.0.0 tag. Release notes and the user guide tell users to choose a long passphrase.
+- **Not built in v1:** keychain unlock (SR-050), signed updates (SR-602), lock on sleep, Windows
+  ssh-agent, Copy on Linux and Windows, the SR-051 manual timing measurement.
+- **Process gaps** (security-review-record.md): no branch protection, private vulnerability
+  reporting off, manual CI, no external SAS review, no real-browser test, no dependency
+  vulnerability scan.
+
+Signed off: Lane A (Jimmy), security owner, for M7, with the criteria above marked Partly met or
+not met.

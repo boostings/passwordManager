@@ -2,14 +2,20 @@
 
 ## Project status
 
-The repository is private and the working name is `passwordManager`.
+The repository is public (github.com/boostings/passwordManager) and the working name is
+`passwordManager`. Version 1.0.0 (2026-10-08); the phase-by-phase record is
+`docs/plans/M2-M7.md`, and every sign-off is in `docs/security/milestone-signoff.md`.
 
 | Milestone | Status |
 | --- | --- |
 | M0 Product and security design | Delivered 2026-09-10; open sign-off items listed under `## M0` in `docs/security/milestone-signoff.md` |
 | M1 Local vault foundation | Done (2026-10-03): exit criteria signed off in `docs/security/milestone-signoff.md`, CI green on Linux, macOS and Windows, tag `m1` |
-| M2 Environment sharing | Done locally (2026-10-03): exit criteria signed off in `docs/security/milestone-signoff.md`; CI evidence run pending (needs a push and a manual dispatch); the 24 CPU-hour `.env` fuzz campaign is open |
-| M3 onward | Not started |
+| M2 Environment sharing | Done (2026-10-03): signed off; the 24 CPU-hour `.env` fuzz campaign is open (owner's to schedule) |
+| M3 LAN sharing | Done (2026-10-04): signed off; the SAS construction has not had its external review |
+| M4 Health and SSH workflows | Done (2026-10-05): signed off |
+| M5 Browser extension | Done (2026-10-07): signed off; no real-browser test |
+| M6 Passkeys | Closed (2026-10-07) with a no-go: v1 ships without passkeys (ADR 0016, v1 addendum) |
+| M7 Release hardening | Done (2026-10-08): signed off with two criteria partly met (internal review only, one-machine reproducibility) and signing not met (no credentials); R-013 open |
 
 This plan is written so that security is a required
 activity in every phase of the software development life cycle (SDLC), not a

@@ -297,7 +297,6 @@ final class LanCommands {
         return Optional.empty();
     }
 
-    @SuppressWarnings("checkstyle:ParameterNumber")
     private Optional<PairedDevice> respond(Local self, InetAddress bind, Lockout lockout, LanState state,
             SasPrompt prompt, ConsoleIo io) throws UsageException {
         Instant deadline = clock.instant().plus(Pairing.DEFAULT_WINDOW);
@@ -363,7 +362,7 @@ final class LanCommands {
                 : shareToDevice(title, args.to().get(), ttl, bind, port, io, vaultPath);
     }
 
-    @SuppressWarnings({"PMD.CloseResource", "checkstyle:ParameterNumber"}) // CE-035: records are the session's; the window closes its Local; PrintWriter is the ConsoleIo's
+    @SuppressWarnings("PMD.CloseResource") // CE-035: records are the session's; the window closes its Local; PrintWriter is the ConsoleIo's
     private int shareToDevice(String title, String to, Duration ttl, InetAddress bind, VaultPort port,
             ConsoleIo io, Path vaultPath) throws UsageException, VaultException {
         SendWindow opened;

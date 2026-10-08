@@ -131,8 +131,8 @@ All rows are in [cert-exceptions.md](cert-exceptions.md):
 - Signed off: CE-001 to CE-013, CE-015, CE-016, CE-020, CE-021, CE-025, CE-045, CE-046 and
   CE-050 (M6.5).
 - Accepted at the M5.4 merge: CE-065 and CE-066.
-- Proposed and still awaiting sign-off in this record: CE-035, CE-036, CE-037 (M3.6) and CE-087
-  (M7.7) and CE-088 (M7.8). They are re-read against the code and signed off, or sent back, at the M7 sign-off
-  (M7.5).
+- Signed off at the M7 sign-off (M7.5, 2026-10-08), after a re-read against main: CE-035, CE-036,
+  CE-037, CE-087, CE-088, and CE-089 (three M7.10 test suppressions the M7.5 sweep found without
+  a row). No row awaits sign-off.
 
 Recorded by: Lane A (Jimmy), security owner, 2026-10-07.
