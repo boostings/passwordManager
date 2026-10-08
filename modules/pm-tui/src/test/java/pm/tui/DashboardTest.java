@@ -143,7 +143,7 @@ class DashboardTest {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
             openAddLogin(h);
-            assertTrue(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertTrue(h.screenText().contains(LoginDialog.TAGS_LABEL));
 
             fillAddLogin(h, "Gitea", "alice", CANARY);
             h.press(KeyType.Tab, KeyType.Enter); // tags -> OK
@@ -159,7 +159,7 @@ class DashboardTest {
             String screen = h.screenText();
             assertTrue(screen.contains("Gitea"));
             assertTrue(screen.contains("alice"));
-            assertFalse(screen.contains(AddLoginDialog.TAGS_LABEL)); // dialog closed
+            assertFalse(screen.contains(LoginDialog.TAGS_LABEL)); // dialog closed
             assertFalse(screen.contains(CANARY));
         }
     }
@@ -177,7 +177,7 @@ class DashboardTest {
             assertEquals(3, h.port.last().records().size());
             String screen = h.screenText();
             assertTrue(screen.contains(Messages.of(VaultException.Code.STORAGE)), screen);
-            assertTrue(screen.contains(AddLoginDialog.TAGS_LABEL)); // still open for a retry
+            assertTrue(screen.contains(LoginDialog.TAGS_LABEL)); // still open for a retry
         }
     }
 
@@ -201,7 +201,7 @@ class DashboardTest {
             openAddLogin(h);
             h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
                     KeyType.Enter); // five fields, OK, Cancel
-            assertFalse(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertFalse(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertEquals(0, h.port.last().saveCount());
         }
     }
@@ -217,7 +217,7 @@ class DashboardTest {
 
             h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // urls, tags, OK, Cancel
 
-            assertFalse(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertFalse(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertAllEmpty(dialog);
             assertEquals(0, h.port.last().saveCount());
         }
@@ -387,7 +387,7 @@ class DashboardTest {
             assertTrue(screen.contains(UnlockWindow.TITLE));
             assertFalse(screen.contains("Username/SSID"));
             assertFalse(screen.contains("GitHub"));
-            assertFalse(screen.contains(AddLoginDialog.TAGS_LABEL));
+            assertFalse(screen.contains(LoginDialog.TAGS_LABEL));
 
             h.unlockWith(CANARY);
             assertTrue(h.controller.isUnlocked());

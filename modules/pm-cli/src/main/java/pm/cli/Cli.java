@@ -578,7 +578,8 @@ final class Cli {
                         isDefaultVault(vaultPath, System::getProperty));
                 Terminal terminal = factory.createTerminal()) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
-            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath)).run(terminal);
+            new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath),
+                    CliClipboard.forSystem(System::getProperty), CliClipboard.clearAfter(Env.system())).run(terminal);
         }
     }
 

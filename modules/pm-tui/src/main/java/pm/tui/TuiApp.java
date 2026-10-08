@@ -22,6 +22,8 @@ import pm.vault.VaultService;
 public final class TuiApp {
     /** Default idle auto-lock timeout (SR-504). */
     public static final Duration DEFAULT_IDLE_LOCK = Duration.ofMinutes(5);
+    /** Default time before a copied password is cleared from the clipboard (SR-503). */
+    public static final Duration DEFAULT_CLIPBOARD_CLEAR = ClipboardGuard.DEFAULT_CLEAR_AFTER;
 
     /** Pause between UI polls when nothing happened, so the loop does not spin. */
     private static final long IDLE_POLL_NANOS = Duration.ofMillis(20).toNanos();
@@ -30,6 +32,8 @@ public final class TuiApp {
     private final Duration idleLock;
     private final ApprovalHost host;
     private final SshActions ssh;
+    private final Clipboard clipboard;
+    private final Duration clipboardClear;
 
     /** §2 contract constructor; delegates through {@link VaultServiceAdapter}. */
     public TuiApp(VaultService service, Duration idleLock) {
@@ -48,6 +52,22 @@ public final class TuiApp {
 
     /** As above, with the ssh-agent actions the CLI provides for SSH key items (M4.4, ADR 0013). */
     public TuiApp(VaultPort port, Duration idleLock, ApprovalHost host, SshActions ssh) {
+        this(port, idleLock, host, ssh, Clipboard.none(), DEFAULT_CLIPBOARD_CLEAR);
+    }
+
+    /**
+     * As above, with the system clipboard for a card's Copy (M7.8, SR-503): a copied password is
+     * cleared again after {@code clipboardClear}, on lock and on quit.
+     *
+     * @throws IllegalArgumentException if {@code clipboardClear} is not positive
+     */
+    public TuiApp(VaultPort port, Duration idleLock, ApprovalHost host, SshActions ssh, Clipboard clipboard,
+            Duration clipboardClear) {
+        if (clipboardClear.isNegative() || clipboardClear.isZero()) {
+            throw new IllegalArgumentException("clipboardClear must be positive");
+        }
+        this.clipboard = Objects.requireNonNull(clipboard, "clipboard");
+        this.clipboardClear = clipboardClear;
         this.ssh = Objects.requireNonNull(ssh, "ssh");
         this.port = Objects.requireNonNull(port, "port");
         this.idleLock = Objects.requireNonNull(idleLock, "idleLock");
@@ -65,7 +85,7 @@ public final class TuiApp {
             MultiWindowTextGUI gui = newGui(screen, theme);
             TuiController controller = new TuiController(gui, port, idleLock,
                     (timeout, onLock) -> new IdleLockTimer(new IdleLock(timeout, onLock, scheduler)),
-                    Clock.systemUTC(), theme, approvals, ssh);
+                    Clock.systemUTC(), theme, approvals, ssh, new ClipboardGuard(clipboard, clipboardClear));
             try {
                 loop(gui.getGUIThread(), controller);
             } finally {

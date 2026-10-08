@@ -25,24 +25,26 @@ public final class VaultServiceAdapter implements VaultPort {
     @Override
     public CreatedSession create(SecretChars passphrase) throws VaultException {
         CreatedVault created = service.create(passphrase);
-        return new CreatedSession(new VaultSession(created.vault()), created.recoveryKey());
+        return new CreatedSession(new VaultSession(service, created.vault()), created.recoveryKey());
     }
 
     @Override
     public Session unlockWithPassphrase(SecretChars passphrase) throws VaultException {
-        return new VaultSession(service.unlockWithPassphrase(passphrase));
+        return new VaultSession(service, service.unlockWithPassphrase(passphrase));
     }
 
     @Override
     public Session unlockWithRecoveryKey(SecretChars recoveryKey) throws VaultException {
-        return new VaultSession(service.unlockWithRecoveryKey(recoveryKey));
+        return new VaultSession(service, service.unlockWithRecoveryKey(recoveryKey));
     }
 
     /** {@link Session} backed by a real {@link Vault}. */
     private static final class VaultSession implements Session {
+        private final VaultService service;
         private final Vault vault;
 
-        VaultSession(Vault vault) {
+        VaultSession(VaultService service, Vault vault) {
+            this.service = service;
             this.vault = Objects.requireNonNull(vault, "vault");
         }
 
@@ -69,6 +71,23 @@ public final class VaultServiceAdapter implements VaultPort {
         @Override
         public void save() throws VaultException {
             vault.save();
+        }
+
+        /**
+         * Opens the file once more with {@code current} to check it, the cheap recovery-key parse
+         * first, then the passphrase (one Argon2id run), and closes that copy at once.
+         */
+        @Override
+        public void changePassphrase(SecretChars current, SecretChars fresh) throws VaultException {
+            try {
+                service.unlockWithRecoveryKey(current).close();
+            } catch (VaultException notTheRecoveryKey) {
+                if (notTheRecoveryKey.code() != VaultException.Code.WRONG_CREDENTIAL) {
+                    throw notTheRecoveryKey;
+                }
+                service.unlockWithPassphrase(current).close();
+            }
+            service.changePassphrase(vault, fresh);
         }
 
         @Override

@@ -84,6 +84,8 @@ final class DashboardWindow {
     private final Instant revealStart;
     private boolean revealing = true;
     private Instant toastAt;
+    private String toastText = Messages.SAVED;
+    private PmTheme.Tone toastTone = PmTheme.Tone.GREEN;
     private Instant now;
 
     DashboardWindow(TuiController controller, Session session) {
@@ -191,9 +193,23 @@ final class DashboardWindow {
         }
     }
 
-    /** Shows the "saved" toast in the footer; it fades out by itself. */
-    void toastSaved() {
+    /** Shows {@code message} with a check mark in the footer; it fades out by itself. */
+    void toast(String message) {
+        toastText = CHECK + message;
+        toastTone = PmTheme.Tone.GREEN;
         toastAt = now;
+    }
+
+    /** Shows {@code message} as a warning in the footer, for a key that did nothing. */
+    private void warn(String message) {
+        toastText = message;
+        toastTone = PmTheme.Tone.AMBER;
+        toastAt = now;
+    }
+
+    /** Reloads the table from the session, keeping the search text. */
+    void reload() {
+        refresh(searchBox.getText());
     }
 
     private List<Strip.Span> headerLeft() {
@@ -248,8 +264,7 @@ final class DashboardWindow {
             return List.of();
         }
         double fade = PmTheme.progress(toastAt.plus(TOAST_LIFETIME.minus(TOAST_FADE)), at, TOAST_FADE);
-        return List.of(Strip.Span.bold(CHECK + Messages.SAVED,
-                theme.mix(PmTheme.Tone.GREEN, PmTheme.Tone.CARD, fade)));
+        return List.of(Strip.Span.bold(toastText, theme.mix(toastTone, PmTheme.Tone.CARD, fade)));
     }
 
     /** Non-secret table cells for {@code r}, made terminal-safe (SR-501, SR-503). */
@@ -290,15 +305,12 @@ final class DashboardWindow {
     private void openSelected() {
         int index = table.getSelectedRow();
         if (index >= 0 && index < shown.size()) {
-            controller.show(new RecordDetailWindow(shown.get(index), theme).window());
+            controller.openRecord(shown.get(index));
         }
     }
 
     private void openAddLogin() {
-        controller.showForm(new AddLoginDialog(session, controller.clock(), theme, () -> {
-            refresh(searchBox.getText());
-            toastSaved();
-        }));
+        controller.showForm(LoginDialog.add(controller, session));
     }
 
     /** Opens the tools menu over the dashboard; SSH actions apply to the selected row (M4.4). */
@@ -328,6 +340,8 @@ final class DashboardWindow {
                 int index = table.getSelectedRow();
                 if (index >= 0 && index < shown.size()) {
                     controller.openShare(shown.get(index));
+                } else {
+                    warn(Messages.SELECT_ITEM);
                 }
             } else if (TuiController.isCtrl(key, 'l')) {
                 deliverEvent.set(false);

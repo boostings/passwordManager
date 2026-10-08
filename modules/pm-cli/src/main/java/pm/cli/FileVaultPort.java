@@ -144,6 +144,11 @@ final class FileVaultPort implements VaultPort {
         }
 
         @Override
+        public void changePassphrase(SecretChars current, SecretChars fresh) throws VaultException {
+            delegate.changePassphrase(current, fresh);
+        }
+
+        @Override
         public boolean isLocked() {
             return delegate.isLocked();
         }

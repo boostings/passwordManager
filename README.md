@@ -107,6 +107,9 @@ scripts/pm [--vault <path>] [--] [<command> [<arguments>]]   # scripts/pm --help
 - `PM_JAVA_OPTS`: extra JVM options, for example `-Xmx1200m`.
 - `PM_SKIP_BUILD=1`: skip the Gradle step and run the jars from the last build.
 
+pm itself reads `PM_CLIPBOARD_CLEAR`: the seconds a password copied in the app stays on the
+clipboard, a whole number from 5 to 300 (default 30; any other value means 30).
+
 Without the script, the same thing by hand:
 
 ```sh
@@ -169,11 +172,14 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | --- | --- | --- |
 | Enter | Unlock | Unlocks with the passphrase (Tab reaches "Use recovery key") |
 | Type | Dashboard | Filters the list live |
-| ↑ ↓, Enter | Dashboard | Selects a record and opens its detail card (secrets stay masked) |
+| ↑ ↓, Enter | Dashboard | Selects a record and opens its card (secrets stay masked) |
+| Tab, Enter | Card | Reveal (masked again after 15 s), Copy (cleared from the clipboard after 30 s or on lock; macOS only in v1), Edit (logins and Wi-Fi networks), Delete, Close |
 | Ctrl+N | Dashboard | New login |
 | Ctrl+L | Dashboard | Locks now |
-| Ctrl+T | Dashboard | Tools: password generator, health report, ssh-agent actions on the selected SSH key |
-| Esc | Dashboard, cards | Clears the search, or closes the detail card or the add-login dialog (cancel) |
+| Ctrl+T | Dashboard | Tools: password generator, health report, ssh-agent actions on the selected SSH key, new Wi-Fi network, change passphrase |
+| Ctrl+S | Dashboard | Shares the selected item with a paired device |
+| Ctrl+D | Dashboard | Devices: this device, paired devices, pairing |
+| Esc | Dashboard, cards | Clears the search, or closes the card or dialog (cancel) |
 | Ctrl+X | Everywhere | Locks and quits |
 
 The header counts down to the idle lock: its meter drains from green through amber to red and

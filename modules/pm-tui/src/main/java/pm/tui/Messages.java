@@ -9,7 +9,7 @@ import pm.vault.VaultException;
  * constants. No exception message, path, or record content is ever shown.
  */
 final class Messages {
-    /** What the UI shows in place of any secret field (SR-503; reveal/copy are M4). */
+    /** What the UI shows in place of any secret field until Reveal (SR-503). */
     static final String SECRET_MASK = "••••••••";
 
     static final String EMPTY_CREDENTIAL = "Enter a passphrase or recovery key.";
@@ -31,6 +31,44 @@ final class Messages {
             + " it sends a 5-character hash prefix per password, so it never runs on its own.";
     static final String SELECT_SSH_KEY = "Select an SSH key in the list first.";
     static final String SSH_WORKING = "Talking to ssh-agent...";
+
+    // M7.8: record card actions, edit, delete, Wi-Fi networks, passphrase change.
+    static final String WIFI_SAVED = "Wi-Fi network saved";
+    static final String CHANGES_SAVED = "Changes saved";
+    static final String DELETED = "Item deleted";
+    static final String PASSPHRASE_CHANGED = "Passphrase changed; the recovery key is unchanged";
+    static final String SELECT_ITEM = "Select an item in the list first";
+    static final String NO_PASSWORD = "(no password)";
+    static final String REVEAL_UNPRINTABLE = "This password holds control or invisible characters, so it is"
+            + " not shown; use Copy.";
+    static final String NOTHING_TO_COPY = "This item has no password to copy.";
+    static final String COPY_UNAVAILABLE = "Copy is not available on this system; use Reveal.";
+    static final String COPY_FAILED = "The clipboard could not be written.";
+    static final String DELETE_CANNOT_UNDO = "This cannot be undone, except from a backup.";
+    static final String DELETE_SSH_AGENT = "Deleting does not take the key out of a running ssh-agent;"
+            + " remove it there first.";
+    static final String DELETE_NOT_SAVED = "Removed here, but the vault file could not be written."
+            + " Try again, or lock to keep the item.";
+    static final String SSID_REQUIRED = "An SSID is required.";
+    static final String WIFI_NEEDS_PASSWORD = "A WPA2, WPA3 or WEP network needs a password.";
+    static final String OPEN_HAS_NO_PASSWORD = "An OPEN network has no password; leave it empty.";
+    static final String CURRENT_REQUIRED = "Enter the current passphrase or the recovery key.";
+    static final String NEW_PASSPHRASE_REQUIRED = "Enter the new passphrase twice.";
+    static final String PASSPHRASE_MISMATCH = "The new passphrases do not match.";
+    static final String CURRENT_WRONG = "The current passphrase or recovery key is wrong; nothing changed.";
+    static final String CHANGING_PASSPHRASE = "Changing the passphrase…";
+    static final String CHANGE_UNCONFIRMED = "Changed, but the file could not be read back: the new"
+            + " passphrase and the recovery key open it.";
+    static final String CHANGE_UNKNOWN = "Not known whether it changed: the recovery key opens the vault either way.";
+    static final String CHANGE_AUDIT_FAILED = "The passphrase was changed, but its audit log entry could not be"
+            + " written.";
+    static final String OLD_BACKUPS = "Earlier .bak files and backups still open with the old passphrase.";
+
+    /** After Copy: when the clipboard is cleared (SR-503). */
+    static String copied(Duration clearAfter) {
+        return String.format(Locale.ROOT, "Copied. The clipboard is cleared in %d s, or when pm locks.",
+                clearAfter.toSeconds());
+    }
 
     // M5.4: why the browser extension is not served (dashboard header, ADR 0014 §8).
     static final String BROWSER_NOT_DEFAULT = "browser off: not the default vault";

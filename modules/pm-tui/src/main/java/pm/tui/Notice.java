@@ -12,6 +12,7 @@ import java.time.Instant;
 final class Notice {
     static final String ERROR_MARK = "✗ ";
     static final String BUSY_MARK = "◐ ";
+    static final String DONE_MARK = "✓ ";
 
     private static final Duration SETTLE = Duration.ofMillis(600);
 
@@ -37,6 +38,11 @@ final class Notice {
     /** Shows {@code message} as work in progress, in the accent color. */
     void busy(String message, Instant now) {
         show(BUSY_MARK + message, PmTheme.Tone.VIOLET, now);
+    }
+
+    /** Shows {@code message} as a success, in green. */
+    void done(String message, Instant now) {
+        show(DONE_MARK + message, PmTheme.Tone.GREEN, now);
     }
 
     /** Hides the message. */

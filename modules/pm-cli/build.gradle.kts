@@ -1,6 +1,7 @@
 // pm-cli — see plan.md §10 module tiers
 dependencies {
     implementation(project(":modules:pm-tui"))
+    implementation(project(":modules:pm-platform-macos"))
     implementation(project(":modules:pm-approval"))
     implementation(project(":modules:pm-sharing"))
     // M5.4: pm browser install/status and the native host entry (ADR 0014 §8).

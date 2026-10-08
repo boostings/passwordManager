@@ -21,6 +21,9 @@ import pm.crypto.SecretChars;
 import pm.tui.lan.LanAddress;
 import pm.tui.lan.LanState;
 import pm.vault.VaultException;
+import pm.vault.record.LoginRecord;
+import pm.vault.record.VaultRecord;
+import pm.vault.record.WifiRecord;
 
 /**
  * Screen flow of the TUI (plan.md §13 M1): unlock, dashboard, record detail and add-login, plus
@@ -56,6 +59,7 @@ final class TuiController {
     private final PmTheme pmTheme;
     private final ApprovalHost approvals;
     private final SshActions sshActions;
+    private final ClipboardGuard clipboardGuard;
     private final ActivityListener activityListener = new ActivityListener();
     /** GUI-thread confined: forms shown and not yet cleared by the controller. */
     private final List<InputForm> openForms = new ArrayList<>();
@@ -86,6 +90,13 @@ final class TuiController {
 
     TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout,
             IdleTimerFactory timers, Clock clock, PmTheme theme, ApprovalHost host, SshActions ssh) {
+        this(gui, port, idleTimeout, timers, clock, theme, host, ssh,
+                new ClipboardGuard(Clipboard.none(), ClipboardGuard.DEFAULT_CLEAR_AFTER));
+    }
+
+    TuiController(WindowBasedTextGUI gui, VaultPort port, Duration idleTimeout, IdleTimerFactory timers,
+            Clock clock, PmTheme theme, ApprovalHost host, SshActions ssh, ClipboardGuard clipboard) {
+        this.clipboardGuard = Objects.requireNonNull(clipboard, "clipboard");
         this.sshActions = Objects.requireNonNull(ssh, "ssh");
         this.approvals = Objects.requireNonNull(host, "host");
         this.gui = Objects.requireNonNull(gui, "gui");
@@ -121,6 +132,11 @@ final class TuiController {
         return sshActions;
     }
 
+    /** Copies passwords and clears them off the clipboard again (SR-503). */
+    ClipboardGuard clipboard() {
+        return clipboardGuard;
+    }
+
     /** The approval host, for audit entries of LAN shares. */
     ApprovalHost host() {
         return approvals;
@@ -148,10 +164,58 @@ final class TuiController {
         return Optional.of(lanShared);
     }
 
-    /** Reloads the dashboard table after an item arrived. */
+    /** Reloads the dashboard table, keeping the search, after an item arrived or left. */
     void refreshDashboard() {
         if (dashboard != null) {
-            dashboard.refresh("");
+            dashboard.reload();
+        }
+    }
+
+    /** After an item was added, changed or deleted: reloads the table and shows {@code message}. */
+    void changed(String message) {
+        if (dashboard != null) {
+            dashboard.reload();
+            dashboard.toast(message);
+        }
+    }
+
+    /** Opens the card of {@code item}, with Reveal, Copy, Edit and Delete (M7.8). */
+    void openRecord(VaultRecord item) {
+        if (session != null) {
+            showForm(new RecordDetailWindow(this, item));
+        }
+    }
+
+    /** Opens the edit dialog of a login or Wi-Fi network. */
+    void openEdit(VaultRecord item) {
+        if (session == null) {
+            return;
+        }
+        if (item instanceof LoginRecord) {
+            showForm(LoginDialog.edit(this, session, LoginRecord.class.cast(item)));
+        } else if (item instanceof WifiRecord) {
+            showForm(WifiDialog.edit(this, session, WifiRecord.class.cast(item)));
+        }
+    }
+
+    /** Asks to delete {@code item}; {@code onRemoved} runs once it is out of the session. */
+    void openDelete(VaultRecord item, Runnable onRemoved) {
+        if (session != null) {
+            showForm(new DeleteDialog(this, session, item, onRemoved));
+        }
+    }
+
+    /** Opens the new Wi-Fi network dialog. */
+    void openWifiAdd() {
+        if (session != null) {
+            showForm(WifiDialog.add(this, session));
+        }
+    }
+
+    /** Opens the passphrase change dialog (SR-130). */
+    void openPassphraseChange() {
+        if (session != null) {
+            showForm(new PassphraseDialog(this, session));
         }
     }
 
@@ -334,6 +398,7 @@ final class TuiController {
         }
         openForms.removeIf(f -> !gui.getWindows().contains(f.window()));
         openForms.forEach(f -> f.animate(now));
+        clipboardGuard.tick(now);
         showNextApproval(now);
     }
 
@@ -376,6 +441,7 @@ final class TuiController {
         approvalDialog = null;
         closeLanWork(); // revokes open share windows and stops listeners before the session closes
         clearForms();
+        clipboardGuard.clearNow(); // SR-503: a copied password does not outlive the session
         sessionGeneration++;
         if (idleTimer != null) {
             idleTimer.close();

@@ -65,15 +65,27 @@ final class TuiHarness implements AutoCloseable {
         this(port, host, clock, SshActions.none(), size);
     }
 
+    /** With a clipboard for a card's Copy (M7.8). */
+    TuiHarness(FakeVaultPort port, Clipboard clipboard) throws IOException {
+        this(port, ApprovalHost.none(), new ManualClock(FakeVaultPort.T0), SshActions.none(),
+                new TerminalSize(COLUMNS, ROWS), clipboard);
+    }
+
     private TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, SshActions ssh, TerminalSize size)
             throws IOException {
+        this(port, host, clock, ssh, size, Clipboard.none());
+    }
+
+    private TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, SshActions ssh, TerminalSize size,
+            Clipboard clipboard) throws IOException {
         this.terminal = new DefaultVirtualTerminal(size);
         this.port = port;
         this.clock = clock;
         screen = new TerminalScreen(terminal);
         screen.startScreen();
         gui = TuiApp.newGui(screen, theme);
-        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme, host, ssh);
+        controller = new TuiController(gui, port, TIMEOUT, timers, clock, theme, host, ssh,
+                new ClipboardGuard(clipboard, ClipboardGuard.DEFAULT_CLEAR_AFTER));
         controller.start();
         pump();
     }

@@ -23,7 +23,7 @@ final class FakeVaultPort implements VaultPort {
     static final String LOGIN_SECRET = "hunter2-LOGIN-SECRET";
     static final String WIFI_SECRET = "wifi-SECRET-psk";
 
-    private final char[] expectedPassphrase;
+    private char[] expectedPassphrase;
     private final char[] expectedRecovery;
     private final List<FakeSession> opened = new ArrayList<>();
     private int attempts;
@@ -56,7 +56,7 @@ final class FakeVaultPort implements VaultPort {
         if (!match[0]) {
             throw new VaultException(VaultException.Code.WRONG_CREDENTIAL, null);
         }
-        FakeSession s = new FakeSession();
+        FakeSession s = new FakeSession(this);
         if (searchesFail) {
             s.failSearches();
         }
@@ -103,8 +103,17 @@ final class FakeVaultPort implements VaultPort {
         private boolean putsFail;
         private boolean searchesFail;
         private VaultRecord rejected;
+        private VaultException.Code failChangeWith;
+        private int passphraseChanges;
+        /** The port this session came from, whose credentials it checks; null for a session made directly. */
+        private final FakeVaultPort owner;
 
         FakeSession() {
+            this(null);
+        }
+
+        FakeSession(FakeVaultPort owner) {
+            this.owner = owner;
             add(new LoginRecord(UUID.randomUUID(), "GitHub", "octocat", secret(LOGIN_SECRET),
                     List.of("https://github.com"), "", List.of("dev"), T0, T0, T0));
             add(new WifiRecord(UUID.randomUUID(), "Home WiFi", "HomeNet", "WPA3",
@@ -163,9 +172,37 @@ final class FakeVaultPort implements VaultPort {
             }
         }
 
+        /** As the real session: {@code current} is the passphrase or the recovery key. */
+        @Override
+        public void changePassphrase(SecretChars current, SecretChars fresh) throws VaultException {
+            boolean[] known = new boolean[1];
+            current.withChars(chars -> known[0] = sameChars(chars, owner.expectedPassphrase)
+                    || sameChars(chars, owner.expectedRecovery));
+            if (!known[0]) {
+                throw new VaultException(VaultException.Code.WRONG_CREDENTIAL, null);
+            }
+            if (fresh.length() == 0) {
+                throw new IllegalArgumentException("EMPTY_PASSPHRASE");
+            }
+            passphraseChanges++;
+            if (failChangeWith != null) {
+                throw new VaultException(failChangeWith, null);
+            }
+            fresh.withChars(chars -> owner.expectedPassphrase = chars.clone());
+        }
+
         @Override
         public boolean isLocked() {
             return locked;
+        }
+
+        /** Makes every later {@link #changePassphrase} that gets past the check fail with {@code code}. */
+        void failPassphraseChanges(VaultException.Code code) {
+            failChangeWith = code;
+        }
+
+        int passphraseChangeCount() {
+            return passphraseChanges;
         }
 
         @Override

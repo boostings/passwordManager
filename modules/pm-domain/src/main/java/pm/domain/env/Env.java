@@ -56,7 +56,9 @@ public final class Env {
         /** Terminal color capability, for example {@code truecolor}. */
         COLORTERM(Kind.TOKEN),
         /** Terminal type. */
-        TERM(Kind.TOKEN);
+        TERM(Kind.TOKEN),
+        /** Seconds before the TUI clears a password it copied (SR-503); the CLI checks the range. */
+        PM_CLIPBOARD_CLEAR(Kind.TOKEN);
 
         private final Kind kind;
 

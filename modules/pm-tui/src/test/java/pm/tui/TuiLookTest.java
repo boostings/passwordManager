@@ -37,13 +37,13 @@ class TuiLookTest {
         try (TuiHarness h = unlocked()) {
             Window dashboard = h.activeWindow();
             h.ctrl('n');
-            assertTrue(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertTrue(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertEquals("", TuiHarness.boxTexts(dashboard).get(0)); // ^N never typed an "n"
             Window dialog = h.activeWindow();
             h.type("Title");
             h.press(KeyType.Escape);
 
-            assertFalse(h.screenText().contains(AddLoginDialog.TAGS_LABEL));
+            assertFalse(h.screenText().contains(LoginDialog.TAGS_LABEL));
             TuiHarness.boxTexts(dialog).forEach(t -> assertEquals("", t));
             assertEquals(0, h.port.last().saveCount());
         }

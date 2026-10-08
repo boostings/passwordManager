@@ -144,6 +144,11 @@ final class FakeVaultPort implements VaultPort {
         }
 
         @Override
+        public void changePassphrase(SecretChars current, SecretChars fresh) {
+            throw new UnsupportedOperationException("the CLI changes passphrases through VaultService");
+        }
+
+        @Override
         public boolean isLocked() {
             return locked;
         }

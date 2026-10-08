@@ -91,14 +91,27 @@ counts down to that lock.
 | Key | Does |
 | --- | --- |
 | type | filter the list |
-| ↑ ↓, Enter | open an item (secrets stay masked) |
+| ↑ ↓, Enter | open an item's card (secrets stay masked) |
 | Ctrl+N | new login |
-| Ctrl+T | tools: generator, health report, ssh-agent actions on the selected SSH key |
+| Ctrl+T | tools: generator, health report, ssh-agent actions on the selected SSH key, new Wi-Fi network, change passphrase |
 | Ctrl+S | share the selected item with a paired device |
 | Ctrl+D | devices: this device, paired devices, pairing |
 | Ctrl+L | lock now |
 | Esc | clear the search, or close a card or dialog |
 | Ctrl+X | lock and quit |
+
+An item's card has buttons (Tab moves between them, Enter presses one):
+
+- **Reveal** shows a login's or Wi-Fi network's password for 15 seconds, then masks it again; so
+  do Hide, Close and every lock. A password containing control or invisible characters is not
+  shown.
+- **Copy** puts the password on the clipboard and clears it after 30 seconds, when pm locks, or
+  when you quit. If you copied something else in the meantime, pm leaves that alone.
+  `PM_CLIPBOARD_CLEAR=<seconds>` (5 to 300) changes the 30 seconds. Copy works on macOS in v1; on
+  Linux and Windows the card says the clipboard is not available, and Reveal still works.
+  A clipboard manager can keep its own copy, and pm cannot clear the clipboard if it is killed.
+- **Edit** (logins and Wi-Fi networks) changes the fields; leave the password empty to keep it.
+- **Delete** asks first, as `pm rm` does.
 
 While the app is unlocked it is also the place where requests from `pm env run` and the browser
 extension are approved (see "Approvals" below).
@@ -134,8 +147,9 @@ pm passphrase               # current passphrase, then the new one twice
 pm recover                  # lost passphrase: the recovery key, then a new passphrase twice
 ```
 
-Your items and the recovery key stay the same. Earlier `.bak` files and backups still open with
-the **old** passphrase. If the old passphrase may be known to someone, make a new backup and
+In the app, Ctrl+T then "Change passphrase" does the same; it accepts the current passphrase or
+the recovery key. Your items and the recovery key stay the same. Earlier `.bak` files and
+backups still open with the **old** passphrase. If the old passphrase may be known to someone, make a new backup and
 then delete the old ones.
 
 ## Backups

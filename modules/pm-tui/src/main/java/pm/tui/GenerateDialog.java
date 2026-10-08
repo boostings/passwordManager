@@ -31,7 +31,7 @@ import pm.domain.generate.PasswordPolicy;
  * The result is shown in the dialog with its entropy and is not saved. The generator's
  * {@code SecretChars} is closed as soon as the label holds the text, and the label is emptied on
  * Close, Esc, lock and quit like any form (ADR 0008); Lanterna keeps label text as a
- * {@code String}, the same accepted residual as typed passwords in {@link AddLoginDialog}.
+ * {@code String}, the same accepted residual as typed passwords in {@link LoginDialog}.
  */
 final class GenerateDialog implements InputForm {
     static final String TITLE = "Generate";

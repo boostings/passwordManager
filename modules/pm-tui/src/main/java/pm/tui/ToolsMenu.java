@@ -14,8 +14,9 @@ import pm.vault.record.SshKeyRecord;
 import pm.vault.record.VaultRecord;
 
 /**
- * The dashboard's tools menu (Ctrl+T, plan.md §13 M4.4): the generator, the offline health view
- * and ssh-agent actions on the selected SSH key item. Each choice closes the menu and opens its
+ * The dashboard's tools menu (Ctrl+T, plan.md §13 M4.4, M7.8): the generator, the offline health
+ * view, ssh-agent actions on the selected SSH key item, a new Wi-Fi network and the passphrase
+ * change. Each choice closes the menu and opens its
  * window through the controller, so forms are tracked and cleared on lock (ADR 0008).
  */
 final class ToolsMenu {
@@ -23,6 +24,8 @@ final class ToolsMenu {
     static final String GENERATE = "Generate password";
     static final String HEALTH = "Password health";
     static final String SSH = "SSH agent (selected key)";
+    static final String WIFI = "New Wi-Fi network";
+    static final String CHANGE_PASSPHRASE = "Change passphrase";
     static final String CLOSE = "Close";
 
     private final TuiController controller;
@@ -42,6 +45,7 @@ final class ToolsMenu {
         content.addComponent(new EmptySpace());
         Button first = PmTheme.pill(GENERATE, this::openGenerate);
         for (Button b : List.of(first, PmTheme.pill(HEALTH, this::openHealth), PmTheme.pill(SSH, this::openSsh),
+                PmTheme.pill(WIFI, this::openWifi), PmTheme.pill(CHANGE_PASSPHRASE, this::openPassphrase),
                 PmTheme.pill(CLOSE, basicWindow::close))) {
             content.addComponent(b, LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
         }
@@ -80,5 +84,15 @@ final class ToolsMenu {
         basicWindow.close();
         controller.show(new SshAgentDialog(SshKeyRecord.class.cast(record.get()), controller.ssh(),
                 controller.theme()).window());
+    }
+
+    void openWifi() {
+        basicWindow.close();
+        controller.openWifiAdd();
+    }
+
+    void openPassphrase() {
+        basicWindow.close();
+        controller.openPassphraseChange();
     }
 }

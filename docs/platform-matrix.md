@@ -22,7 +22,7 @@ caveat) · **U** unsupported in v1 · *spike* needs hands-on verification.
 | Passkey storage, import and export | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
 | Browser, OS and hardware-key passkeys keep working with pm installed | S (the extension does not touch WebAuthn) | S | S |
 | ssh-agent integration | S — `SSH_AUTH_SOCK` Unix socket | C — OpenSSH for Windows named pipe `\\.\pipe\openssh-ssh-agent`; Pageant U | S |
-| Clipboard clear | S | S | C — X11/Wayland differences; Wayland may block programmatic clear |
+| Clipboard copy and clear (TUI, SR-503) | S — `pbcopy`/`pbpaste`; cleared after 30 s (`PM_CLIPBOARD_CLEAR`), on lock and on quit | Not in v1 — Copy says the clipboard is unavailable; Reveal works | Not in v1 — same; X11/Wayland differences, and Wayland may block a programmatic clear |
 | Auto-lock on system sleep/lock | C — no pure-Java signal; poll uptime gap + idle timer *spike* | C — same | C — same |
 | Reproducible JARs + jlink image | S | S | S |
 | Reproducible installer | U by design (signatures) — contents verified instead | U | U |

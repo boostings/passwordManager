@@ -63,6 +63,7 @@ means fixed with a test.
 | M7.3 | Packaging | 2 HIGH (the packaged TUI crashed; JVM options taken from the environment), 1 MEDIUM, 3 LOW | Fixed; environment JVM options refused at start (detection only) |
 | M7.6 | Passphrase change | Review and fix round (stale saves, failed changes) | Fixed: CONFLICT on stale save; failures say which passphrase opens the file |
 | M7.7 | CLI completeness | 8 LOW | All fixed |
+| M7.8 | TUI reveal, copy, edit, delete, Wi-Fi, passphrase | Edit save failure left the edited record in memory; delete save failure closed the dialog with the item gone from the list; a password with terminal controls could be revealed; the first macOS clipboard adapter left a pipe open and ignored a stuck tool | Fixed with tests; copy and both clears checked against the real macOS pasteboard; clipboard limits are R-012 |
 | M7.9 | launchd ssh-agent | 1 LOW (root trusted as a peer everywhere) | Fixed by narrowing to launchd's own listener |
 | M7.10 | Tier-1 coverage | Two timing-dependent branches; conditions that could never fail | Made deterministic or removed with the reason stated |
 | M7.12 | Audit log under concurrent writers | Chain forked under two writing processes (found by the M7.4 scratch run); review: partial appends, unbounded waits, head without log | Fixed; 4-JVM test, 20/20 runs |
@@ -107,6 +108,8 @@ user should know about:
   manifest.
 - R-011: a same-user process can reach the browser relay socket. Every release still needs a
   prompt. Accepted.
+- R-012: a password copied in the app is readable by every same-user program, and a clipboard
+  manager can keep it, until pm clears it. Accepted; Copy is macOS-only in v1.
 - ADR 0008: known limitations of best-effort zeroing.
 - ADR 0013: connecting to the agent has no deadline of its own, and key copies outlive a lock.
 - ADR 0014 and M5: filled values are in the page's DOM (TM-54), and the MV3 worker lifetime is
@@ -122,7 +125,7 @@ All rows are in [cert-exceptions.md](cert-exceptions.md):
   CE-050 (M6.5).
 - Accepted at the M5.4 merge: CE-065 and CE-066.
 - Proposed and still awaiting sign-off in this record: CE-035, CE-036, CE-037 (M3.6) and CE-087
-  (M7.7). They are re-read against the code and signed off, or sent back, at the M7 sign-off
+  (M7.7) and CE-088 (M7.8). They are re-read against the code and signed off, or sent back, at the M7 sign-off
   (M7.5).
 
 Recorded by: Lane A (Jimmy), security owner, 2026-10-07.
