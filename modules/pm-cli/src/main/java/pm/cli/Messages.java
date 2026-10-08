@@ -18,7 +18,9 @@ enum Messages {
             + " | pair --listen [--bind <ip>] [--name <name>] | pair <ip:port> [--name <name>]"
             + " | share <title> --to <device> [--ttl 10m] [--bind <ip>]"
             + " | share <title> --browser [--ttl 10m] [--bind <ip>]"
-            + " | receive <ip:port> | revoke <share-id>]"
+            + " | receive <ip:port> | revoke <share-id>"
+            + " | browser install [--browser chrome|chromium|edge|brave|all] [--extension-id <id>]"
+            + " | browser uninstall [--browser B] | browser status [--browser B]]"
             + " (env commands take [--project <title>] [--profile <name>]);"
             + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
@@ -133,6 +135,58 @@ enum Messages {
     SSH_REMOVED_ALL("all keys removed from ssh-agent"),
     SSH_EXPORTED("private key exported; the file is owner-only (0600). It is a plaintext key: delete it"
             + " when it is no longer needed"),
+
+    // ---- M5.4: pm browser install | uninstall | status (ADR 0014 §8) ----
+    BRIDGE_DEFAULT_VAULT_ONLY("the browser extension works with the default vault only; run this without --vault"),
+    BRIDGE_UNKNOWN_BROWSER("--browser is chrome, chromium, edge, brave or all"),
+    BRIDGE_BAD_EXTENSION_ID("--extension-id is the extension's 32-letter ID (letters a to p) from chrome://extensions"),
+    BRIDGE_NEED_EXTENSION_ID("give --extension-id: the allowlist does not hold exactly one extension"),
+    BRIDGE_NO_VAULT("no vault yet; run 'pm init' first"),
+    BRIDGE_UNSAFE_ALLOWLIST("the vault folder or its extension allowlist is a link, owned by another user,"
+            + " writable by others or damaged; nothing was changed"),
+    BRIDGE_ALLOWLIST_NOT_WRITTEN("the browser manifests above were changed, but the extension allowlist in the vault"
+            + " folder could not be written; fix the folder and run the same command again"),
+    BRIDGE_ALLOWLIST_FULL("the extension allowlist is full; nothing was changed"),
+    BRIDGE_ALLOWLIST_ADDED("extension added to the allowlist: "),
+    BRIDGE_ALLOWLIST_HAS("extension already in the allowlist: "),
+    BRIDGE_NO_LAUNCHER("cannot find a safe pm launcher to register (a regular executable file owned by you or"
+            + " root, in folders owned by you or root that no group or other user can write); run pm from its"
+            + " installed location"),
+    BRIDGE_CHECKOUT_LAUNCHER("this pm runs from a source checkout, whose scripts/pm starts Gradle on every"
+            + " launch; register the installed launcher instead: run 'pm browser install' from the release"
+            + " archive's bin/pm or the packaged app"),
+    BRIDGE_NOTHING_INSTALLABLE("no manifest could be installed; the allowlist was not changed"),
+    BRIDGE_ALLOWLIST_REMOVED("extension removed from the allowlist: "),
+    BRIDGE_ALLOWLIST_CLEARED("no pm manifest is left; the extension allowlist was cleared"),
+    BRIDGE_ALLOWLIST_CLEARED_UNREAD("no manifest pm can read is left; the extension allowlist was cleared, so any"
+            + " manifest pm could not read no longer lets an extension in"),
+    BRIDGE_ALLOWLIST_LISTED("allowlisted extension: "),
+    BRIDGE_ALLOWLIST_NO_MANIFEST(" (no browser manifest allows it; run 'pm browser install' for it)"),
+    BRIDGE_ALLOWLIST_EMPTY("allowlisted extensions: none"),
+    BRIDGE_ALLOWLIST_UNREADABLE("allowlisted extensions: the allowlist cannot be read safely"),
+    BRIDGE_NO_BROWSER("no supported browser found for this user; nothing was installed"),
+    BRIDGE_INSTALLED(": installed"),
+    BRIDGE_ALREADY(": already installed"),
+    BRIDGE_REMOVED(": removed"),
+    BRIDGE_ORIGIN_REMOVED(": the manifest no longer allows that extension; it still allows the others"),
+    BRIDGE_NOTHING_TO_REMOVE(": nothing to remove"),
+    BRIDGE_STATUS_INSTALLED(": installed"),
+    BRIDGE_STATUS_ALLOWS("  manifest allows extension: "),
+    BRIDGE_STATUS_MISSING(": not installed"),
+    BRIDGE_STATUS_FOREIGN(": another program's manifest has pm's host name; left alone"),
+    BRIDGE_STATUS_STALE(": installed for another pm location or extension; run 'pm browser install' again"),
+    BRIDGE_STATUS_UNSAFE(": manifest folder or file is a link, owned by another user or writable by others;"
+            + " left alone"),
+    BRIDGE_STATUS_NO_BROWSER(": browser not found"),
+    BRIDGE_FAILED(": could not write the manifest; nothing was changed there"),
+    BRIDGE_RESTART("restart the browser, then open pm (the extension only works while pm is open and unlocked)"),
+    BRIDGE_WINDOWS("Windows: pm does not write the registry. To install by hand, save the manifest below as"
+            + " pm.browser.json in a folder only you can write to, then set the default value of this registry"
+            + " key to that file's full path:"),
+    BRIDGE_WINDOWS_MANIFEST("manifest (set \"path\" to the full path of pm.exe or pm.bat):"),
+    BRIDGE_WINDOWS_NO_REGISTRY("Windows: pm does not read or write the registry; check or remove the"
+            + " NativeMessagingHosts\\pm.browser key by hand (pm browser install prints its location)"),
+    BRIDGE_WINDOWS_ALLOWLIST("and add this line to the file browser-extensions next to your vault:"),
 
     PROMPT_PASSPHRASE("Passphrase: "),
     PROMPT_NEW_PASSPHRASE("New passphrase: "),

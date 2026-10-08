@@ -32,7 +32,7 @@ final class TuiHarness implements AutoCloseable {
     private static final int ROWS = 32;
     private static final int MAX_PUMPS = 100;
 
-    final DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(COLUMNS, ROWS));
+    final DefaultVirtualTerminal terminal;
     final FakeVaultPort port;
     final FakeTimers timers = new FakeTimers();
     final ManualClock clock;
@@ -52,15 +52,22 @@ final class TuiHarness implements AutoCloseable {
 
     /** With an approval host whose broker shares {@code clock}. */
     TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock) throws IOException {
-        this(port, host, clock, SshActions.none());
+        this(port, host, clock, SshActions.none(), new TerminalSize(COLUMNS, ROWS));
     }
 
     /** With ssh-agent actions (M4.4). */
     TuiHarness(FakeVaultPort port, SshActions ssh) throws IOException {
-        this(port, ApprovalHost.none(), new ManualClock(FakeVaultPort.T0), ssh);
+        this(port, ApprovalHost.none(), new ManualClock(FakeVaultPort.T0), ssh, new TerminalSize(COLUMNS, ROWS));
     }
 
-    private TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, SshActions ssh) throws IOException {
+    /** With an approval host on a terminal of {@code size} (M5.4: prompts that must fit). */
+    TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, TerminalSize size) throws IOException {
+        this(port, host, clock, SshActions.none(), size);
+    }
+
+    private TuiHarness(FakeVaultPort port, ApprovalHost host, ManualClock clock, SshActions ssh, TerminalSize size)
+            throws IOException {
+        this.terminal = new DefaultVirtualTerminal(size);
         this.port = port;
         this.clock = clock;
         screen = new TerminalScreen(terminal);

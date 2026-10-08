@@ -32,6 +32,20 @@ final class Messages {
     static final String SELECT_SSH_KEY = "Select an SSH key in the list first.";
     static final String SSH_WORKING = "Talking to ssh-agent...";
 
+    // M5.4: why the browser extension is not served (dashboard header, ADR 0014 §8).
+    static final String BROWSER_NOT_DEFAULT = "browser off: not the default vault";
+    static final String BROWSER_NO_APPROVALS = "browser off: approvals unavailable";
+
+    /** The status-line note for a relay that did not start. */
+    static String browserOff(BrowserRelay.Unavailable reason) {
+        if (reason == BrowserRelay.Unavailable.IN_USE) {
+            return "browser off: another pm window serves it";
+        } else if (reason == BrowserRelay.Unavailable.PATH_TOO_LONG) {
+            return "browser off: socket path too long";
+        }
+        return "browser off: socket folder unsafe";
+    }
+
     /** Entropy line under a generated secret. */
     static String entropy(double bits) {
         return String.format(Locale.ROOT, "%.1f bits of entropy", bits);

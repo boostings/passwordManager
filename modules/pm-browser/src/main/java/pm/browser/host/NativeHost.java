@@ -41,6 +41,25 @@ public final class NativeHost {
      */
     public static int run(List<String> args, ExtensionAllowlist allowlist, InputStream in, OutputStream out,
             Handler.Factory handlers) throws IOException {
+        return run(args, allowlist, in, out, handlers, true);
+    }
+
+    /**
+     * {@link #run} for a host that serves no passkeys: {@code webauthn.create} and
+     * {@code webauthn.get} get the reply of a type it does not know, decided from the
+     * {@code type} member alone ({@link Messages#decodeWithoutPasskeys}), and never reach the
+     * handler.
+     *
+     * @return one of the {@code EXIT_} codes
+     * @throws IOException if stdout fails
+     */
+    public static int runWithoutPasskeys(List<String> args, ExtensionAllowlist allowlist, InputStream in,
+            OutputStream out, Handler.Factory handlers) throws IOException {
+        return run(args, allowlist, in, out, handlers, false);
+    }
+
+    private static int run(List<String> args, ExtensionAllowlist allowlist, InputStream in, OutputStream out,
+            Handler.Factory handlers, boolean passkeys) throws IOException {
         Objects.requireNonNull(in, "in");
         Objects.requireNonNull(out, "out");
         Optional<String> caller = allowlist.caller(args);
@@ -59,14 +78,14 @@ public final class NativeHost {
                 send(out, Messages.error(null, e.getMessage()));
                 return EXIT_PROTOCOL;
             }
-            send(out, answer(body, handler));
+            send(out, answer(body, handler, passkeys));
         }
     }
 
-    private static Json.Obj answer(byte[] body, Handler handler) {
+    private static Json.Obj answer(byte[] body, Handler handler, boolean passkeys) {
         Request request;
         try {
-            request = Messages.decode(body);
+            request = passkeys ? Messages.decode(body) : Messages.decodeWithoutPasskeys(body);
         } catch (HostException e) {
             return Messages.error(null, e.getMessage());
         }

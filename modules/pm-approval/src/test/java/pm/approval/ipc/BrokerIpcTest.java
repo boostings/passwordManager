@@ -12,6 +12,7 @@ import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -239,6 +240,27 @@ class BrokerIpcTest {
         Files.write(dir.socketPath(), new byte[1]);
         assertEquals(IpcException.Code.UNSAFE_PATH, assertThrows(IpcException.class,
                 () -> BrokerServer.start(dir, broker, RELEASE_DB)).code());
+    }
+
+    @Test
+    void liveSocketIsLeftAloneAndStaleOneIsReplaced() throws IOException, IpcException {
+        RunDir dir = start();
+        assertEquals(IpcException.Code.IO, assertThrows(IpcException.class,
+                () -> BrokerServer.start(dir, broker, RELEASE_DB)).code(), "a second broker never steals a live socket");
+        try (SocketChannel ch = SocketChannel.open(UnixDomainSocketAddress.of(dir.socketPath()))) {
+            assertTrue(ch.isConnected(), "the first broker still serves");
+        }
+        server.close();
+        server = null;
+        // A crashed broker leaves its socket file behind, with nothing accepting on it.
+        try (ServerSocketChannel dead = ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+            dead.bind(UnixDomainSocketAddress.of(dir.socketPath()));
+        }
+        assertTrue(Files.exists(dir.socketPath()));
+        server = BrokerServer.start(dir, broker, RELEASE_DB);
+        try (SocketChannel ch = SocketChannel.open(UnixDomainSocketAddress.of(dir.socketPath()))) {
+            assertTrue(ch.isConnected(), "the stale socket was replaced");
+        }
     }
 
     @Test

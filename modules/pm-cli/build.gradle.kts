@@ -3,6 +3,8 @@ dependencies {
     implementation(project(":modules:pm-tui"))
     implementation(project(":modules:pm-approval"))
     implementation(project(":modules:pm-sharing"))
+    // M5.4: pm browser install/status and the native host entry (ADR 0014 §8).
+    implementation(project(":modules:pm-browser"))
 }
 
 // No application plugin: this copies the pm-cli jar and every runtime module jar into one

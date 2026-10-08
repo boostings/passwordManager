@@ -1,5 +1,6 @@
 package pm.tui;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,6 +59,20 @@ class SocketApprovalHostTest {
             host.unlocked(grant -> new TreeMap<>());
             assertTrue(host.broker().isEmpty(), "env run falls back to the CLI path, which reports the log");
             assertFalse(Files.exists(RunDir.locate(env, tmp).resolve(RunDir.AUTH_FILE)));
+        }
+    }
+
+    @Test
+    void onTheDefaultVaultABrokerThatCannotStartSaysTheBrowserIsOff() throws IOException {
+        Env env = env();
+        Path vault = tmp.resolve("v.pmv");
+        Files.writeString(tmp.resolve(AuditLog.FILE_NAME), "not a log\n", StandardCharsets.US_ASCII);
+        try (ApprovalHost host = ApprovalHost.socketFor(vault, env, Clock.systemUTC(), "alice", true)) {
+            assertEquals(Optional.empty(), host.browserNote());
+            host.unlocked(grant -> new TreeMap<>());
+            assertTrue(host.broker().isEmpty());
+            assertEquals(Optional.of(Messages.BROWSER_NO_APPROVALS), host.browserNote(), "the status line says why");
+            assertFalse(Files.exists(BrowserRelay.socketPath(vault)), "no relay without a broker");
         }
     }
 }

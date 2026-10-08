@@ -61,7 +61,7 @@ Legend: S spoofing, T tampering, R repudiation, I information disclosure, D deni
 ### TB-5 Approval broker
 | ID | Cat | Threat | Mitigation |
 | --- | --- | --- | --- |
-| TM-20 | S | Unauthorized process requests secrets (AT-1, AT-7) | Peer creds + session token (SR-101), broker is sole path (SR-100) |
+| TM-20 | S | Unauthorized process requests secrets (AT-1, AT-7) | Peer creds + session token (SR-101), broker is sole path (SR-100). The browser relay socket (ADR 0014 §8, SR-113) deliberately takes no session token, which a same-user process could read anyway: an owner-only folder, the allowlisted extension ID read again for every request, again before the prompt is shown and again when the answer arrives, one approval per connection showing the exact origin and the claimed host instance marked unverified, one password per approval, rate-limited and audited lookups. Same-user residual accepted (R-011) |
 | TM-21 | T | Displayed command differs from executed | Broker launches argv itself (SR-102) |
 | TM-22 | E | Scope creep: approve-once becomes policy, or one project becomes all | Explicit scope, per-project policy cap, single-use nonce (SR-103, SR-104) |
 | TM-23 | R | User disputes what was approved | Audit log before release (SR-112) |
@@ -129,6 +129,6 @@ Legend: S spoofing, T tampering, R repudiation, I information disclosure, D deni
 
 ## Accepted risks
 
-TM-18 (R-002), TM-27, TM-38 (R-005), TM-54, and all AT-2 scenarios (R-001) are
-accepted and recorded in `risk-register.md`. Every other threat has a
+TM-18 (R-002), TM-27, TM-38 (R-005), TM-54, the browser-relay part of TM-20 (R-011), and
+all AT-2 scenarios (R-001) are accepted and recorded in `risk-register.md`. Every other threat has a
 mitigation with a test or CI check in `traceability.md`.

@@ -64,11 +64,11 @@ public final class BrokerServer implements AutoCloseable {
     }
 
     /**
-     * Binds the socket and starts serving. A stale socket left by a crashed broker is replaced; any
-     * other file there is refused.
+     * Binds the socket and starts serving. A stale socket left by a crashed broker is replaced; a
+     * live one (another broker accepts on it) is left alone; any other file there is refused.
      *
      * @throws IpcException {@code UNSAFE_PATH} if the socket path holds a link or a regular file,
-     *     {@code IO} if binding fails (another broker may be running)
+     *     {@code IO} if another broker serves on it or binding fails
      */
     @SuppressWarnings("PMD.CloseResource") // ownership of the channel passes to the server, closed in close()
     public static BrokerServer start(RunDir dir, ApprovalBroker broker, Releaser releaser) throws IpcException {
@@ -82,6 +82,9 @@ public final class BrokerServer implements AutoCloseable {
                 BasicFileAttributes a = Files.readAttributes(socket, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 if (!a.isOther()) {
                     throw new IpcException(IpcException.Code.UNSAFE_PATH, null);
+                }
+                if (isLive(socket)) {
+                    throw new IpcException(IpcException.Code.IO, null); // another broker serves: never steal it
                 }
                 Files.delete(socket);
             }
@@ -103,6 +106,15 @@ public final class BrokerServer implements AutoCloseable {
         Objects.requireNonNull(ticking); // cancelled by timer.shutdownNow() in close()
         s.workers.execute(s::acceptLoop);
         return s;
+    }
+
+    /** Whether something accepts connections on {@code socket}; a refused connection means it is stale. */
+    private static boolean isLive(Path socket) {
+        try (SocketChannel probe = SocketChannel.open(UnixDomainSocketAddress.of(socket))) {
+            return probe.isConnected();
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** The vault unlocked: a new token is issued and written (approval-model §5). */

@@ -73,6 +73,21 @@ public final class Messages {
      *     {@code BAD_FIELD} or {@code VERSION}
      */
     public static Request decode(byte[] body) throws HostException {
+        return decode(body, true);
+    }
+
+    /**
+     * {@link #decode} for a host that serves no passkeys: {@code webauthn.create} and
+     * {@code webauthn.get} take the path of a type it does not know. Only the {@code type} member
+     * is read, so the {@code UNKNOWN_TYPE} reply is the same whatever else the body holds.
+     *
+     * @throws HostException as {@link #decode}
+     */
+    public static Request decodeWithoutPasskeys(byte[] body) throws HostException {
+        return decode(body, false);
+    }
+
+    private static Request decode(byte[] body, boolean passkeys) throws HostException {
         char[] text;
         try {
             text = NativeFrames.utf8(body);
@@ -86,13 +101,13 @@ public final class Messages {
             Arrays.fill(text, '\0');
         }
         try {
-            return request(root);
+            return request(root, passkeys);
         } finally {
             root.wipe();
         }
     }
 
-    private static Request request(Json root) throws HostException {
+    private static Request request(Json root, boolean passkeys) throws HostException {
         if (!(root instanceof Json.Obj o)) {
             throw badField();
         }
@@ -126,14 +141,14 @@ public final class Messages {
             String username = text(o.get("username"), 0, MAX_USERNAME);
             return new Request.Generate(id(o), origin(o), username, policy(o.get("policy")));
         }
-        if (TYPE_WEBAUTHN_CREATE.equals(type)) {
+        if (passkeys && TYPE_WEBAUTHN_CREATE.equals(type)) {
             fields(o, WEBAUTHN_CREATE_FIELDS);
             return new Request.WebauthnCreate(id(o), origin(o), matching(o.get("rpId"), RP_ID_TEXT),
                     binary(o.get("clientDataJSON"), 1, MAX_CLIENT_DATA), user(o.get("user")),
                     algorithms(o.get("algorithms")), credentials(o.get("excludeCredentials")),
                     userVerification(o.get("userVerification")));
         }
-        if (TYPE_WEBAUTHN_GET.equals(type)) {
+        if (passkeys && TYPE_WEBAUTHN_GET.equals(type)) {
             fields(o, WEBAUTHN_GET_FIELDS);
             Json chosen = o.get("credential");
             Optional<String> credential = chosen instanceof Json.Null

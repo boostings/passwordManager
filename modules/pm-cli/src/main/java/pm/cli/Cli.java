@@ -50,7 +50,8 @@ import pm.vault.record.WifiRecord;
  * {@code add-login}, {@code list}, {@code search} and {@code tui} commands, the M2
  * {@code project} and {@code env} groups ({@link EnvCommands}), the M4 {@code generate},
  * {@code health} and {@code ssh} groups ({@link GenerateCommand}, {@link HealthCommand},
- * {@link SshCommands}), the bare {@code pm}
+ * {@link SshCommands}), the M5.4 {@code browser} group and native host ({@link BrowserCommands},
+ * {@link BrowserHost}), the bare {@code pm}
  * that opens the whole app (creating the vault first when there is none), and the mapping from
  * failures to {@link ExitCodes}. Every line printed comes from {@link Messages} or is non-secret
  * record metadata (SR-501); passphrases live only in {@link SecretChars} and are zeroed after use
@@ -68,8 +69,9 @@ final class Cli {
     private static final String GENERATE_GROUP = "generate";
     private static final String HEALTH_GROUP = "health";
     private static final String SSH_GROUP = "ssh";
+    private static final String BROWSER_GROUP = "browser";
     private static final java.util.Set<String> GROUPS =
-            java.util.Set.of("project", "env", GENERATE_GROUP, HEALTH_GROUP, SSH_GROUP);
+            java.util.Set.of("project", "env", GENERATE_GROUP, HEALTH_GROUP, SSH_GROUP, BROWSER_GROUP);
     /** LAN sharing commands (M3.6); like the groups they parse their own options. */
     private static final java.util.Set<String> LAN = java.util.Set.of("devices", "pair", "share", "receive", "revoke");
 
@@ -83,6 +85,14 @@ final class Cli {
     private Supplier<BreachClient> breachClients = BreachClient::pwnedPasswords;
     /** Told {@code ip:port} or a URL when a LAN command starts listening; replaced only by tests. */
     private java.util.function.Consumer<String> lanListening = address -> { };
+    /** Where {@code pm browser} installs; replaced only by tests. */
+    private BrowserPlatforms browserPlatform = p -> BrowserCommands.Platform.system(p, environment);
+
+    /** Builds the {@code pm browser} platform from the system properties. */
+    @FunctionalInterface
+    interface BrowserPlatforms {
+        BrowserCommands.Platform apply(UnaryOperator<String> properties) throws UsageException;
+    }
 
     /** Production wiring: real system properties, UTC clock, Lanterna terminal, real file system. */
     Cli() {
@@ -127,6 +137,12 @@ final class Cli {
         return this;
     }
 
+    /** Test hook: the platform {@code pm browser} installs for (temporary folders in tests). */
+    Cli withBrowserPlatform(BrowserPlatforms platforms) {
+        this.browserPlatform = Objects.requireNonNull(platforms, "platforms");
+        return this;
+    }
+
     /** Test hook: told where a {@code pair --listen} or {@code share} window listens. */
     Cli withLanListener(java.util.function.Consumer<String> listener) {
         this.lanListening = Objects.requireNonNull(listener, "listener");
@@ -135,6 +151,11 @@ final class Cli {
 
     /** Production entry: requires an interactive console (passphrases are never read from a pipe). */
     int run(String[] args) {
+        if (BrowserHost.isHostInvocation(args)) {
+            // Started by the browser as its native messaging host (ADR 0014 §8): stdin and stdout
+            // carry frames, never a console.
+            return BrowserHost.serve(args, System.in, System.out, properties);
+        }
         // JDK 21 (the pinned toolchain) returns no console when stdin/stdout is not a terminal.
         // JDK 22+ always returns one: moving past 21 must add a Console.isTerminal() check here.
         return run(args, Optional.ofNullable(System.console()), System.out, System.err);
@@ -150,9 +171,9 @@ final class Cli {
             return run(args, new SystemConsoleIo(console.get()),
                     (path, creating) -> new FileVaultPort(path, clock, kdfFor(creating, () -> Kdf.tune(KDF_TARGET))));
         }
-        if (args.length > 0 && GENERATE_GROUP.equals(args[0])) {
+        if (args.length > 0 && (GENERATE_GROUP.equals(args[0]) || BROWSER_GROUP.equals(args[0]))) {
             return run(args, new PipedIo(out, err, Charset.defaultCharset()), (path, creating) -> {
-                throw new IllegalStateException("generate opens no vault");
+                throw new IllegalStateException("generate and browser open no vault");
             });
         }
         err.println(Messages.NO_TERMINAL.text());
@@ -268,6 +289,17 @@ final class Cli {
             String group = positional.get(0);
             if (GENERATE_GROUP.equals(group)) {
                 return GenerateCommand.run(sub, io);
+            }
+            if (BROWSER_GROUP.equals(group)) {
+                Path defaultVault = VaultPaths.defaultPath(properties);
+                if (!defaultVault.equals(vaultPath)) {
+                    throw new UsageException(Messages.BRIDGE_DEFAULT_VAULT_ONLY);
+                }
+                Path vaultDir = defaultVault.getParent();
+                if (vaultDir == null) {
+                    throw new UsageException(Messages.NO_HOME_DIR);
+                }
+                return new BrowserCommands(browserPlatform.apply(properties), vaultDir).run(sub, io);
             }
             if (HEALTH_GROUP.equals(group)) {
                 return new HealthCommand(clock, breachClients).run(sub, opener.open(vaultPath, false), io);
@@ -447,12 +479,27 @@ final class Cli {
     private static void launchLanterna(VaultPort port, Path vaultPath) throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory(System.out, System.in, StandardCharsets.UTF_8)
                 .setForceTextTerminal(true);
-        // While the app is unlocked it hosts the approval broker that `pm env run` asks (M2).
+        // While the app is unlocked it hosts the approval broker that `pm env run` asks (M2), and,
+        // on the default vault only, the browser relay (ADR 0014 §8).
         try (ApprovalHost host = ApprovalHost.socketFor(vaultPath, Env.system(), Clock.systemUTC(),
-                        Objects.requireNonNull(System.getProperty("user.name"), "user.name"));
+                        Objects.requireNonNull(System.getProperty("user.name"), "user.name"),
+                        isDefaultVault(vaultPath, System::getProperty));
                 Terminal terminal = factory.createTerminal()) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
             new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath)).run(terminal);
+        }
+    }
+
+    /**
+     * Whether {@code vaultPath} is the default vault, the only one the browser's native host
+     * reaches (ADR 0014 §8). False when there is no default (no home directory).
+     */
+    static boolean isDefaultVault(Path vaultPath, UnaryOperator<String> properties) {
+        try {
+            return VaultPaths.defaultPath(properties).toAbsolutePath().normalize()
+                    .equals(vaultPath.toAbsolutePath().normalize());
+        } catch (UsageException e) {
+            return false;
         }
     }
 

@@ -197,13 +197,19 @@ final class DashboardWindow {
     }
 
     private List<Strip.Span> headerLeft() {
-        return List.of(
+        List<Strip.Span> spans = new java.util.ArrayList<>(List.of(
                 Strip.Span.bold(BRAND.substring(0, 1), theme.color(PmTheme.Tone.VIOLET)),
                 Strip.Span.bold(BRAND.substring(1), theme.color(PmTheme.Tone.BRIGHT)),
                 Strip.Span.of(SEPARATOR, theme.color(PmTheme.Tone.BORDER)),
                 Strip.Span.of(TITLE, theme.color(PmTheme.Tone.TEXT)),
                 Strip.Span.of(SEPARATOR, theme.color(PmTheme.Tone.BORDER)),
-                Strip.Span.of(Messages.items(shown.size(), total), theme.color(PmTheme.Tone.MUTED)));
+                Strip.Span.of(Messages.items(shown.size(), total), theme.color(PmTheme.Tone.MUTED))));
+        // Why the browser extension is not served here (ADR 0014 §8), if it is not.
+        controller.host().browserNote().ifPresent(note -> {
+            spans.add(Strip.Span.of(SEPARATOR, theme.color(PmTheme.Tone.BORDER)));
+            spans.add(Strip.Span.of(note, theme.color(PmTheme.Tone.AMBER)));
+        });
+        return spans;
     }
 
     private List<Strip.Span> lockMeter(Duration remaining, Duration timeout, Instant at) {

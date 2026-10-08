@@ -25,16 +25,24 @@ import java.util.regex.Pattern;
 public final class ExtensionAllowlist {
     /** Largest allowlist file read. */
     public static final int MAX_FILE_BYTES = 4_096;
+    /**
+     * Name of the allowlist file in the default vault's directory. {@code pm browser install}
+     * writes it and the host reads it (ADR 0014 §4, §8); there is no other copy of the list.
+     */
+    public static final String FILE_NAME = "browser-extensions";
+    /** First line of the file as {@link #fileText()} writes it. */
+    private static final String HEADER =
+            "# pm: browser extensions allowed to use the native host (written by pm browser install)";
 
     /** A Chrome extension ID: 32 letters a–p (a base-16 hash spelled with a–p). */
     private static final Pattern ID = Pattern.compile("[a-p]{32}");
     private static final Pattern PARENT_WINDOW = Pattern.compile("--parent-window=[0-9]{1,20}");
     private static final Pattern ORIGIN = Pattern.compile("chrome-extension://([a-p]{32})/");
 
-    private final Set<String> ids;
+    private final Set<String> allowed;
 
     private ExtensionAllowlist(Set<String> ids) {
-        this.ids = ids;
+        this.allowed = ids;
     }
 
     /**
@@ -49,6 +57,11 @@ public final class ExtensionAllowlist {
             }
         }
         return new ExtensionAllowlist(Set.copyOf(ids));
+    }
+
+    /** Whether {@code id} has the shape of a Chrome extension ID: exactly 32 letters a–p. */
+    public static boolean isValidId(String id) {
+        return id != null && ID.matcher(id).matches();
     }
 
     /**
@@ -72,6 +85,46 @@ public final class ExtensionAllowlist {
         return of(found);
     }
 
+    /** The allowed IDs, sorted. */
+    public List<String> ids() {
+        return allowed.stream().sorted().toList();
+    }
+
+    /** This allowlist with {@code id} added; the same IDs if it is already present. */
+    public ExtensionAllowlist with(String id) {
+        List<String> more = new ArrayList<>(allowed);
+        if (!allowed.contains(id)) {
+            more.add(id);
+        }
+        return of(more);
+    }
+
+    /** This allowlist without {@code id}; the same IDs if it is absent ({@code pm browser uninstall}). */
+    public ExtensionAllowlist without(String id) {
+        List<String> fewer = new ArrayList<>(allowed);
+        fewer.remove(id);
+        return of(fewer);
+    }
+
+    /** Whether {@code id} is on this list (the TUI relay checks every request, ADR 0014 §8). */
+    public boolean allows(String id) {
+        return allowed.contains(id);
+    }
+
+    /**
+     * The file form {@link #read} accepts: a comment line, then one ID per line, sorted.
+     *
+     * @throws IllegalArgumentException {@code ALLOWLIST_FULL} above {@link #MAX_FILE_BYTES}
+     */
+    public String fileText() {
+        StringBuilder out = new StringBuilder(HEADER).append('\n');
+        ids().forEach(id -> out.append(id).append('\n'));
+        if (out.length() > MAX_FILE_BYTES) {
+            throw new IllegalArgumentException("ALLOWLIST_FULL");
+        }
+        return out.toString();
+    }
+
     /**
      * The verified extension ID of the caller, or empty if the arguments are not exactly an
      * allowlisted origin (plus, optionally, Chrome's Windows parent-window handle).
@@ -81,6 +134,6 @@ public final class ExtensionAllowlist {
             return Optional.empty();
         }
         Matcher origin = ORIGIN.matcher(args.get(0));
-        return origin.matches() && ids.contains(origin.group(1)) ? Optional.of(origin.group(1)) : Optional.empty();
+        return origin.matches() && allowed.contains(origin.group(1)) ? Optional.of(origin.group(1)) : Optional.empty();
     }
 }

@@ -265,6 +265,8 @@ final class TuiController {
         show(dashboard.window());
         approvals.unlocked(new GuiThreadReleaser(gui.getGUIThread(),
                 () -> Optional.ofNullable(session).map(Session::records)));
+        approvals.browser(new GuiThreadBrowserVault(gui.getGUIThread(), () -> Optional.ofNullable(session),
+                timeSource, this::refreshDashboard));
         tick();
     }
 
@@ -278,6 +280,10 @@ final class TuiController {
             if (open && !approvalDialog.prompt().isDone()) {
                 return;
             }
+            if (open && approvalDialog.isNotice()
+                    && approvals.broker().map(b -> b.pending().isEmpty()).orElse(true)) {
+                return; // "too small, denied" stays until closed or the next prompt arrives
+            }
             if (open) {
                 gui.removeWindow(approvalDialog.window()); // timed out or answered elsewhere
             }
@@ -286,7 +292,13 @@ final class TuiController {
         approvals.broker().ifPresent(b -> {
             List<PendingApproval> waiting = b.pending();
             if (!waiting.isEmpty()) {
-                approvalDialog = new ApprovalDialog(pmTheme, waiting.get(0), b.servedUser(), now);
+                PendingApproval next = waiting.get(0);
+                if (!approvals.stillAsked(next.request())) {
+                    next.deny(); // its extension was taken off the allowlist: never shown (ADR 0014 §8)
+                    return;
+                }
+                approvalDialog = new ApprovalDialog(pmTheme, next, b.servedUser(), now,
+                        () -> gui.getScreen().getTerminalSize(), approvals.peer(next.request()));
                 showForm(approvalDialog);
                 approvalDialog.animate(now);
             }

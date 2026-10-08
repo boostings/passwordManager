@@ -3,4 +3,5 @@ module pm.cli {
     requires pm.tui;
     requires pm.approval;
     requires pm.sharing;
+    requires pm.browser;
 }

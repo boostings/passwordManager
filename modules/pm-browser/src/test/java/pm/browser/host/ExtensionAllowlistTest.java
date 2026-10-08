@@ -81,4 +81,45 @@ class ExtensionAllowlistTest {
                     assertThrows(IllegalArgumentException.class, () -> ExtensionAllowlist.read(p)).getMessage());
         }
     }
+
+    /** The install glue (ADR 0014 §8): validate, add once, and write the form {@link ExtensionAllowlist#read} takes. */
+    @Test
+    void installAddsAnIdOnceAndWritesWhatReadAccepts(@TempDir Path dir) throws IOException {
+        assertEquals(true, ExtensionAllowlist.isValidId(ID));
+        for (String bad : new String[] {null, "", ID.toUpperCase(java.util.Locale.ROOT), ID + "a", "q" + ID.substring(1)}) {
+            assertEquals(false, ExtensionAllowlist.isValidId(bad), String.valueOf(bad));
+        }
+        ExtensionAllowlist two = allow.with(OTHER).with(ID).with(OTHER);
+        assertEquals(List.of(ID, OTHER), two.ids());
+        Path file = dir.resolve(ExtensionAllowlist.FILE_NAME);
+        Files.writeString(file, two.fileText(), StandardCharsets.UTF_8);
+        assertEquals(List.of(ID, OTHER), ExtensionAllowlist.read(file).ids());
+        assertEquals('#', two.fileText().charAt(0));
+    }
+
+    /** {@code pm browser uninstall --extension-id} and the relay's membership check (ADR 0014 §8). */
+    @Test
+    void uninstallRemovesOneIdAndTheRelayChecksMembership() {
+        ExtensionAllowlist two = allow.with(OTHER);
+        assertEquals(List.of(OTHER), two.without(ID).ids());
+        assertEquals(two.ids(), two.without("ponmlkjihgfedcbaponmlkjihgfedcbb").ids(), "absent: unchanged");
+        assertEquals(List.of(), two.without(ID).without(OTHER).ids());
+        assertEquals(true, two.allows(ID));
+        assertEquals(false, two.without(ID).allows(ID));
+        assertEquals(false, two.allows("not-an-id"));
+    }
+
+    @Test
+    void anAllowlistTooLargeToReadBackIsNotWritten() {
+        ExtensionAllowlist many = ExtensionAllowlist.of(List.of());
+        char[] id = ID.toCharArray();
+        for (int i = 0; i < ExtensionAllowlist.MAX_FILE_BYTES / (ID.length() + 1); i++) {
+            id[0] = (char) ('a' + i % 16);
+            id[1] = (char) ('a' + i / 16 % 16);
+            many = many.with(String.valueOf(id));
+        }
+        ExtensionAllowlist full = many;
+        assertEquals("ALLOWLIST_FULL",
+                assertThrows(IllegalArgumentException.class, full::fileText).getMessage());
+    }
 }
