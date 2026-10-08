@@ -185,21 +185,29 @@ class TuiLookTest {
     }
 
     @Test
-    void logoShimmerSweepsThenRests() throws IOException {
+    void logoGradientFlowsAndShineSweeps() throws IOException {
         try (TuiHarness h = new TuiHarness(new FakeVaultPort(CANARY, "RK"))) {
             h.tick();
             String logo = Banner.LOGO.get(1);
             h.clock.advance(Duration.ofMillis(500));
             h.tick();
-            List<TextColor> sweeping = colorsOf(h, logo);
-            h.clock.advance(Duration.ofSeconds(2));
+            List<TextColor> shining = colorsOf(h, logo);
+            h.clock.advance(Duration.ofMillis(1500));
             h.tick();
-            List<TextColor> resting = colorsOf(h, logo);
-            h.clock.advance(Duration.ofMillis(200));
+            List<TextColor> between = colorsOf(h, logo);
+            h.clock.advance(Duration.ofMillis(10));
             h.tick();
+            List<TextColor> sameFrame = colorsOf(h, logo);
+            h.clock.advance(Duration.ofMillis(990));
+            h.tick();
+            List<TextColor> later = colorsOf(h, logo);
+            h.clock.advance(Duration.ofMillis(3500)); // 6.5 s: same gradient phase as 0.5 s, shine at rest
+            h.tick();
+            List<TextColor> unlit = colorsOf(h, logo);
 
-            assertNotEquals(resting, sweeping, "the highlight is mid-logo at 500 ms");
-            assertEquals(resting, colorsOf(h, logo), "still between sweeps");
+            assertEquals(between, sameFrame, "repaints only on a new frame");
+            assertNotEquals(between, later, "the gradient keeps flowing between sweeps");
+            assertNotEquals(unlit, shining, "the shine is mid-logo at 500 ms");
         }
     }
 
