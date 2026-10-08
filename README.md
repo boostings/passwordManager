@@ -247,7 +247,9 @@ What v1 does not do, and the risks it accepts, are recorded rather than hidden:
 - Installers are not signed or notarized (R-008). Check `SHA256SUMS`.
 - Copy in the app works on macOS only; a clipboard manager can keep its own copy (R-012).
 - Only macOS is exercised by hand; Windows and Linux rely on the CI matrix, and their native
-  installers have never been built ([platform matrix](docs/platform-matrix.md)).
+  installers have never been built ([platform matrix](docs/platform-matrix.md)). The Linux and
+  macOS CI gates pass; the Windows gate fails because the test suites assume POSIX, so Windows is
+  built but not verified (R-014).
 - Vaults with 1 GiB Argon2 memory need `PM_JAVA_OPTS=-Xmx1200m` (exit 7 otherwise; ADR 0007).
 - Lanterna 3.1.3 is pinned by checksum only: its signing key (94483BA5F4740C42) is not on any
   public keyserver.

@@ -19,7 +19,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -69,6 +68,8 @@ import pm.browser.host.NativeFrames;
 import pm.browser.host.Request;
 import pm.crypto.Csprng;
 import pm.crypto.SecretBytes;
+import pm.storage.OwnerOnly;
+import pm.storage.StorageException;
 
 /**
  * The browser relay (ADR 0014 §8): Chrome starts {@code pm} as the native host in its own process,
@@ -299,10 +300,11 @@ public final class BrowserRelay implements AutoCloseable {
         }
         FileChannel lockChannel;
         try {
+            // 0600 on POSIX, an owner-only ACL on Windows (a POSIX attribute alone fails there).
             lockChannel = FileChannel.open(dir.path().resolve(LOCK_FILE),
                     Set.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS),
-                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-        } catch (IOException | UnsupportedOperationException e) {
+                    OwnerOnly.creationAttributes(dir.path(), false));
+        } catch (IOException | UnsupportedOperationException | StorageException e) {
             throw new NotStarted(Unavailable.UNSAFE, e);
         }
         FileLock lock = tryLock(lockChannel);

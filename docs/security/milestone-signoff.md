@@ -679,7 +679,9 @@ Evidence: local gate on main over this section's working tree, 2026-10-08:
 `**Result: 0 findings.**`, gitleaks `no leaks found`. Test results from that run: pm-crypto 258, pm-vault 508, pm-storage 114 (8 Windows-only tests skipped on macOS by
 assumption), pm-approval 79, pm-sharing 89, pm-browser 176, pm-domain 76, pm-tui 161, pm-cli 377,
 pm-arch-tests 27, pm-fuzz 176, pm-platform-macos 6, extension 41; 0 failures. The CI matrix
-is dispatched once after the push (manual CI); its result is in `docs/plans/M2-M7.md`.
+is dispatched once after the push (manual CI); its result is in `docs/plans/M2-M7.md`. The M7.13
+quality pass fixed what the first run found on Linux and on Windows checkouts; in CI run 37737287483 (2026-10-08, commit c9a369e)
+the Ubuntu and macOS gates pass and the Windows gate fails (test suites that assume POSIX, R-014).
 
 | Exit criterion (plan.md §13 M7) | Proving test or record | Result |
 | --- | --- | --- |

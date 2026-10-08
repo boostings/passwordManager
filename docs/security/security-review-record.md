@@ -100,7 +100,8 @@ executed against a throwaway vault, not copied from help text.
   Planned was checked against the tree): SR-011, the master-passphrase strength rule (R-013, open);
   SR-050, keychain unlock; SR-602, signed updates; the M7 manual timing measurement for SR-051.
 - **Windows and Linux are not exercised on this machine.** The CI matrix covers them when
-  dispatched. Native installers for those systems were never built.
+  dispatched. Native installers for those systems were never built. In CI run 37737287483 (2026-10-08, commit c9a369e) Linux
+  passes and Windows fails (test suites that assume POSIX; R-014), so Windows is not verified.
 
 ## Open residual risks at v1
 

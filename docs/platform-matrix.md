@@ -8,6 +8,13 @@ Only macOS (arm64) is exercised by hand for v1. Windows and Linux are covered by
 dispatched CI matrix (`ubuntu-22.04`, `macos-14`, `windows-2022`), which runs the full gate; the
 native installers for those systems have never been built (docs/release/packaging.md).
 
+**Windows is not verified.** In CI run 37737287483 (2026-10-08, commit c9a369e) the Ubuntu and macOS gates pass and the
+Windows gate fails: about 150 tests in pm-vault, pm-storage, pm-cli, pm-tui and pm-fuzz assume
+POSIX (they set file modes with POSIX calls, expect LF line endings or Unix paths), and the Tier 1
+modules miss 100% branch coverage there because POSIX-only tests skip. The one product defect that
+run exposed (the TUI browser relay could not create its lock file on Windows) is fixed but not yet
+confirmed by a Windows run. Read every **B** in the Windows column as "builds; not verified" (R-014).
+
 | Capability | macOS 13+ (arm64/x64) | Windows 10/11 (x64/arm64) | Linux glibc (x64/arm64) |
 | --- | --- | --- | --- |
 | Release archive with its own runtime (`.tar.gz`, `.zip`) | S | B — `bin/pm.bat` | B |

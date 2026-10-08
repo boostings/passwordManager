@@ -53,6 +53,8 @@ before trusting it with secrets. How to use it is in the [user guide](../user-gu
   `SHA256SUMS` is not signed (R-008). Check the hashes; macOS Gatekeeper warns.
 - **Platforms.** Only macOS (arm64) was exercised by hand. Windows and Linux are covered by the
   CI matrix, and their native installers were never built ([platform matrix](../platform-matrix.md)).
+  The Linux and macOS CI gates pass. The Windows gate fails because the test suites assume POSIX,
+  so Windows is built but not verified (R-014).
 - **Internal review only.** Every security phase had an adversarial review by a team member who
   had not written it, but there has been no external audit. The LAN code comparison (SAS) did not
   get its planned external cryptographic review ([security review record](../security/security-review-record.md)).
