@@ -3,16 +3,28 @@
 passwordManager stores every credential a user owns. We treat security reports
 as the highest-priority work in the project.
 
+## Supported versions
+
+| Version | Supported |
+| --- | --- |
+| 1.0.x | Yes: security fixes |
+| earlier (0.x, milestone builds) | No: upgrade to 1.0.x |
+
 ## Reporting a vulnerability
 
-Do **not** open a public issue for a security problem.
+Do **not** put the details of a security problem in a public issue, pull
+request or discussion.
 
 - Use GitHub's private vulnerability reporting on this repository
-  ("Security" tab → "Report a vulnerability"), or
-- email the security owner listed in `CODEOWNERS`.
+  ("Security" tab → "Report a vulnerability").
+- If that button is not there, open a public issue titled only
+  "Security contact request", with no details. The security owner
+  (`@boostings`, see `CODEOWNERS`) replies with a private channel.
 
 Include: affected version or commit, platform, steps to reproduce, impact, and
 any proof-of-concept. Please do not include real credentials or vault files.
+How reports are handled, from triage to the advisory, is in
+[docs/security/disclosure-policy.md](docs/security/disclosure-policy.md).
 
 ## What to expect
 
@@ -37,12 +49,28 @@ project.
 
 ## Scope
 
-In scope: the application, its installers, the browser extension, the native
-messaging host, the LAN sharing protocol, and this repository's build pipeline.
+In scope: the application (CLI and full-screen app), the vault and backup
+formats, the approval broker and audit log, the ssh-agent client, the LAN
+pairing and sharing protocol and its one-time browser page, the browser
+extension and native messaging host, the release archives and installers, and
+this repository's build pipeline.
 
-Out of scope: attacks requiring a fully compromised operating system or root
-access on the user's machine (documented as an accepted limitation in
-`docs/security/threat-model.md`).
+Out of scope:
+
+- Attacks that need a fully compromised operating system, or root or
+  administrator access, on the user's machine (R-001 in
+  `docs/security/risk-register.md`).
+- Limitations already accepted and documented: same-user processes reaching
+  the local relay socket (R-011), a recipient keeping a copy of a shared
+  secret (R-005), Java's best-effort memory wiping (R-003), and the residual
+  risks listed in each milestone sign-off
+  (`docs/security/milestone-signoff.md`). A way to make one of them worse than
+  documented is in scope.
+- Passkeys and WebAuthn: v1 does not create or use passkeys (ADR 0016, v1
+  addendum). The M6 passkey code in the tree is unreachable from the shipped
+  program. A path that reaches it from a v1 build is in scope.
+- Unsigned installers: v1 releases are not code-signed or notarized; verify
+  them with `SHA256SUMS` (`docs/release/packaging.md`).
 
 ## Severity scale
 
