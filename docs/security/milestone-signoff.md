@@ -631,3 +631,37 @@ Residuals found by the re-verify probes, all failing closed, accepted:
   unverified host instance (SR-100).
 
 Signed off: Lane A (Jimmy), security owner, for M5.4.
+
+## M6 — Passkeys (M6.1–M6.5)
+
+**Decision.** v1 ships without passkeys (ADR 0016, "Addendum (2026-10-06, M6.5, Lane A): v1 ships
+without passkeys"). On 2026-10-05 the owner dropped every unbuilt feature; M6.4 (the extension half
+of WebAuthn) was not built, so pm neither creates nor uses passkeys in the browser, and no command,
+screen or file format lets a user make one. The M6.1–M6.3 code (keys and signing in
+`pm.crypto.passkey`, the vault-owned `PasskeyRecord` and counter, `pm.browser.webauthn`) stays in
+the tree with its tests and is unreachable from production code, which two ArchUnit rules enforce.
+
+Evidence: local gate on main with M6.5 staged, 2026-10-07:
+`./gradlew check certReport gitleaksScan`, `BUILD SUCCESSFUL`, cert report `**Result: 0 findings.**`,
+gitleaks `no leaks found`. The manual CI workflow is dispatched once at the final checkpoint.
+
+| Exit criterion (plan.md §13 M6) | Proving test or record | Local result |
+| --- | --- | --- |
+| Signature counters are monotonic and persisted atomically | `PasskeyCounterTest` (counter saved before signing, burnt values, `COUNTER_EXHAUSTED` at 2^32-1, another thread's remove waits for the signature), `PasskeyVaultOwnershipTest` (restore raises counters to max(backup + 2^20, overwritten + 1), restoring twice never reuses a counter, a passkey backup over a vault without passkeys), `WebauthnBridgeTest.countersStrictlyIncreaseAndARestoreCannotLowerThem` | Pass (gate): `PasskeyCounterTest` 10, `PasskeyVaultOwnershipTest` 22, `WebauthnBridgeTest` 19; 0 failures |
+| RP ID validation tested against the WebAuthn spec test vectors | `WebAuthnVectorsTest` (L3 §16.2 byte-exact, §16.2/16.4/16.5/16.6 signatures), `RpIdTest`, `PublicSuffixListTest`, `PslUnavailableHostTest`, `AuthenticatorDataTest` | Pass (gate): 8, 9, 5, 1 and 4 tests; 0 failures |
+| Private keys never leave `pm-crypto`; signing is performed inside it | `PasskeyKeyTest`, `Es256Test`, `CoseKeyTest`, `PasskeyStorageTest`, `PasskeyAccessTest`; `PasskeyOutsideModuleTest` (javac and ArchUnit proofs that no code outside pm-vault builds or reads a passkey record) | Pass (gate): 10, 6, 4, 2, 1 and 6 tests; 0 failures |
+| Documented, tested support matrix; unsupported browsers fail clearly | ADR 0016 v1 addendum (support matrix), `docs/platform-matrix.md` ("Not in v1"); `PasskeyFreeHostTest.passkeyRequestsGetTheUnknownTypeReplyByteForByte`, `.decodingWithoutPasskeysRefusesThemLikeAnUnknownTypeAndKeepsEverythingElse`, `BrowserRelayTest.passkeyRequestsAreNeitherRelayedNorServed`: every browser gets the plain unknown-type reply | Pass (gate): `PasskeyFreeHostTest` 2, `BrowserRelayTest` 28; 0 failures |
+| v1 has no path that makes or uses a passkey (SR-142) | `ModuleBoundaryTest.noProductionCodeWiresBrowserPasskeys`, `.onlyTheBrowserPortCreatesOrSignsPasskeys` | Pass (gate), `ModuleBoundaryTest` 18. Planted on 2026-10-07: a class in `pm.browser.host` that names `VaultPasskeys` and calls `Vault.createPasskey` fails both rules (`:modules:pm-arch-tests:test`, 2 of 18 failed); plant removed, `git status --porcelain modules/pm-browser/src/main` empty |
+| No user-facing text claims passkeys (SR-143) | Review of the platform matrix and ADR 0016 here; README, user guide and release notes at M7.4 and M7.11 | Platform matrix done; the rest is checked at M7.11 |
+
+Residual risks accepted at this sign-off:
+
+- **Unused passkey code ships.** M6.1–M6.3 are in the release but unreachable; a later change
+  that wires `VaultPasskeys` must remove the two ArchUnit rules in the same change and needs a new
+  browser-path security review (ADR 0016, "Bringing passkeys back later").
+- **A vault could hold a passkey only if written by a build that wires the port.** The CLI and the
+  TUI show such a row read-only; v1 cannot create one.
+- **"Browser and OS passkeys keep working" is inferred.** The extension has no WebAuthn code, so it
+  cannot interfere, but no real-browser test exists (see the M5 user-only items).
+
+Signed off: Lane A (Jimmy), security owner, for M6.

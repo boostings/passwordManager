@@ -11,6 +11,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+import java.util.Set;
 
 /**
  * Structural rules from plan.md Part III, enforced on every build. Each rule cites the
@@ -20,6 +21,9 @@ import com.tngtech.archunit.lang.ArchRule;
 final class ModuleBoundaryTest {
 
     private static final String PASSKEY_RECORD = "pm.vault.record.PasskeyRecord";
+    private static final String VAULT_PASSKEYS = "pm.browser.webauthn.VaultPasskeys";
+    private static final String VAULT = "pm.vault.Vault";
+    private static final Set<String> PASSKEY_USES = Set.of("createPasskey", "signWithPasskey");
 
     /** SR-017 / MSC02-J: cryptographic JCA APIs stay in pm-crypto; Principal supports file ACLs. */
     @ArchTest
@@ -139,6 +143,30 @@ final class ModuleBoundaryTest {
                     .should().callConstructorWhere(DescribedPredicate.describe("a PasskeyRecord constructor",
                             (JavaConstructorCall call) -> PASSKEY_RECORD.equals(call.getTargetOwner().getName())))
                     .because("SR-085: passkey records are built only inside pm.vault (ADR 0016)");
+
+    /**
+     * SR-142 / ADR 0016 v1 addendum: browser passkeys are not in v1. No production class outside its
+     * own package refers to the vault-backed passkey port, so a native host can only be built with
+     * {@code PasskeyPort.NONE}.
+     */
+    @ArchTest
+    static final ArchRule noProductionCodeWiresBrowserPasskeys =
+            noClasses().that().resideOutsideOfPackages("pm.browser.webauthn..", "pm.arch..")
+                    .should().dependOnClassesThat().haveFullyQualifiedName(VAULT_PASSKEYS)
+                    .because("SR-142: browser passkeys are not in v1; hosts use PasskeyPort.NONE (ADR 0016)");
+
+    /**
+     * SR-142 / ADR 0016 v1 addendum: the only caller that creates a passkey or signs with one is the
+     * browser passkey port, which nothing in production wires, so v1 has no path that makes or uses
+     * a passkey.
+     */
+    @ArchTest
+    static final ArchRule onlyTheBrowserPortCreatesOrSignsPasskeys =
+            noClasses().that().resideOutsideOfPackages("pm.vault..", "pm.browser.webauthn..", "pm.arch..")
+                    .should().callMethodWhere(DescribedPredicate.describe("Vault.createPasskey or signWithPasskey",
+                            (JavaMethodCall call) -> VAULT.equals(call.getTargetOwner().getName())
+                                    && PASSKEY_USES.contains(call.getName())))
+                    .because("SR-142: no v1 code path creates or signs with a passkey (ADR 0016)");
 
     /** pm-crypto depends on nothing else in the project. */
     @ArchTest

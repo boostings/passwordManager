@@ -18,8 +18,9 @@ caveat) · **U** unsupported in v1 · *spike* needs hands-on verification.
 | Chrome/Edge/Brave extension | S | S | S |
 | Firefox extension | S | S | S |
 | Safari extension | U for v1 (needs native app) | n/a | n/a |
-| Vault-backed browser passkeys | C — only via native credential-provider companion (Q3 decision) | U for v1 | U for v1 |
-| Hardware-backed passkeys (metadata + backup) | S | S | S |
+| Vault-backed browser passkeys | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
+| Passkey storage, import and export | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
+| Browser, OS and hardware-key passkeys keep working with pm installed | S (the extension does not touch WebAuthn) | S | S |
 | ssh-agent integration | S — `SSH_AUTH_SOCK` Unix socket | C — OpenSSH for Windows named pipe `\\.\pipe\openssh-ssh-agent`; Pageant U | S |
 | Clipboard clear | S | S | C — X11/Wayland differences; Wayland may block programmatic clear |
 | Auto-lock on system sleep/lock | C — no pure-Java signal; poll uptime gap + idle timer *spike* | C — same | C — same |

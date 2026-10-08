@@ -420,3 +420,60 @@ user agreed to enroll (WebAuthn L3 §14.5.1).
   `ApprovalDialogTest.aPasskeyPromptOffersOnlyOnceOrDenyAndIgnoresSAndP`, `PasskeyEnrollmentTest`
   (edit, rename, put, remove, save and close `REENTRANT` inside the signing port),
   `PasskeyCounterTest.anotherThreadsRemoveWaitsForTheSignature`.
+
+## Addendum (2026-10-06, M6.5, Lane A): v1 ships without passkeys
+
+### Decision
+On 2026-10-05 the owner dropped every feature not yet built and asked that nothing ship half
+built. M6.4 (the extension side of WebAuthn) was not built, so v1 takes the plan.md §16 no-go
+path and goes one step further:
+
+- **No vault-backed WebAuthn in the browser.** pm does not register or sign in with passkeys on
+  any website. The extension never reads or overrides `navigator.credentials` (no WebAuthn code in
+  `extension/src`), so the browser's own passkeys, the operating system's passkeys and hardware
+  security keys work exactly as they do without pm.
+- **No passkey records a user can make.** §16's no-go path would still ship passkey storage,
+  import and export, and hardware-backed passkey metadata. None of those has a command, a screen
+  or a file format in v1, so none ships. The release notes say this plainly.
+
+Why: §16 explains that no sanctioned API lets a third-party extension act as a WebAuthn
+authenticator; the remaining approaches are fragile and detectable. The vault, crypto and host
+halves (M6.1 to M6.3) were built and reviewed, but without the extension half they are not a
+feature a user can rely on, and the owner's rule is that unfinished features do not ship.
+
+### What is in the release, and why it cannot be reached
+The M6.1 to M6.3 code stays in the tree with its tests (keys and signing in `pm.crypto.passkey`,
+`PasskeyRecord` and `Vault.createPasskey`/`signWithPasskey`, `pm.browser.webauthn`). Nothing in
+production reaches it:
+
+- `ModuleBoundaryTest.noProductionCodeWiresBrowserPasskeys` (SR-142): no production class outside
+  `pm.browser.webauthn` refers to `VaultPasskeys`, so a native host can only be built with
+  `PasskeyPort.NONE`.
+- `ModuleBoundaryTest.onlyTheBrowserPortCreatesOrSignsPasskeys` (SR-142): nothing outside
+  `pm.vault` and `pm.browser.webauthn` calls `Vault.createPasskey` or `Vault.signWithPasskey`.
+  Together with the rule above, v1 has no code path that makes or uses a passkey.
+- The production native host (`pm browser-host`, `NativeHost.runWithoutPasskeys`) and the TUI relay
+  answer `webauthn.create` and `webauthn.get` as an unknown message type, before reading anything
+  else in the message (ADR 0014 §8, M5.4): `PasskeyFreeHostTest.passkeyRequestsGetTheUnknownTypeReplyByteForByte`,
+  `.decodingWithoutPasskeysRefusesThemLikeAnUnknownTypeAndKeepsEverythingElse` and
+  `BrowserRelayTest.passkeyRequestsAreNeitherRelayedNorServed`.
+- The CLI and the TUI would show a passkey row if a vault held one, read-only, and have no
+  command that creates one; v1 cannot put one there.
+
+### Support matrix for v1
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| pm creates or uses passkeys in the browser | No | No | No |
+| pm stores, imports or exports passkeys | No | No | No |
+| Browser and OS passkeys keep working with pm installed | Yes | Yes | Yes |
+| Hardware security keys keep working with pm installed | Yes | Yes | Yes |
+
+The last two rows hold because the extension does not touch WebAuthn. They were not re-tested
+in a real browser for this release (no real-browser test exists yet; see the M7 sign-off).
+
+### Bringing passkeys back later
+A later version needs: the M6.4 extension half, the §14.5 rules in the M6.3 residuals above
+(nothing that separates "no credential" from a denial reaches a page), the production wiring
+with `RpId.vendored()`, removal of the two ArchUnit rules in the same change, and a fresh security
+review of the browser path.
