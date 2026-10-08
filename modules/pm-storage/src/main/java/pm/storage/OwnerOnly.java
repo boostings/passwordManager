@@ -203,8 +203,15 @@ public final class OwnerOnly {
         return sid == SYSTEM_SID || sid == ADMINISTRATORS_SID;
     }
 
-    // Restrictive attributes must be supplied before a newly created file becomes visible.
-    static FileAttribute<?>[] creationAttributes(Path parent, boolean directory)
+    /**
+     * Attributes that make a new file or directory owner-only from the moment it exists: the
+     * owner-only mode where the parent supports POSIX permissions, otherwise an ACL naming only the
+     * parent's owner. Restrictive attributes must be supplied before a new entry becomes visible;
+     * {@link #apply} then makes them exact for the entry's own owner.
+     *
+     * @throws StorageException if the parent's file system offers neither permission model
+     */
+    public static FileAttribute<?>[] creationAttributes(Path parent, boolean directory)
             throws IOException, StorageException {
         if (Files.getFileAttributeView(parent, PosixFileAttributeView.class) != null) {
             return new FileAttribute<?>[] {PosixFilePermissions.asFileAttribute(

@@ -138,23 +138,43 @@ final class IpcCodec {
                 throw malformed();
             }
             Decision decision = Decision.valueOf(str(map.entries().get("decision")));
-            SortedMap<String, SecretBytes> vars = new TreeMap<>();
-            if (map.entries().get("vars") instanceof CborValue.MapV values) {
-                for (Map.Entry<String, CborValue> e : values.entries().entrySet()) {
-                    if (!(e.getValue() instanceof CborValue.Bytes b)) {
-                        vars.values().forEach(SecretBytes::close);
-                        throw malformed();
-                    }
-                    vars.put(e.getKey(), SecretBytes.takeOwnership(b.value()));
-                }
+            SortedMap<String, SecretBytes> vars = released(map.entries().get("vars"));
+            try {
+                return new Reply(decision, vars);
+            } catch (IllegalArgumentException e) {
+                vars.values().forEach(SecretBytes::close); // a denial that carried values
+                throw e;
             }
-            return new Reply(decision, vars);
         } catch (CborException | IllegalArgumentException e) {
             throw new IpcException(IpcException.Code.MALFORMED, e);
         } finally {
             if (tree != null) {
                 tree.wipe();
             }
+        }
+    }
+
+    // The released values; absent is none, any other type is malformed. On a failure every value
+    // already taken is wiped.
+    private static SortedMap<String, SecretBytes> released(CborValue member) throws IpcException {
+        SortedMap<String, SecretBytes> vars = new TreeMap<>();
+        if (member == null) {
+            return vars;
+        }
+        try {
+            if (!(member instanceof CborValue.MapV values)) {
+                throw malformed();
+            }
+            for (Map.Entry<String, CborValue> e : values.entries().entrySet()) {
+                if (!(e.getValue() instanceof CborValue.Bytes b)) {
+                    throw malformed();
+                }
+                vars.put(e.getKey(), SecretBytes.takeOwnership(b.value()));
+            }
+            return vars;
+        } catch (IpcException e) {
+            vars.values().forEach(SecretBytes::close);
+            throw e;
         }
     }
 

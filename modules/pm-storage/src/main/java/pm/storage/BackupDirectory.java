@@ -41,10 +41,12 @@ public final class BackupDirectory {
 
     private final Path directory;
     private final VaultFileStore.CrashHook crashHook;
+    private final long byteLimit;
 
-    private BackupDirectory(Path directory, VaultFileStore.CrashHook crashHook) {
+    private BackupDirectory(Path directory, VaultFileStore.CrashHook crashHook, long byteLimit) {
         this.directory = directory;
         this.crashHook = crashHook;
+        this.byteLimit = byteLimit;
     }
 
     /**
@@ -61,10 +63,20 @@ public final class BackupDirectory {
 
     // Package-only checkpoints allow deterministic crash tests.
     static BackupDirectory open(Path dir, VaultFileStore.CrashHook hook) throws StorageException {
+        return open(dir, hook, maxBytes());
+    }
+
+    // A package-only limit on what createNew accepts, so the size check is testable without
+    // allocating a maximal backup.
+    static BackupDirectory open(Path dir, VaultFileStore.CrashHook hook, long limit)
+            throws StorageException {
         Objects.requireNonNull(dir, "DIR");
         Objects.requireNonNull(hook, "HOOK");
+        if (limit < 1 || limit > maxBytes()) {
+            throw new IllegalArgumentException("LIMIT");
+        }
         try {
-            return new BackupDirectory(VaultFileStore.prepareDirectory(dir.toAbsolutePath()), hook);
+            return new BackupDirectory(VaultFileStore.prepareDirectory(dir.toAbsolutePath()), hook, limit);
         } catch (IOException | UnsupportedOperationException | SecurityException ex) {
             throw VaultFileStore.translated(ex);
         }
@@ -94,7 +106,7 @@ public final class BackupDirectory {
     public void createNew(String name, byte[] data) throws StorageException {
         Path target = resolve(name);
         byte[] copy = Objects.requireNonNull(data, "DATA").clone();
-        if (copy.length > maxBytes()) {
+        if (copy.length > byteLimit) {
             throw new StorageException(StorageException.Code.TOO_LARGE, null);
         }
         checked(() -> {

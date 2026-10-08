@@ -109,9 +109,14 @@ public final class VaultFileStore implements AutoCloseable {
         }
         try {
             Path absolute = vaultFile.toAbsolutePath();
-            Path name = absolute.getFileName();
             Path requested = absolute.getParent();
-            if (name == null || requested == null || !usableName(name.toString())) {
+            if (requested == null) {
+                // The filesystem root names no file.
+                throw new StorageException(StorageException.Code.IO, null);
+            }
+            // An absolute path with a parent always has a file name.
+            Path name = Objects.requireNonNull(absolute.getFileName(), "NAME");
+            if (!usableName(name.toString())) {
                 throw new StorageException(StorageException.Code.IO, null);
             }
             Path parent = prepareDirectory(requested);
@@ -386,7 +391,7 @@ public final class VaultFileStore implements AutoCloseable {
         });
     }
 
-    private Path namedSibling(String suffix) throws StorageException {
+    private Path namedSibling(String suffix) {
         Objects.requireNonNull(suffix, "SUFFIX");
         if (!SIBLING_SUFFIX.matcher(suffix).matches() || LOCK_SUFFIX.equals(suffix) || TMP_SUFFIX.equals(suffix)) {
             throw new IllegalArgumentException("SUFFIX");
@@ -421,7 +426,7 @@ public final class VaultFileStore implements AutoCloseable {
         }
     }
 
-    private Path backupPath(int index) throws StorageException {
+    private Path backupPath(int index) {
         return sibling(file, ".bak." + index);
     }
 
@@ -525,7 +530,7 @@ public final class VaultFileStore implements AutoCloseable {
 
     // A name the filesystem may silently alter (Windows drops trailing dots and spaces) would
     // give one vault two spellings, and so two lock files; "." and ".." are not files at all.
-    private static boolean usableName(String name) {
+    static boolean usableName(String name) {
         return !name.isEmpty() && !name.endsWith(".") && !name.endsWith(" ");
     }
 
@@ -599,24 +604,18 @@ public final class VaultFileStore implements AutoCloseable {
         }
     }
 
-    private static Path sibling(Path path, String suffix) throws StorageException {
+    private static Path sibling(Path path, String suffix) {
         return path.resolveSibling(nameOf(path).toString() + suffix);
     }
 
-    private static Path nameOf(Path path) throws StorageException {
-        Path name = path.getFileName();
-        if (name == null) {
-            throw new StorageException(StorageException.Code.IO, null);
-        }
-        return name;
+    // Every path this class names is an entry inside a directory (the store's file, its
+    // siblings, or a directory listing's entries), so it has both a name and a parent.
+    private static Path nameOf(Path path) {
+        return Objects.requireNonNull(path.getFileName(), "NAME");
     }
 
-    private static Path parentOf(Path path) throws StorageException {
-        Path parent = path.getParent();
-        if (parent == null) {
-            throw new StorageException(StorageException.Code.IO, null);
-        }
-        return parent;
+    private static Path parentOf(Path path) {
+        return Objects.requireNonNull(path.getParent(), "PARENT");
     }
 
     static void discard(Path path) throws IOException {

@@ -13,7 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Set;
 import pm.approval.ApprovalBroker;
@@ -56,13 +56,9 @@ public final class RunDir {
                 Path parent = Objects.requireNonNull(dir.toAbsolutePath().getParent(), "parent");
                 Files.createDirectories(parent);
                 try {
-                    if (supportsPosix(parent)) {
-                        Files.createDirectory(dir, PosixFilePermissions.asFileAttribute(
-                                PosixFilePermissions.fromString("rwx------")));
-                    } else {
-                        Files.createDirectory(dir);
-                        OwnerOnly.apply(dir);
-                    }
+                    // Owner-only from creation (0700, or an ACL naming only the owner), then exact.
+                    Files.createDirectory(dir, OwnerOnly.creationAttributes(parent, true));
+                    OwnerOnly.apply(dir);
                 } catch (FileAlreadyExistsException e) {
                     // Raced with another process; checked below like any existing directory.
                     Objects.requireNonNull(e);
@@ -89,7 +85,8 @@ public final class RunDir {
     private static RunDir open(Path dir) throws IpcException {
         try {
             BasicFileAttributes a = Files.readAttributes(dir, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (!a.isDirectory() || a.isSymbolicLink() || !OwnerOnly.isOwnerOnly(dir)) {
+            // Read without following links, so a link is never a directory.
+            if (!a.isDirectory() || !OwnerOnly.isOwnerOnly(dir)) {
                 throw new IpcException(IpcException.Code.UNSAFE_PATH, null);
             }
         } catch (IOException | StorageException e) {
@@ -125,7 +122,7 @@ public final class RunDir {
                 });
             }
             Files.move(tmp, dir.resolve(AUTH_FILE), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException | IllegalStateException e) {
+        } catch (IOException | IllegalStateException | StorageException e) {
             throw new IpcException(IpcException.Code.IO, e);
         }
     }
@@ -151,53 +148,49 @@ public final class RunDir {
             throw new IpcException(IpcException.Code.NO_BROKER, null);
         }
         try {
-            if (Files.isSymbolicLink(file) || !OwnerOnly.isOwnerOnly(file)) {
+            // isOwnerOnly reads without following links and refuses a link.
+            if (!OwnerOnly.isOwnerOnly(file)) {
                 throw new IpcException(IpcException.Code.UNSAFE_PATH, null);
             }
             try (SeekableByteChannel ch = Files.newByteChannel(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
-                if (ch.size() != ApprovalBroker.TOKEN_BYTES) {
-                    throw new IpcException(IpcException.Code.MALFORMED, null);
+                // Room for one byte more than a token, so a longer file is told apart while the
+                // count read is final: the size is never checked apart from the read.
+                ByteBuffer buf = ByteBuffer.allocate(ApprovalBroker.TOKEN_BYTES + 1);
+                while (buf.hasRemaining()) {
+                    if (ch.read(buf) < 0) {
+                        break;
+                    }
                 }
-                ByteBuffer buf = ByteBuffer.allocate(ApprovalBroker.TOKEN_BYTES);
-                while (buf.hasRemaining() && ch.read(buf) >= 0) {
-                    // keep reading
-                    Objects.requireNonNull(buf);
+                byte[] read = buf.array();
+                try {
+                    if (buf.position() != ApprovalBroker.TOKEN_BYTES) {
+                        throw new IpcException(IpcException.Code.MALFORMED, null);
+                    }
+                    return SecretBytes.takeOwnership(Arrays.copyOf(read, ApprovalBroker.TOKEN_BYTES));
+                } finally {
+                    Arrays.fill(read, (byte) 0);
                 }
-                if (buf.hasRemaining()) {
-                    throw new IpcException(IpcException.Code.MALFORMED, null);
-                }
-                return SecretBytes.takeOwnership(buf.array());
             }
         } catch (NoSuchFileException e) {
             throw new IpcException(IpcException.Code.NO_BROKER, e);
         } catch (StorageException e) {
-            if (e.code() == StorageException.Code.NOT_FOUND) {
-                throw new IpcException(IpcException.Code.NO_BROKER, e);
-            }
+            // OwnerOnly reports a link, other kinds of file and unreadable permissions alike.
             throw new IpcException(IpcException.Code.UNSAFE_PATH, e);
         } catch (IOException e) {
             throw new IpcException(IpcException.Code.IO, e);
         }
     }
 
-    private static FileChannel createOwnerOnly(Path path) throws IOException {
+    private static FileChannel createOwnerOnly(Path path) throws IOException, StorageException {
         Set<OpenOption> opts = Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
         Path parent = Objects.requireNonNull(path.toAbsolutePath().getParent(), "parent");
-        if (supportsPosix(parent)) {
-            return FileChannel.open(path, opts,
-                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-        }
-        FileChannel ch = FileChannel.open(path, opts);
+        FileChannel ch = FileChannel.open(path, opts, OwnerOnly.creationAttributes(parent, false));
         try {
             OwnerOnly.apply(path);
         } catch (StorageException e) {
             ch.close();
-            throw new IOException("PERMISSIONS", e);
+            throw e;
         }
         return ch;
-    }
-
-    private static boolean supportsPosix(Path existingDir) throws IOException {
-        return Files.getFileStore(existingDir).supportsFileAttributeView("posix");
     }
 }
