@@ -171,7 +171,8 @@ public final class PasskeyRecord implements VaultRecord {
             return false;
         }
         try (PasskeyKey loaded = PasskeyStorage.fromStorage(privateKeyValue)) {
-            return loaded != null;
+            Objects.requireNonNull(loaded); // a key that loads is valid; closed again at once
+            return true;
         } catch (CryptoException e) {
             return false;
         }

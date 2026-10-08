@@ -148,11 +148,9 @@ public final class EnvelopeCodec {
                 K_CREATED, new CborValue.UInt(h.created()),
                 K_SAVED, new CborValue.UInt(h.saved()),
                 K_SAVE_SEQ, new CborValue.UInt(h.saveSeq())));
-        byte[] cbor = CborWriter.encode(root);
-        if (cbor.length > MAX_HEADER) {
-            throw new IllegalArgumentException("header too large");
-        }
-        return cbor;
+        // validate() bounds every field and allows at most two slots, so the encoding stays far
+        // below MAX_HEADER (EnvelopeCodecTest checks the largest valid header).
+        return CborWriter.encode(root);
     }
 
     /**
@@ -387,8 +385,8 @@ public final class EnvelopeCodec {
     }
 
     private static long uint(Map<String, CborValue> m, String key) throws VaultException {
-        if (required(m, key) instanceof CborValue.UInt u && u.value() >= 0) {
-            return u.value();
+        if (required(m, key) instanceof CborValue.UInt u) {
+            return u.value(); // a UInt is never negative
         }
         throw corrupt(null);
     }

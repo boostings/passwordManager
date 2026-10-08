@@ -175,7 +175,8 @@ final class VaultReader {
         }
     }
 
-    private static SecretBytes unwrap(SecretBytes kek, SlotHeader slot) throws VaultException, CryptoException {
+    /** Unwraps the vault key; package-private so tests can hand it a malformed slot. */
+    static SecretBytes unwrap(SecretBytes kek, SlotHeader slot) throws VaultException, CryptoException {
         SecretBytes vk;
         try {
             vk = KeyWrap.unwrap(kek, slot.wrappedKey());

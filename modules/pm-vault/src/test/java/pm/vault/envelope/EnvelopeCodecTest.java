@@ -407,6 +407,85 @@ final class EnvelopeCodecTest {
         assertThrows(ArithmeticException.class, () -> assertNotNull(h.nextSave(2L)));
     }
 
+    @Test
+    void encodeHeaderRejectsEveryFieldTheDecoderWouldReject() {
+        Argon2Params f = Argon2Params.FLOOR;
+        byte[] salt = filled(SALT, 0x33);
+        List<SlotHeader> slots = header().slots();
+        SlotHeader master = slots.get(0);
+        SlotHeader recovery = slots.get(1);
+        SlotHeader otherRecovery = new SlotHeader(new UUID(5L, 6L), SlotHeader.RECOVERY,
+                new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH]);
+        List<EnvelopeHeader> bad = new ArrayList<>(List.of(
+                new EnvelopeHeader(new KdfHeader("scrypt", f.memoryKiB(), f.iterations(), f.parallelism(), salt),
+                        slots, 1L, 1L, 1L),
+                new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, f.memoryKiB() - 1, f.iterations(),
+                        f.parallelism(), salt), slots, 1L, 1L, 1L),
+                new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, EnvelopeCodec.MAX_MEMORY_KIB + 1,
+                        f.iterations(), f.parallelism(), salt), slots, 1L, 1L, 1L),
+                new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, f.memoryKiB(), EnvelopeCodec.MAX_ITERATIONS + 1,
+                        f.parallelism(), salt), slots, 1L, 1L, 1L),
+                new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, f.memoryKiB(), f.iterations(),
+                        EnvelopeCodec.MAX_PARALLELISM + 1, salt), slots, 1L, 1L, 1L),
+                new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, f.memoryKiB(), f.iterations(),
+                        f.parallelism(), new byte[SALT - 1]), slots, 1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), List.of(), 1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), slots, -1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), slots, 1L, -1L, 1L),
+                new EnvelopeHeader(kdf(), List.of(new SlotHeader(MASTER_ID, SlotHeader.MASTER, new byte[39])),
+                        1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), List.of(master, new SlotHeader(MASTER_ID, SlotHeader.RECOVERY,
+                        new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH])), 1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), List.of(master, new SlotHeader(RECOVERY_ID, "fido2",
+                        new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH])), 1L, 1L, 1L),
+                new EnvelopeHeader(kdf(), List.of(master, recovery, otherRecovery), 1L, 1L, 1L)));
+        List<SlotHeader> many = new ArrayList<>();
+        for (int i = 0; i <= EnvelopeCodec.MAX_SLOTS; i++) {
+            many.add(new SlotHeader(new UUID(9L, i), SlotHeader.RECOVERY, new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH]));
+        }
+        bad.add(new EnvelopeHeader(kdf(), many, 1L, 1L, 1L));
+        for (EnvelopeHeader h : bad) {
+            assertThrows(IllegalArgumentException.class, () -> EnvelopeCodec.encodeHeader(h), h.toString());
+        }
+    }
+
+    @Test
+    void theLargestValidHeaderIsFarBelowTheLimit() {
+        EnvelopeHeader largest = new EnvelopeHeader(new KdfHeader(EnvelopeCodec.KDF_ALG, EnvelopeCodec.MAX_MEMORY_KIB,
+                EnvelopeCodec.MAX_ITERATIONS, EnvelopeCodec.MAX_PARALLELISM, filled(SALT, 0xFF)),
+                header().slots(), Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+        assertEquals(true, EnvelopeCodec.encodeHeader(largest).length < EnvelopeCodec.MAX_HEADER / 64);
+    }
+
+    @Test
+    void aadOfRejectsAnEmptyOrOversizedHeader() {
+        byte[] dataSalt = filled(SALT, 0);
+        assertThrows(IllegalArgumentException.class, () -> EnvelopeCodec.aadOf(new byte[0], dataSalt));
+        assertThrows(IllegalArgumentException.class,
+                () -> EnvelopeCodec.aadOf(new byte[EnvelopeCodec.MAX_HEADER + 1], dataSalt));
+        assertEquals(PREFIX + EnvelopeCodec.MAX_HEADER + SALT,
+                EnvelopeCodec.aadOf(new byte[EnvelopeCodec.MAX_HEADER], dataSalt).length);
+    }
+
+    @Test
+    void rejectsSlotsThatAreNotAnArrayTwoRecoverySlotsAndFieldsOfTheWrongType() {
+        Map<String, CborValue> top = headerMap();
+        top.put("slots", new CborValue.Text("none"));
+        assertCode(VaultException.Code.CORRUPT, file(top));
+        assertCode(VaultException.Code.CORRUPT, fileWithSlots(List.of(
+                slot(MASTER_ID, SlotHeader.MASTER, EnvelopeCodec.WRAPPED_KEY_LENGTH),
+                slot(RECOVERY_ID, SlotHeader.RECOVERY, EnvelopeCodec.WRAPPED_KEY_LENGTH),
+                slot(new UUID(7L, 8L), SlotHeader.RECOVERY, EnvelopeCodec.WRAPPED_KEY_LENGTH))));
+        assertCode(VaultException.Code.CORRUPT, fileWithSlots(List.of(new CborValue.MapV(Map.of(
+                "id", new CborValue.Bytes(uuidBytes(MASTER_ID)),
+                "type", new CborValue.UInt(1),
+                "wrapped_key", new CborValue.Bytes(new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH]))))));
+        assertCode(VaultException.Code.CORRUPT, fileWithSlots(List.of(new CborValue.MapV(Map.of(
+                "id", new CborValue.Text(MASTER_ID.toString()),
+                "type", new CborValue.Text(SlotHeader.MASTER),
+                "wrapped_key", new CborValue.Bytes(new byte[EnvelopeCodec.WRAPPED_KEY_LENGTH]))))));
+    }
+
     // ---- helpers ------------------------------------------------------------------------
 
     private static void assertCode(VaultException.Code expected, byte[] file) {

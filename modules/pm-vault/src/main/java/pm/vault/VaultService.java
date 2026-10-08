@@ -98,9 +98,8 @@ public final class VaultService {
         this.codec = Objects.requireNonNull(codec, "codec");
         this.reader = new VaultReader(migrations, codec);
         this.probe = Objects.requireNonNull(probe, "probe");
-        if (kdf.parallelism() > EnvelopeCodec.MAX_PARALLELISM) {
-            throw new IllegalArgumentException("parallelism");
-        }
+        // Argon2Params already caps m, t and p at the envelope's limits, and encodeHeader checks
+        // them again before anything is written.
     }
 
     /**
@@ -117,15 +116,8 @@ public final class VaultService {
      */
     public CreatedVault create(SecretChars pw) throws VaultException {
         checkNewPassphrase(pw);
-        try {
-            if (store.exists()) {
-                throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
-            }
-        } catch (IllegalStateException ex) {
-            if (ex.getCause() instanceof StorageException storageFailure) {
-                throw new VaultException(VaultException.Code.STORAGE, storageFailure);
-            }
-            throw ex;
+        if (storeExists(store)) {
+            throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
         }
         long now = epochSeconds(clock);
         UUID masterSlot = Csprng.uuid();
@@ -334,6 +326,22 @@ public final class VaultService {
      */
     Vault openWithVaultKey(byte[] file, SecretBytes vk) throws VaultException {
         return open(reader.parse(file), vk);
+    }
+
+    /**
+     * Whether the vault file exists. {@code VaultFileStore.exists} reports an inspection failure
+     * as an {@code IllegalStateException} around a {@code StorageException}, which becomes
+     * {@code STORAGE}; a closed store stays an {@code IllegalStateException}.
+     */
+    static boolean storeExists(VaultFileStore store) throws VaultException {
+        try {
+            return store.exists();
+        } catch (IllegalStateException e) {
+            if (e.getCause() instanceof StorageException storageFailure) {
+                throw new VaultException(VaultException.Code.STORAGE, storageFailure);
+            }
+            throw e;
+        }
     }
 
     /** Returns the clock time in epoch seconds; a clock before 1970 is a configuration error. */

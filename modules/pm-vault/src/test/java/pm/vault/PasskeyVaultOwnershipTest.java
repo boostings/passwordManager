@@ -330,6 +330,33 @@ final class PasskeyVaultOwnershipTest {
     }
 
     @Test
+    void aPasskeyBackupOverAVaultWithoutPasskeysIsRaisedByTheMarginAndKeepsItsOtherRecords()
+            throws VaultException, IOException, StorageException {
+        VaultBackups backups = new VaultBackups(Clock.fixed(Instant.parse("2026-10-04T00:00:00Z"), ZoneOffset.UTC));
+        Path backup;
+        try (Vault v = vaultWithPasskey(5)) {
+            v.put(Fixtures.login("mail", "me", "secret"));
+            v.save();
+            backup = backups.create(v, dir.resolve("backups"), 3).file();
+        }
+        Path target = createOwnerOnly(dir.resolve("restored")).resolve("vault.pmv");
+        try (VaultFileStore other = VaultFileStore.open(target);
+             SecretChars pw = Fixtures.chars(Fixtures.PHRASE);
+             CreatedVault plain = new VaultService(other, Fixtures.CLOCK, Argon2Params.FLOOR).create(pw)) {
+            assertTrue(plain.vault().records().isEmpty());
+        }
+        try (SecretChars pw = Fixtures.chars(Fixtures.PHRASE)) {
+            assertTrue(backups.restore(backup, target, pw, true).replacedExisting());
+        }
+        try (VaultFileStore other = VaultFileStore.open(target);
+             SecretChars pw = Fixtures.chars(Fixtures.PHRASE);
+             Vault restored = new VaultService(other, Fixtures.CLOCK, Argon2Params.FLOOR).unlockWithPassphrase(pw)) {
+            assertEquals(2, restored.records().size());
+            assertEquals(5 + VaultBackups.RESTORE_COUNTER_MARGIN, stored(restored).signCount());
+        }
+    }
+
+    @Test
     void aRestoreThatWouldReachTheLastCounterLeavesTheCredentialExhausted() throws PasskeyException, VaultException,
             IOException, StorageException {
         long max = PasskeyRecord.MAX_SIGN_COUNT;

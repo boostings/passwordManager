@@ -363,6 +363,57 @@ final class MigrationTest {
         assertEquals(EnvelopeCodec.VERSION, VaultService.currentFormatVersion());
     }
 
+    @Test
+    void aMigratedFileReplacedByTheOldVersionBeforeVerificationIsCorruptAndRolledBack()
+            throws CryptoException, IOException, StorageException {
+        byte[] original = installV0();
+        VaultService service = service(step -> {
+            if (step == VaultService.MigrationStep.MIGRATED_WRITTEN) {
+                try {
+                    Files.write(vaultPath, original);
+                } catch (IOException e) {
+                    throw new AssertionError(e);
+                }
+            }
+        });
+        assertCode(VaultException.Code.CORRUPT, service);
+        assertUntouched(original);
+    }
+
+    @Test
+    void aRollbackThatCannotWriteKeepsTheCopyAndIsAttachedToTheFailure()
+            throws CryptoException, IOException, StorageException {
+        installV0();
+        VaultService service = service(step -> {
+            if (step == VaultService.MigrationStep.MIGRATED_WRITTEN) {
+                store.close();
+                throw new VaultException(VaultException.Code.STORAGE, null);
+            }
+        });
+        try (SecretChars pw = Fixtures.chars(Formats.GOLDEN_PHRASE)) {
+            VaultException e = assertThrows(VaultException.class, () -> service.unlockWithPassphrase(pw));
+            assertEquals(VaultException.Code.STORAGE, e.code());
+            assertEquals(1, e.getSuppressed().length, "the failed restore is attached");
+        }
+        assertTrue(Files.exists(rollbackPath, LinkOption.NOFOLLOW_LINKS), "the copy stays for the user");
+    }
+
+    @Test
+    void aRollbackThatCannotWriteAfterAnErrorKeepsTheCopy() throws CryptoException, IOException, StorageException {
+        installV0();
+        VaultService service = service(step -> {
+            if (step == VaultService.MigrationStep.MIGRATED_WRITTEN) {
+                store.close();
+                throw new OutOfMemoryError("injected");
+            }
+        });
+        try (SecretChars pw = Fixtures.chars(Formats.GOLDEN_PHRASE)) {
+            OutOfMemoryError e = assertThrows(OutOfMemoryError.class, () -> service.unlockWithPassphrase(pw));
+            assertEquals(0, e.getSuppressed().length);
+        }
+        assertTrue(Files.exists(rollbackPath, LinkOption.NOFOLLOW_LINKS), "the copy stays for the user");
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     private VaultService service(VaultService.MigrationProbe probe) {

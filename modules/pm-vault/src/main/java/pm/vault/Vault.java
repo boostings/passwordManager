@@ -416,22 +416,10 @@ public final class Vault implements AutoCloseable {
                 throw new VaultException(VaultException.Code.CORRUPT, e);
             }
             byte[] file = sealFile(next, vaultKey, codec, List.copyOf(byId.values()));
-            if (file.length > VaultFileStore.MAX_FILE_BYTES) {
-                // Never write a file that unlock would refuse to read.
-                throw new VaultException(VaultException.Code.STORAGE,
-                        new StorageException(StorageException.Code.TOO_LARGE, null));
-            }
+            refuseOversized(file.length, VaultFileStore.MAX_FILE_BYTES);
             probe.at(WriteStep.SEALED);
             try {
-                boolean exists;
-                try {
-                    exists = store.exists();
-                } catch (IllegalStateException ex) {
-                    if (ex.getCause() instanceof StorageException storageFailure) {
-                        throw new VaultException(VaultException.Code.STORAGE, storageFailure);
-                    }
-                    throw ex;
-                }
+                boolean exists = VaultService.storeExists(store);
                 if (exists) {
                     refuseIfChanged(store.readAll());
                 }
@@ -930,6 +918,17 @@ public final class Vault implements AutoCloseable {
         byte[] file = Arrays.copyOf(aad, Math.addExact(aad.length, ciphertext.length));
         System.arraycopy(ciphertext, 0, file, aad.length, ciphertext.length);
         return file;
+    }
+
+    /**
+     * Never writes a file that unlock would refuse to read. Takes the bound as a parameter so a
+     * test need not build a 256 MiB vault.
+     */
+    static void refuseOversized(long length, long max) throws VaultException {
+        if (length > max) {
+            throw new VaultException(VaultException.Code.STORAGE,
+                    new StorageException(StorageException.Code.TOO_LARGE, null));
+        }
     }
 
     /** Runs {@code action} under {@link #lock}; the only place the lock is taken (LCK08-J). */

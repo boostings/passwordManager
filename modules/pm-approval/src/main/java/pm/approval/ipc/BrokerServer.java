@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.NetworkChannel;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
@@ -26,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import jdk.net.ExtendedSocketOptions;
 import pm.approval.ApprovalBroker;
 import pm.approval.Decision;
+import pm.approval.Grant;
 import pm.approval.Outcome;
 import pm.crypto.SecretBytes;
 
@@ -157,11 +159,12 @@ public final class BrokerServer implements AutoCloseable {
 
     @SuppressWarnings("PMD.CloseResource") // each accepted channel is closed by replyAndClose or serve
     private void acceptLoop() {
-        while (running.get()) {
+        for (;;) {
             SocketChannel client;
             try {
                 client = server.accept();
             } catch (ClosedChannelException e) {
+                // close() closes the server channel, so this is the one way out, whenever close() runs.
                 return;
             } catch (IOException e) {
                 continue;
@@ -215,12 +218,13 @@ public final class BrokerServer implements AutoCloseable {
     }
 
     private byte[] answer(Outcome outcome) {
-        if (!outcome.decision().allowed() || outcome.grant().isEmpty()) {
+        Optional<Grant> grant = outcome.grant(); // present exactly when the decision is an approval
+        if (grant.isEmpty()) {
             return IpcCodec.encodeReply(outcome.decision(), new TreeMap<>());
         }
         SortedMap<String, SecretBytes> vars;
         try {
-            vars = releaser.release(outcome.grant().get());
+            vars = releaser.release(grant.get());
         } catch (RuntimeException e) {
             return IpcCodec.encodeReply(Decision.DENIED, new TreeMap<>()); // fail closed
         }
@@ -231,7 +235,11 @@ public final class BrokerServer implements AutoCloseable {
         }
     }
 
-    private Optional<String> peerUser(SocketChannel client) {
+    /**
+     * The OS user at the other end: empty where the platform does not report it (Windows), and a
+     * name that never matches when it should be reported but cannot be read.
+     */
+    static Optional<String> peerUser(NetworkChannel client) {
         try {
             if (client.supportedOptions().contains(ExtendedSocketOptions.SO_PEERCRED)) {
                 return Optional.of(client.getOption(ExtendedSocketOptions.SO_PEERCRED).user().getName());

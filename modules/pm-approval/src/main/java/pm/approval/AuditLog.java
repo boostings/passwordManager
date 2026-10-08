@@ -13,8 +13,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -514,15 +512,18 @@ public final class AuditLog implements AuditSink, AutoCloseable {
         }
     }
 
-    /** Creates {@code path} exclusively with owner-only permissions. */
+    /**
+     * Creates {@code path} exclusively, owner-only from the moment it exists (0600, or an ACL
+     * naming only the owner), then made exact for its own owner.
+     */
     private static FileChannel create(Path path, Set<OpenOption> opts) throws IOException {
-        boolean posix = Files.getFileStore(Objects.requireNonNull(path.toAbsolutePath().getParent(), "parent"))
-                .supportsFileAttributeView("posix");
-        if (posix) {
-            FileAttribute<?> mode = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"));
-            return FileChannel.open(path, opts, mode);
+        Path parent = Objects.requireNonNull(path.toAbsolutePath().getParent(), "parent");
+        FileChannel ch;
+        try {
+            ch = FileChannel.open(path, opts, OwnerOnly.creationAttributes(parent, false));
+        } catch (StorageException e) {
+            throw new IOException("PERMISSIONS", e);
         }
-        FileChannel ch = FileChannel.open(path, opts);
         try {
             OwnerOnly.apply(path);
         } catch (StorageException e) {

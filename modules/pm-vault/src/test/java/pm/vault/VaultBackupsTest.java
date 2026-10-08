@@ -326,6 +326,19 @@ final class VaultBackupsTest {
         }
     }
 
+    @Test
+    void aThousandBackupsInOneSecondLeaveNoNameForTheNext() throws IOException, StorageException {
+        Files.createDirectories(backups);
+        OwnerOnly.apply(backups);
+        for (int counter = 0; counter < 1000; counter++) {
+            Path taken = backups.resolve(String.format(java.util.Locale.ROOT,
+                    "pm-backup-20261003T080910Z-%03d.pmbackup", counter));
+            Files.write(taken, new byte[] {1});
+            OwnerOnly.apply(taken);
+        }
+        assertCode(VaultException.Code.STORAGE, () -> service(T).create(created.vault(), backups, 3));
+    }
+
     // ---- rotation ----------------------------------------------------------------------------
 
     @Test

@@ -16,9 +16,7 @@ public record CreatedVault(Vault vault, SecretChars recoveryKey) implements Auto
     /** Rejects null components (EXP01-J). */
     public CreatedVault {
         Objects.requireNonNull(vault, "vault");
-        if (recoveryKey == null) {
-            throw new NullPointerException("rk");
-        }
+        Objects.requireNonNull(recoveryKey, "rk");
     }
 
     /** Zeroes the recovery key and locks the vault. */

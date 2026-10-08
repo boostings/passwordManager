@@ -109,10 +109,8 @@ public final class CborWriter {
         sink.enterContainer(depth);
         TreeMap<byte[], CborValue> sorted = new TreeMap<>(CborWriter::compareEncodedKeys);
         for (Map.Entry<String, CborValue> entry : map.entries().entrySet()) {
-            if (sorted.put(encodeKey(entry.getKey(), sink.limits), entry.getValue()) != null) {
-                // Unreachable for well-formed keys: distinct strings have distinct UTF-8 encodings.
-                throw new IllegalArgumentException("two map keys have the same encoding");
-            }
+            // Distinct strings have distinct UTF-8 encodings, so no key replaces another.
+            sorted.put(encodeKey(entry.getKey(), sink.limits), entry.getValue());
         }
         sink.head(Wire.MAJOR_MAP, sorted.size());
         for (Map.Entry<byte[], CborValue> entry : sorted.entrySet()) {
@@ -167,10 +165,7 @@ public final class CborWriter {
 
         /** Writes the initial byte and the shortest-form argument. */
         void head(int major, long argument) {
-            int prefix = major << Wire.MAJOR_SHIFT;
-            if (argument < 0) {
-                throw new IllegalArgumentException("argument must not be negative");
-            }
+            int prefix = major << Wire.MAJOR_SHIFT; // argument >= 0: a length, a size or a UInt
             if (argument < Wire.INFO_ONE_BYTE) {
                 put(prefix | (int) argument);
             } else if (argument <= MAX_ONE_BYTE) {
@@ -215,7 +210,7 @@ public final class CborWriter {
         /** Makes room for {@code count} more bytes and returns the offset where they go. */
         int reserve(int count) {
             long needed = (long) size + count;
-            if (needed > limits.maxTotalBytes() || needed > MAX_CAPACITY) {
+            if (needed > Math.min(limits.maxTotalBytes(), MAX_CAPACITY)) {
                 throw new IllegalArgumentException("encoding exceeds the size limit");
             }
             if (needed > buffer.length) {

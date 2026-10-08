@@ -310,7 +310,7 @@ public final class VaultBackups {
         Checked checked = check(backup, passphrase, true, Map.of());
         byte[] vaultFile = checked.install();
         try (VaultFileStore store = opener.open(target)) {
-            boolean exists = exists(store);
+            boolean exists = VaultService.storeExists(store);
             boolean lowers = false;
             if (exists) {
                 if (!overwrite) {
@@ -327,9 +327,7 @@ public final class VaultBackups {
                 store.backup();
             }
             store.writeAtomically(vaultFile);
-            if (!ConstantTime.equals(store.readAll(), vaultFile)) {
-                throw new VaultException(VaultException.Code.STORAGE, null);
-            }
+            requireReadBack(store.readAll(), vaultFile);
             return new Restored(checked.info(), exists, lowers);
         } catch (StorageException e) {
             throw new VaultException(VaultException.Code.STORAGE, e);
@@ -461,17 +459,6 @@ public final class VaultBackups {
         }
     }
 
-    private static boolean exists(VaultFileStore store) throws VaultException {
-        try {
-            return store.exists();
-        } catch (IllegalStateException e) {
-            if (e.getCause() instanceof StorageException storageFailure) {
-                throw new VaultException(VaultException.Code.STORAGE, storageFailure);
-            }
-            throw e;
-        }
-    }
-
     private static String freeName(BackupDirectory directory, long now) throws StorageException, VaultException {
         String stem = PREFIX + STAMP.format(Instant.ofEpochSecond(now)) + "-";
         List<String> taken = directory.list(stem, EXTENSION);
@@ -510,6 +497,15 @@ public final class VaultBackups {
         List<String> names = listing.usable().stream().filter(n -> NAME.matcher(n).matches())
                 .sorted(Comparator.comparing((String n) -> !misdated(n, now)).thenComparing(Comparator.naturalOrder()))
                 .toList();
+        return deleteOldest(directory, names, keep, protect, skipped);
+    }
+
+    /**
+     * Deletes {@code names}, oldest first, until {@code keep} remain. A name already gone counts
+     * as deleted but is not reported as removed; package-private so a test can name one.
+     */
+    static Rotation deleteOldest(BackupDirectory directory, List<String> names, int keep, String protect,
+                                 List<Path> skipped) {
         int excess = names.size() - keep;
         List<Path> removed = new ArrayList<>();
         for (String name : names) {
@@ -530,6 +526,13 @@ public final class VaultBackups {
             }
         }
         return new Rotation(removed, skipped, true);
+    }
+
+    /** Refuses a restore whose file does not read back exactly as written. */
+    static void requireReadBack(byte[] onDisk, byte[] written) throws VaultException {
+        if (!ConstantTime.equals(onDisk, written)) {
+            throw new VaultException(VaultException.Code.STORAGE, null);
+        }
     }
 
     /** Whether the name's time is impossible or more than a day after {@code now}. */

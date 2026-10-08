@@ -195,6 +195,15 @@ class DeviceRecordTest {
                 List.of(id, id), List.of(), T0, T0));
         assertThrows(NullPointerException.class,
                 () -> new TrustedDeviceRecord(id, "p", "07".repeat(32), fp, null, List.of(), T0, T0));
+        List<UUID> tooManyShared = java.util.stream.Stream.generate(UUID::randomUUID)
+                .limit(TrustedDeviceRecord.MAX_SHARED + 1L).toList();
+        assertThrows(IllegalArgumentException.class, () -> new TrustedDeviceRecord(id, "p", "07".repeat(32), fp,
+                tooManyShared, List.of(), T0, T0));
+        List<TrustedDeviceRecord.Received> tooManyReceived = java.util.stream.IntStream
+                .rangeClosed(0, TrustedDeviceRecord.MAX_RECEIVED)
+                .mapToObj(n -> new TrustedDeviceRecord.Received(shareId(n), T0)).toList();
+        assertThrows(IllegalArgumentException.class, () -> new TrustedDeviceRecord(id, "p", "07".repeat(32), fp,
+                List.of(), tooManyReceived, T0, T0));
         try (TrustedDeviceRecord ok = new TrustedDeviceRecord(id, "p", "07".repeat(32), fp, List.of(), List.of(), T0, T0)) {
             byte[] raw = ok.rawPublicKey();
             raw[0] = 0;

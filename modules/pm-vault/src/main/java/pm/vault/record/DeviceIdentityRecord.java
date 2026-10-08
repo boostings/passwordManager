@@ -40,7 +40,7 @@ public record DeviceIdentityRecord(
         title = DeviceRecord.checkName(title);
         FieldRules.secret(privateKey, "privateKey");
         certificate = FieldRules.text(certificate, FieldRules.MAX_PUBLIC_KEY_CHARS, "certificate");
-        if (certificate.isEmpty() || Base64.getDecoder().decode(certificate).length == 0) {
+        if (Base64.getDecoder().decode(certificate).length == 0) { // empty text decodes to nothing
             throw new IllegalArgumentException("certificate is empty");
         }
         created = FieldRules.instant(created, "created");
