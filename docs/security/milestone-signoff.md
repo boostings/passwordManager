@@ -473,3 +473,161 @@ Open, user-only, not blocking M4:
 - The M2 and M3 carry-overs are unchanged.
 
 Signed off: Lane A (Jimmy), security owner, for M4.1–M4.5.
+
+## M5 — Browser extension (M5.1–M5.5)
+
+**Scope.** This sign-off covers the native messaging host (M5.1: framing, JSON, schema, caller
+check), the bridge (M5.2: exact origins, broker-gated fill, save and generate), the MV3 extension
+(M5.3: manifest, popup, background, top-frame fill) and the security exit (M5.5: two fuzz harnesses,
+the permission review, this section). **M5.4** (`pm browser install`, the
+browser-started host relaying approvals to the running TUI over an owner-only socket, and the TUI
+prompt) was merged afterwards (5441e21) and is signed off in "M5.4 addendum" at the end of this
+section.
+
+Evidence: local runs on 2026-10-05 and 2026-10-06 at the M5.5 commit (this section's commit). The
+manual CI workflow has **not** been dispatched; nothing is pushed without the owner's approval.
+
+- Full gate on macOS 27.0 arm64, JDK 21.0.12.1:
+  `./gradlew --no-daemon --rerun-tasks check certReport gitleaksScan`. Result: gate exit=0, `BUILD SUCCESSFUL in 1m 53s` (`111 actionable tasks: 111 executed`), cert report `**Result: 0 findings.**`, gitleaks `no leaks found` (history and staged), 1,663 JUnit tests with 0 failures and 0 errors, and the extension `node --test` run with 42 pass and 0 fail.
+- Fuzz campaign over the two harnesses, as committed: 10 minutes (5 per harness, whole class),
+  1,446,654 executions (NativeHost 322,355, Origin 1,124,299) and 0 crashes, on 2026-10-06.
+  - Earlier runs on 2026-10-05 also ran clean, 2,258,140 executions in all. They are not counted
+    above, because the harnesses changed after them:
+    - NativeHost run 1 used the first harness, which measured allocation once with no warm-up.
+    - NativeHost run 2 used the second harness, which re-ran an input on a breach.
+    - The Origin run came before the default-port pairs, the seeds and the canonical-text check.
+  - The host machine was shared with other builds, so the final NativeHost run made fewer
+    executions than run 1.
+  - Details are in `docs/security/fuzz/M5-fuzz-runs.md`.
+- Planted bugs: eight, one per kind. The kinds were a frame limit, the caller allowlist, a
+  duplicate JSON name, an extra request member, a lone surrogate, a Unicode host label, the port
+  grammar and the `fill` origin binding.
+  - **Fuzzing with every seed withheld caught six**, in 0.25 s to 224 s.
+  - **Fuzzing missed two**: the duplicate name and the extra member. The duplicate name was
+    caught in 140 s when only its own seed was withheld. With the same seed withheld, the extra
+    member was caught in one run (297 s) and missed in another.
+  - **The gate fails on all eight as committed**, through the seeds and deterministic tests.
+
+  Each plant was reverted, and `git status --porcelain modules/pm-browser/src/main` was empty
+  afterwards and before the gate.
+- Review plants (fix round). The review's driver was re-run on the committed harnesses: 2 minutes of
+  fuzzing with every seed withheld, then the gate, then the pm-browser tests (M5-fuzz-runs.md,
+  "Review plants on the committed harness"):
+  - **D and Dx are caught by fuzzing and fail the gate.** D is a buffer sized from the frame header
+    that is grown once and then kept. Dx makes the same allocation on every call.
+    - Fuzzing found D in 0.382 s and Dx in 0.261 s.
+    - Both fail `aHostileHeaderAllocatesLessThanTheCeiling`, and Dx also fails
+      `anOversizedHeaderIsRefusedBeforeAnyBodyByteIsRead`.
+    - Before the fixes, D passed both fuzzing and the gate, and Dx passed the gate.
+  - **NONE (nothing planted) gave no finding in 707,384 executions**, so the warm-up removed the
+    round-1 false positive.
+  - **B4 fails the gate** on 4 tests: the default-port seeds and pairs, which now compare the
+    canonical text. B4 drops port 80 or 443 under either scheme from that text. Fuzzing from an
+    empty corpus missed it.
+  - **Fuzzing alone catches none of B1, B2 and B3**, the limit off-by-ones. B2 and B3 fail
+    `limitsHoldAtAndJustPastTheirValues`. B1 passes the whole pm-fuzz gate and fails only
+    `OriginTest` (residual below).
+  - Plants 1 and 2, re-run on the committed harness, are still caught by fuzzing and by the gate.
+
+| Exit criterion (plan.md §13 M5) | Proving test or record | Local result |
+| --- | --- | --- |
+| Origin binding: autofill only to exact registered origins; tested against subdomain, scheme and port confusion | `OriginTest` (`subdomainsAndParentsAreDifferentOrigins`, `schemeAndPortMustMatch`, `ipLiteralsMustBeCanonicalDottedQuads`, `punycodeLookalikesAreDistinctFromTheirTargets`, `unicodeHostsAreRefusedNotMapped`, `confusingOrUnsupportedOriginsAreRefused`); `BridgeTest` (`lookupReturnsMetadataForExactlyThatOrigin`, `confusableOriginsMatchNothingAndPromptNothing`); `OriginFuzzTest` (T-FUZZ-ORIGIN): `Origin.parse`/`ofUrl` against the independent ADR 0014 §5 oracle `OriginOracle` on every page origin and stored URL, lookup and fill through the production `Bridge` handler, and 42 fixed subdomain, parent, scheme, port (including an explicit 80 or 443 under the other scheme), userinfo, trailing-dot, IPv4-form, punycode and Cyrillic pairs (`subdomainSchemePortAndLookalikeConfusionIsRefused`), with the canonical text compared as well as the triple, because approvals are keyed on it; in the extension, `bridge.test.js` "an origin the host did not approve is never injected" and `fill.test.js` "refuses any other origin", "refuses inside a frame even of the same origin" | Pass (gate): `OriginTest` 59, `BridgeTest` 17, `OriginFuzzTest` 14 (seed replay), extension node tests 42; 0 failures, 0 errors |
+| Native messaging host validates the calling extension ID and the message schema | `ExtensionAllowlistTest`, `NativeHostTest.aRefusedCallerIsNotReadFromOrAnswered`, `MessagesTest`, `NativeFramesTest`, `JsonTextTest`; `NativeHostFuzzTest` (T-FUZZ-NM) through `NativeHost.run` only: an independent caller oracle (a refused caller reads 0 stdin bytes, writes nothing, creates no handler and exits 2) and an independent RFC 3629 / RFC 8259 / ADR 0014 §3 model (`JsonOracle`) of every reply, exact error code, delivered request and byte read, with headers at, just under and just past 1 MiB | Pass (gate): `ExtensionAllowlistTest` 5, `NativeHostTest` 10, `MessagesTest` 8, `NativeFramesTest` 6, `JsonTextTest` 11, `NativeHostFuzzTest` 23 (seed replay); 0 failures, 0 errors |
+| Extension has a minimal permission manifest, reviewed and recorded | `extension/test/manifest.test.js` (T-EXT-06) locks the permissions, keys and CSP; the review is `docs/security/extension-permission-review.md` (each permission, what is absent and why, CSP, `externally_connectable` (`{"ids": []}`), `web_accessible_resources`, `minimum_chrome_version`, checked against the manifest by SHA-256) | `node --test test/manifest.test.js`: 8 pass, 0 fail; review accepted with no open item (its one suggestion, `"externally_connectable": {"ids": []}`, was applied at M5.5 and re-reviewed) |
+| Every credential release requires TUI approval or an explicit session policy | `BridgeTest` (`fillReleasesThePasswordOnlyAfterTheUserApproves`, `aDenyingBrokerReleasesNothing`, `aLockedVaultReleasesNothingAndShowsNoPrompt`, `aSessionPolicyCoversOneExtensionOneOriginOneActionAndOneLogin`, `generateStoresTheNewLoginBeforeReleasingIt`, `aGrantForAnotherRequestOrAnUsedGrantIsRefused`); `OriginFuzzTest` over a real `ApprovalBroker` (deny, once, session): no password or save without a prompt answered yes or a session policy for the same extension, origin and profile, nothing when locked or denied. The cross-process half (the browser-started host asking the running TUI) is M5.4: SR-113, T-EXT-08, see "M5.4 addendum" | Pass (gate): `BridgeTest` 17, `OriginFuzzTest` 14; 0 failures, 0 errors. Bridge-level release gate: proven. TUI relay: proven at the M5.4 addendum |
+
+CERT exceptions: the M5 sweep (cert-exceptions.md, "M5 review") found only CE-025's two
+annotations in M5 code. **CE-025 is signed off** (2026-10-05). M5.5 adds no suppression, so
+CE-075..CE-079 are unused. CE-065/CE-066 (M5.4) are signed off in the M5.4 addendum.
+
+Where ADR 0014 is silent, the harnesses restate the host's own rule and say so (M5-fuzz-runs.md,
+"Rules the harnesses restate"). Two of them are findings for the record, not defects:
+
+- `Messages` treats only U+0000–U+001F and U+007F as control characters, so C1 controls
+  (U+0080–U+009F) are accepted in a saved username and stored as given. The prompt text replaces
+  C0, DEL and C1 alike (`Bridge.shown` uses `Character.isISOControl`;
+  `promptTextIsBoundedAndFreeOfControlCharacters`, and `OriginFuzzTest` checks every prompt against
+  its own rendering rule), so a C1 character never reaches the approval prompt raw. Display
+  hygiene, not a bypass.
+- ADR 0014 §5 says "printable ASCII" for origin text; the host excludes space as well (U+0021–U+007E).
+  The stricter reading is kept.
+
+Residual risks accepted at this sign-off:
+
+- **A same-user process can talk to the host.** Chrome passes the caller origin as an argument, and
+  the host checks it against its allowlist, but any process running as the user can start the host
+  with a forged argument (or simply read the same allowlist file). The caller check (ADR 0014 §4)
+  stops a foreign extension through Chrome (TM-51), not a local process. The control is the
+  approval gate: nothing is released without a prompt answered in pm or a session policy the user
+  created (ADR 0014 §6).
+- **MV3 service-worker lifetime is inferred, not measured.** If Chrome stops the background while pm
+  waits for approval, the popup reports the request as interrupted and nothing is filled later
+  (`bridge.test.js`, fakes only). How long Chrome keeps the worker alive during a native message is
+  taken from Chrome's documentation.
+- **Windows install is manual.** `pm browser install` (M5.4) writes manifests on macOS and Linux
+  only; Windows needs the registry key set by hand (extension-permissions.md, "Native host
+  registration").
+- **No real-Chrome measurement.** Every extension test runs under Node with fakes for `chrome.*`
+  and the DOM. The Chrome behaviours the review relies on are listed as INFERRED in
+  extension-permission-review.md.
+- **Fuzzing depends on seeds and fixed edges for five defect classes.** With every seed withheld,
+  the harnesses reached none of these within the budget:
+  - a repeated JSON name or an extra request member (planted bugs 3 and 4, five minutes). The
+    oracle checks both; what fails is reaching them, because an accepted extra member adds no new
+    coverage. The committed seeds (`decode-errors.bin`) and `limitsHoldAtAndJustPastTheirValues`
+    catch both on every gate run.
+  - **any of the three limit off-by-ones the review planted** (B1–B3, two minutes; M5-fuzz-runs.md,
+    "Limits that fuzzing did not reach"). Fuzzing alone catches none of them. JSON depth (B2) and
+    the generated length (B3) are guarded by `NativeHostFuzzTest.limitsHoldAtAndJustPastTheirValues`
+    and by `JsonTextTest` and `MessagesTest`. **The 256-character origin limit (B1) is guarded only
+    by `OriginTest.overlongTextAndLabelsAreRefused` in pm-browser**; no fuzz harness test fails on
+    it.
+
+  Removing those seeds or tests would lose that protection.
+- **Filled values are in the page's DOM** (TM-54, accepted at M5.3): the page's own scripts can read
+  a filled password.
+
+User-only items (not done; need the owner):
+
+- **Dispatch the manual CI workflow** for M5 (needs the branch pushed).
+- **Real-browser manual test:** install the unpacked extension and the host in a real Chrome
+  (121+), then fill, save and generate on a test site, and check that subdomain, scheme and port
+  variants and an iframe get nothing. This also confirms the INFERRED Chrome behaviours in the
+  permission review.
+- **Chrome Web Store review** of the listing and the permission justification.
+
+Signed off: Lane A (Jimmy), security owner, for M5.1–M5.3 and the M5.5 exit work. M5.4 is
+signed off in the addendum below.
+
+### M5.4 addendum (2026-10-07)
+
+M5.4 merged as 5441e21 after a re-verify round on main. The re-verify fixed three CLI defects
+before the merge (an allowlist write failure after the manifest changed now says the manifest
+changed, `BRIDGE_ALLOWLIST_NOT_WRITTEN`; clearing the allowlist past a manifest pm cannot read says
+so, `BRIDGE_ALLOWLIST_CLEARED_UNREAD`; uninstall removes every copy of a repeated origin), each
+with a test in `BrowserCommandsTest`.
+
+Evidence: local gate on main with M5.4 staged, 2026-10-07:
+`./gradlew check certReport gitleaksScan`, `BUILD SUCCESSFUL in 1m 36s`, cert report
+`**Result: 0 findings.**`, gitleaks `no leaks found`.
+
+| ID | What it covers | Proving tests | Local result |
+| --- | --- | --- | --- |
+| SR-113, T-EXT-08 | Browser requests approved only in the running, unlocked TUI over an owner-only socket; no TUI means `DENIED_LOCKED`; allowlist rechecked when the answer arrives and before the reply is written; one release per approval; host disconnect cancels the prompt | `BrowserRelayTest`, `BrowserApprovalTest`, `BrowserHostTest`, `PasskeyFreeHostTest`, `BrokerIpcTest`, `SocketApprovalHostTest` (traceability.md, TM-52/TM-54 row) | Pass (gate): `BrowserRelayTest` 28, `BrowserApprovalTest` 19, `BrowserHostTest` 5; 0 failures, 0 errors |
+| SR-114, T-EXT-07 | `pm browser install/uninstall/status`: exact native host manifest, `0600`, per-user folders only, symlink, foreign-owner, group-writable and foreign-manifest refusals, each browser's manifest its own record | `BrowserCommandsTest` (traceability.md, TM-51 row) | Pass (gate): `BrowserCommandsTest` 33; 0 failures, 0 errors |
+| CE-065, CE-066 | `DoNotUseThreads` and `CloseResource` suppressions on `pm.tui.BrowserRelay` and its helpers | Re-read against the code at the merge: one accept thread, at most 4 connection threads plus a close watcher, vault access only through `invokeAndWait`; every channel closed in `finally` or by `close` | Accepted |
+
+Residuals found by the re-verify probes, all failing closed, accepted:
+
+- An approval that the relay overrules (the host goes away, or the extension is taken off the
+  allowlist while the prompt waits) can leave the broker's `ALLOWED_ONCE` entry followed by the
+  relay's refusal; when the relay's own deadline fires first (`DENIED_TIMEOUT`) no second entry
+  is written. Nothing is released in any of these cases.
+- A login saved by an approved `save` stays saved if the extension is taken off the allowlist
+  before the reply is written; the reply is `DENIED_AUTH` and audited as such.
+- `AuditLog.append` fails on an interrupted thread, so a request interrupted at that point is
+  answered as unaudited (nothing released).
+- Any same-user process can connect to the relay socket (R-011); the y/n prompt names the claimed,
+  unverified host instance (SR-100).
+
+Signed off: Lane A (Jimmy), security owner, for M5.4.

@@ -75,14 +75,14 @@ desktop application.
 
 | ID | Requirement | Verification | ASVS | CERT |
 | --- | --- | --- | --- | --- |
-| SR-300 | Autofill only when the page origin (scheme + host + port) exactly matches a stored URL origin; subdomains require explicit record opt-in | T-EXT-01 | V5.1 | — |
-| SR-301 | The native messaging host manifest allowlists exactly the project extension ID(s); messages from other origins are rejected | T-EXT-02 | V4.2 | — |
-| SR-302 | Every credential release to the extension requires TUI approval or an explicit session policy scoped to one origin | T-EXT-03 | V4.1 | — |
+| SR-300 | Autofill only when the page origin (scheme + host + port) exactly matches a stored URL origin; subdomains require explicit record opt-in | T-EXT-01, T-FUZZ-ORIGIN | V5.1 | — |
+| SR-301 | The native messaging host manifest allowlists exactly the project extension ID(s); messages from other origins are rejected | T-EXT-02, T-FUZZ-NM | V4.2 | — |
+| SR-302 | Every credential release to the extension requires TUI approval or an explicit session policy scoped to one origin | T-EXT-03, T-FUZZ-ORIGIN | V4.1 | — |
 | SR-303 | Native messaging JSON is size-bounded (Chrome limit 1 MiB) and schema-validated; the parser is fuzzed | T-FUZZ-NM | V5.1 | MSC05-J |
 | SR-304 | Autofill happens only on explicit user action in the extension UI, never automatically on page load | T-EXT-04 | — | — |
-| SR-305 | Native messaging requests are one JSON object whose member names are exactly the set for its `type`, each of the listed type and range; the caller's extension origin is checked against the host's own allowlist before stdin is read (ADR 0014 §3, §4) | T-EXT-05, T-EXT-02 | V5.1 | IDS00-J, MSC05-J |
-| SR-306 | Origins are canonicalised before any comparison: scheme and host lowercased (ASCII only), hosts accepted only as ASCII/A-label (`xn--`) LDH names with no IDNA mapping (non-ASCII refused), default port elided; userinfo, trailing dots, IPv6 and non-canonical IPv4 literals are refused (ADR 0014 §5) | T-EXT-01 | V5.1 | IDS01-J |
-| SR-307 | Fill, save and generate each submit one broker request scoped to one canonical origin and one action (fills: one login, named in the prompt); generate stores the new login before releasing the password; a password reaches the bridge only through a single-use `Grant` it cannot construct (ADR 0014 §6) | T-EXT-03 | V4.1 | MET03-J |
+| SR-305 | Native messaging requests are one JSON object whose member names are exactly the set for its `type`, each of the listed type and range; the caller's extension origin is checked against the host's own allowlist before stdin is read (ADR 0014 §3, §4) | T-EXT-05, T-EXT-02, T-FUZZ-NM | V5.1 | IDS00-J, MSC05-J |
+| SR-306 | Origins are canonicalised before any comparison: scheme and host lowercased (ASCII only), hosts accepted only as ASCII/A-label (`xn--`) LDH names with no IDNA mapping (non-ASCII refused), default port elided; userinfo, trailing dots, IPv6 and non-canonical IPv4 literals are refused (ADR 0014 §5) | T-EXT-01, T-FUZZ-ORIGIN | V5.1 | IDS01-J |
+| SR-307 | Fill, save and generate each submit one broker request scoped to one canonical origin and one action (fills: one login, named in the prompt); generate stores the new login before releasing the password; a password reaches the bridge only through a single-use `Grant` it cannot construct (ADR 0014 §6) | T-EXT-03, T-FUZZ-ORIGIN | V4.1 | MET03-J |
 | SR-308 | The extension requests only `nativeMessaging`, `activeTab` and `scripting`, has no host permissions and no content scripts, loads no remote code and runs under a `script-src 'self'` CSP (extension-permissions.md) | T-EXT-06 | V14.2 | — |
 | SR-309 | The page fill runs only in the top-level frame and only when `location.origin` equals the origin the host approved, and writes only into enabled, writable fields that are rendered, visible, not transparent and of non-zero size; otherwise nothing is written (ADR 0014 §7) | T-EXT-04 | V5.1 | — |
 

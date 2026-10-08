@@ -1,8 +1,10 @@
 # Browser extension permissions
 
-Status: M5.3, 2026-10-03. Normative for `extension/src/manifest.json` (SR-308). Any change to the
-manifest's permissions, CSP or keys needs a row here and a security-owner review;
-`extension/test/manifest.test.js` (T-EXT-06) fails on any addition.
+Status: M5.3, 2026-10-03; `externally_connectable` added at M5.5, 2026-10-05. Normative for
+`extension/src/manifest.json` (SR-308). Any change to the manifest's permissions, CSP or keys needs
+a row here and a security-owner review; `extension/test/manifest.test.js` (T-EXT-06) fails on any
+addition. The security-owner reviews of this manifest are recorded in
+`extension-permission-review.md` (M5.5).
 
 ## Requested permissions
 
@@ -22,10 +24,22 @@ manifest's permissions, CSP or keys needs a row here and a security-owner review
   in the browser (no `chrome.storage`, no `localStorage`).
 - **`web_accessible_resources`**: none, so pages cannot load or frame extension files or detect
   the extension by probing them.
-- **`externally_connectable`**: absent, and the background registers no `onMessageExternal` or
-  `onConnectExternal` listener. Messages are accepted only from the extension's own popup
-  (`sender.id` is this extension, `sender.url` is `popup.html`, no `sender.tab`).
 - **`key`, `update_url`**: absent in the source tree; the store or the installer adds them.
+
+## External connections
+
+```json
+"externally_connectable": { "ids": [] }
+```
+
+- No other extension and no web page may message or connect to this extension: the `ids` list is
+  empty and there is no `matches` key, so Chrome refuses them before any listener runs. With the
+  key absent, Chrome would still let every other extension send messages to this extension's ID.
+- Behind that, the background registers no `onMessageExternal` or `onConnectExternal` listener,
+  and accepts messages only from the extension's own popup (`sender.id` is this extension,
+  `sender.url` is `popup.html`, no `sender.tab`).
+- The lock test pins the value to exactly `{"ids": []}`; adding an ID or a `matches` pattern is a
+  manifest change that needs a review row.
 
 ## Content Security Policy
 

@@ -16,13 +16,18 @@ test('Manifest V3 with exactly the three justified permissions', () => {
   assert.deepEqual(manifest.permissions, ['nativeMessaging', 'activeTab', 'scripting']);
 });
 
-test('no host access, content scripts, web-accessible resources or external connections', () => {
+test('no host access, content scripts or web-accessible resources', () => {
   for (const key of ['host_permissions', 'optional_permissions', 'optional_host_permissions', 'content_scripts',
-    'web_accessible_resources', 'externally_connectable', 'key', 'update_url', 'oauth2', 'sandbox', 'chrome_url_overrides']) {
+    'web_accessible_resources', 'key', 'update_url', 'oauth2', 'sandbox', 'chrome_url_overrides']) {
     assert.ok(!(key in manifest), key);
   }
   assert.deepEqual(Object.keys(manifest).sort(), ['action', 'background', 'content_security_policy', 'description',
-    'manifest_version', 'minimum_chrome_version', 'name', 'permissions', 'version']);
+    'externally_connectable', 'manifest_version', 'minimum_chrome_version', 'name', 'permissions', 'version']);
+});
+
+test('no other extension and no web page may connect (externally_connectable allows nothing)', () => {
+  // An empty "ids" list admits no extension; with no "matches" key no web page may connect either.
+  assert.deepEqual(manifest.externally_connectable, { ids: [] });
 });
 
 test('the extension-page CSP allows only packaged scripts and styles', () => {
