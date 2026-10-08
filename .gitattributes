@@ -1,0 +1,4 @@
+# Check every file out byte for byte as committed, on every platform. Pinned hashes (the Public
+# Suffix List), golden fixtures and fuzz seeds depend on exact bytes, and a Windows checkout with
+# core.autocrlf would otherwise turn LF into CRLF. gradlew.bat is committed with CRLF already.
+* -text

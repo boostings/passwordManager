@@ -144,9 +144,10 @@ class BackupCommandsTest {
         addLogin("Saved after the backup");
         byte[] newer = Files.readAllBytes(vault);
 
-        FakeConsoleIo refused = new FakeConsoleIo().secret(VAULT_PASSPHRASE);
+        FakeConsoleIo refused = new FakeConsoleIo(); // refused before any passphrase is asked for
         assertEquals(ExitCodes.USAGE, run(vault, refused, "restore", file.toString()));
         assertTrue(refused.errText().contains(Messages.RESTORE_EXISTS.text()), refused::errText);
+        assertFalse(refused.outText().contains(Messages.PROMPT_BACKUP_PASSPHRASE.text()), refused::outText);
         assertArrayEquals(newer, Files.readAllBytes(vault));
 
         FakeConsoleIo restore = new FakeConsoleIo().secret(VAULT_PASSPHRASE);

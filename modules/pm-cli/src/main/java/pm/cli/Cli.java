@@ -315,7 +315,13 @@ final class Cli {
         List<String> afterSub = rest.isEmpty() ? rest : rest.subList(1, rest.size());
         return switch (command) {
             case HELP -> help(rest, io);
-            case INIT -> init(opener.open(vaultPath, true), io);
+            case INIT -> {
+                // Refuse before asking for a passphrase; create still refuses an existing file itself.
+                if (vaultExists.test(vaultPath)) {
+                    throw new VaultException(VaultException.Code.ALREADY_EXISTS, null);
+                }
+                yield init(opener.open(vaultPath, true), io);
+            }
             case TUI -> tui(opener.open(vaultPath, false), vaultPath);
             case ADD_LOGIN -> addLogin(opener.open(vaultPath, false), io);
             case LIST -> list(opener.open(vaultPath, false), io);

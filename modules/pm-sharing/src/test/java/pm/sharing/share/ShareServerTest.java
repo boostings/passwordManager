@@ -217,13 +217,20 @@ class ShareServerTest {
 
     @Test
     void aWindowThatClosesAfterTheHandshakeGetsBye()
-            throws IOException, CryptoException, ShareException, InterruptedException {
+            throws IOException, CryptoException, ShareException, InterruptedException, WireException {
         offerTo(bob, true);
         try (ShareServer server = listen(); PeerLink link = connect(bob, server)) {
             ReceiveSession s = new ReceiveSession(bob.publicKey(), link.peerKey(), "bob", new ReceivedShares(), clock);
+            // Under TLS 1.3 the client finishes its handshake before the server has checked the
+            // client's certificate, so revoke only once the server's Hello proves it accepted us;
+            // a revoke before that fails the handshake instead (the test above).
+            Message hello = link.receive();
+            assertInstanceOf(Message.Hello.class, hello);
             shares.revokeDevice(bob.publicKey());
-            assertEquals(Code.NOTHING_OFFERED, assertThrows(ShareException.class,
-                    () -> ShareClient.receive(link, s, (o, fp) -> true, (k, p) -> true)).code());
+            link.send(s.start());
+            link.send(s.receive(hello));
+            Message bye = link.receive();
+            assertEquals(Code.NOTHING_OFFERED, assertThrows(ShareException.class, () -> s.receive(bye)).code());
             assertTrue(server.awaitClosed(WAIT));
         }
         assertEquals("closed", nextEvent());

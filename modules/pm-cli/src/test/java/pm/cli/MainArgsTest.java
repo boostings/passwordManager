@@ -124,6 +124,17 @@ class MainArgsTest {
         assertTrue(io.errText().contains(Messages.ERR_ALREADY_EXISTS.text()));
     }
 
+    @Test
+    void initOverAVaultOnDiskRefusesBeforeAskingForAPassphrase() {
+        vaultOnDisk = true;
+        FakeConsoleIo io = new FakeConsoleIo();
+
+        assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort(), "init"));
+        assertTrue(io.errText().contains(Messages.ERR_ALREADY_EXISTS.text()));
+        assertFalse(io.outText().contains(Messages.PROMPT_NEW_PASSPHRASE.text()), io::outText);
+        assertTrue(opened.isEmpty(), "the vault is not opened");
+    }
+
     // ---- add-login ---------------------------------------------------------------------------
 
     @Test

@@ -150,13 +150,15 @@ class AuditLogProcessTest {
             assertEquals("the audit log is in use by another pm process; try again", append.userMessage());
             AuditException check = assertThrows(AuditException.class, () -> AuditLog.check(log, wait));
             assertEquals(AuditException.Code.BUSY, check.code());
-            assertArrayEquals(before, Files.readAllBytes(log), "nothing was written while busy");
             Files.createFile(release);
             assertTrue(holder.waitFor(WAIT_SECONDS, TimeUnit.SECONDS), "the holder lets go");
         } finally {
             holder.destroyForcibly();
         }
         assertEquals("RELEASED", Files.readString(dir.resolve("out-holder"), StandardCharsets.UTF_8).strip());
+        // Read only once the holder is gone: a Windows file lock is mandatory, so reading the locked
+        // log fails there. The holder writes nothing, so any change would be from the refused calls.
+        assertArrayEquals(before, Files.readAllBytes(log), "nothing was written while busy");
         AuditLog.append(log, clock, AuditEvent.of("export"));
         assertEquals(2, AuditLog.check(log), "the log is usable again once the holder is gone");
     }

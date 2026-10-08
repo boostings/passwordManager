@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
@@ -39,6 +40,8 @@ import pm.approval.ApprovalRequest;
 import pm.approval.Decision;
 import pm.approval.PolicyStore;
 import pm.crypto.SecretBytes;
+import pm.storage.OwnerOnly;
+import pm.storage.StorageException;
 import pm.vault.cbor.CborException;
 import pm.vault.cbor.CborLimits;
 import pm.vault.cbor.CborReader;
@@ -161,7 +164,8 @@ class IpcEdgesTest {
     }
 
     @Test
-    void tokenFilesOfTheWrongSizeOrModeAndAMissingRunDirAreRefused() throws IOException, IpcException {
+    void tokenFilesOfTheWrongSizeOrModeAndAMissingRunDirAreRefused()
+            throws IOException, IpcException, StorageException {
         assertEquals(IpcException.Code.NO_BROKER,
                 assertThrows(IpcException.class, () -> RunDir.existing(tmp.resolve("absent"))).code());
         RunDir dir = RunDir.prepare(tmp.resolve("run"));
@@ -169,14 +173,16 @@ class IpcEdgesTest {
         Path authFile = dir.path().resolve(RunDir.AUTH_FILE);
         int expected = ApprovalBroker.TOKEN_BYTES;
         Files.write(authFile, new byte[expected + 1]);
-        Files.setPosixFilePermissions(authFile, PosixFilePermissions.fromString("rw-------"));
+        OwnerOnly.apply(authFile);
         assertEquals(IpcException.Code.MALFORMED, assertThrows(IpcException.class, dir::readToken).code(), "long");
         Files.write(authFile, new byte[expected - 1]);
         assertEquals(IpcException.Code.MALFORMED, assertThrows(IpcException.class, dir::readToken).code(), "short");
         Files.write(authFile, new byte[expected]);
         dir.readToken().close();
-        Files.setPosixFilePermissions(authFile, mode("rw-r-----"));
-        assertEquals(IpcException.Code.UNSAFE_PATH, assertThrows(IpcException.class, dir::readToken).code());
+        if (Files.getFileAttributeView(authFile, PosixFileAttributeView.class) != null) {
+            Files.setPosixFilePermissions(authFile, mode("rw-r-----"));
+            assertEquals(IpcException.Code.UNSAFE_PATH, assertThrows(IpcException.class, dir::readToken).code());
+        }
     }
 
     @Test

@@ -248,8 +248,11 @@ final class DashboardWindow {
     private List<Strip.Span> hints() {
         List<Strip.Span> spans = new ArrayList<>();
         for (List<String> hint : KEY_HINTS) {
+            if (!spans.isEmpty()) {
+                spans.add(Strip.Span.of("   ", theme.color(PmTheme.Tone.DIM)));
+            }
             spans.add(Strip.Span.bold(hint.get(0), theme.color(PmTheme.Tone.CYAN)));
-            spans.add(Strip.Span.of(" " + hint.get(1) + "   ", theme.color(PmTheme.Tone.DIM)));
+            spans.add(Strip.Span.of(" " + hint.get(1), theme.color(PmTheme.Tone.DIM)));
         }
         return spans;
     }

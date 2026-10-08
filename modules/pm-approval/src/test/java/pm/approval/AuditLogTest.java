@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,7 +34,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import pm.storage.OwnerOnly;
+import pm.storage.StorageException;
 
 /** approval-model §7: append-only, 0600, chained; tampering and truncation report the entry number. */
 @SuppressWarnings("PMD.DoNotUseThreads") // CE-002: TPS00-J executors; PMD 7 flags executors too
@@ -70,10 +75,15 @@ class AuditLogTest {
     }
 
     @Test
-    void createsOwnerOnlyFilesAndReopensAcrossSessions() throws IOException, AuditException {
+    void createsOwnerOnlyFilesAndReopensAcrossSessions() throws IOException, AuditException, StorageException {
         write(3);
-        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(log())));
-        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(AuditLog.headOf(log()))));
+        assertTrue(OwnerOnly.isOwnerOnly(log()), "0600 on POSIX, an owner-only ACL on Windows");
+        assertTrue(OwnerOnly.isOwnerOnly(AuditLog.headOf(log())));
+        if (Files.getFileAttributeView(log(), PosixFileAttributeView.class) != null) {
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(log())));
+            assertEquals("rw-------",
+                    PosixFilePermissions.toString(Files.getPosixFilePermissions(AuditLog.headOf(log()))));
+        }
         write(2);
         assertEquals(5, AuditLog.check(log()));
         try (AuditLog a = AuditLog.open(log(), new TestClock(T0))) {
@@ -277,6 +287,7 @@ class AuditLogTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "sets POSIX modes")
     void groupReadableOrLinkedLogIsRefused() throws IOException, AuditException {
         write(1);
         Files.setPosixFilePermissions(log(), PosixFilePermissions.fromString("rw-r-----"));

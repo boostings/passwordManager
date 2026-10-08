@@ -24,6 +24,7 @@ native installers for those systems have never been built (docs/release/packagin
 | Passkey storage, import and export | Not in v1 (ADR 0016, v1 addendum) | Not in v1 | Not in v1 |
 | Browser, OS and hardware-key passkeys keep working with pm installed | S (the extension does not touch WebAuthn) | S | S |
 | ssh-agent integration | S — `SSH_AUTH_SOCK` Unix socket, including the launchd agent | Not in v1 — Windows agents use named pipes (ADR 0013) | B — `SSH_AUTH_SOCK` Unix socket |
+| SSH key export to a file (`pm ssh export`) | S — a new 0600 file | Not in v1 — refused because the file cannot be made 0600; nothing is written | B |
 | Clipboard copy and clear (TUI, SR-503) | S — `pbcopy`/`pbpaste`; cleared after 30 s (`PM_CLIPBOARD_CLEAR`), on lock and on quit | Not in v1 — Copy says the clipboard is unavailable; Reveal works | Not in v1 — same; X11/Wayland differences, and Wayland may block a programmatic clear |
 | Auto-lock after inactivity (5 min) | S | B | B |
 | Auto-lock on system sleep or screen lock | Not in v1 — idle timer only | Not in v1 | Not in v1 |

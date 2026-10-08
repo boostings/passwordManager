@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -17,6 +16,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import pm.crypto.Hash;
+import pm.storage.OwnerOnly;
+import pm.storage.StorageException;
 import pm.vault.cbor.CborValue;
 import pm.vault.cbor.CborWriter;
 
@@ -44,9 +45,9 @@ class AuditChainTest {
         return Base64.getEncoder().encodeToString(entry);
     }
 
-    private void writeLog(String... lines) throws IOException {
+    private void writeLog(String... lines) throws IOException, StorageException {
         Files.writeString(log(), String.join("\n", lines) + "\n", StandardCharsets.US_ASCII);
-        Files.setPosixFilePermissions(log(), PosixFilePermissions.fromString("rw-------"));
+        OwnerOnly.apply(log()); // POSIX 0600 or an owner-only NTFS ACL, as the log itself is made
     }
 
     private void writeHead(String text) throws IOException {
@@ -64,7 +65,7 @@ class AuditChainTest {
     }
 
     @Test
-    void everyBadFirstEntryIsTamperedAtZero() throws IOException {
+    void everyBadFirstEntryIsTamperedAtZero() throws IOException, StorageException {
         CborValue one = new CborValue.UInt(1);
         CborValue zero = new CborValue.Bytes(ZERO);
         CborValue unlock = new CborValue.Text("unlock");
@@ -82,7 +83,7 @@ class AuditChainTest {
     }
 
     @Test
-    void anOverlongLineIsACutLog() throws IOException {
+    void anOverlongLineIsACutLog() throws IOException, StorageException {
         writeLog("A".repeat(8 * 1024 + 1));
         AuditException e = failure();
         assertEquals(AuditException.Code.TRUNCATED, e.code());
@@ -120,8 +121,9 @@ class AuditChainTest {
     }
 
     @Test
-    void anEmptyLogNeedsNoHead() throws IOException, AuditException {
-        Files.createFile(log(), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+    void anEmptyLogNeedsNoHead() throws IOException, AuditException, StorageException {
+        Files.createFile(log());
+        OwnerOnly.apply(log());
         assertEquals(0, AuditLog.check(log()));
     }
 }

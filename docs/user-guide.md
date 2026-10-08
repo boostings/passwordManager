@@ -53,7 +53,8 @@ v1 installers are **not signed or notarized**. macOS Gatekeeper warns about them
 manifest is the only integrity check.
 
 pm reads passphrases only from a real terminal. In a pipe, a CI job or an IDE run window, every
-command except `generate` prints `interactive terminal required` and exits with 2.
+command prints `interactive terminal required` and exits with 2, except `generate`, `help`,
+`--help` and `--version`.
 
 ## First run
 

@@ -16,6 +16,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
@@ -32,6 +33,8 @@ import java.util.concurrent.locks.LockSupport;
 import jdk.net.ExtendedSocketOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import pm.approval.ApprovalBroker;
 import pm.approval.ApprovalRequest;
@@ -39,6 +42,8 @@ import pm.approval.AuditEvent;
 import pm.approval.Decision;
 import pm.approval.PolicyStore;
 import pm.crypto.SecretBytes;
+import pm.storage.OwnerOnly;
+import pm.storage.StorageException;
 
 /** approval-model §5: socket, token file, framing, authentication, rotation. */
 class BrokerIpcTest {
@@ -181,11 +186,15 @@ class BrokerIpcTest {
     }
 
     @Test
-    void tokenFileIsOwnerOnlyAndRotatesWithLock() throws IOException, IpcException {
+    void tokenFileIsOwnerOnlyAndRotatesWithLock() throws IOException, IpcException, StorageException {
         RunDir dir = start();
         Path token = dir.path().resolve(RunDir.AUTH_FILE);
-        assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.path())));
-        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(token)));
+        assertTrue(OwnerOnly.isOwnerOnly(dir.path()), "0700 on POSIX, an owner-only ACL on Windows");
+        assertTrue(OwnerOnly.isOwnerOnly(token));
+        if (Files.getFileAttributeView(token, PosixFileAttributeView.class) != null) {
+            assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.path())));
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(token)));
+        }
         byte[] first = Files.readAllBytes(token);
 
         server.locked();
@@ -214,6 +223,7 @@ class BrokerIpcTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "sets POSIX modes")
     void unsafeRunDirectoriesAreRefused() throws IOException {
         Path real = Files.createDirectory(tmp.resolve("real"),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));

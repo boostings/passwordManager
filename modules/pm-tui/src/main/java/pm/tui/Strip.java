@@ -7,12 +7,15 @@ import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.gui2.AbstractComponent;
 import com.googlecode.lanterna.gui2.ComponentRenderer;
 import com.googlecode.lanterna.gui2.TextGUIGraphics;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /**
  * One full-width line of colored text runs, some flush left and some flush right: the dashboard
- * header and footer. Text must already be catalogue text or {@link DisplaySafe} output (SR-501).
+ * header and footer. The right runs always show in full (the idle-lock countdown, SR-504); when the
+ * line is too narrow, the left runs are cut off with an ellipsis before them. Text must already be
+ * catalogue text or {@link DisplaySafe} output (SR-501).
  * Setting the same spans again is free, so the animation tick can call {@link #set} every frame.
  */
 final class Strip extends AbstractComponent<Strip> {
@@ -37,6 +40,9 @@ final class Strip extends AbstractComponent<Strip> {
     }
 
     private static final int MARGIN = 1;
+    /** The least space between the left runs and the right runs. */
+    private static final int GAP = 2;
+    private static final String ELLIPSIS = "…";
 
     private final TextColor background;
     private List<Span> left = List.of();
@@ -79,10 +85,37 @@ final class Strip extends AbstractComponent<Strip> {
             public void drawComponent(TextGUIGraphics graphics, Strip strip) {
                 graphics.setBackgroundColor(strip.background);
                 graphics.fill(' ');
-                draw(graphics, MARGIN, strip.left);
-                draw(graphics, graphics.getSize().getColumns() - MARGIN - width(strip.right), strip.right);
+                int rightStart = graphics.getSize().getColumns() - MARGIN - width(strip.right);
+                int gap = strip.right.isEmpty() ? 0 : GAP;
+                draw(graphics, MARGIN, clip(strip.left, rightStart - gap - MARGIN));
+                draw(graphics, rightStart, strip.right);
             }
         };
+    }
+
+    /** {@code spans} cut to {@code columns}, ending in an ellipsis if anything was cut. */
+    static List<Span> clip(List<Span> spans, int columns) {
+        if (width(spans) <= columns) {
+            return spans;
+        }
+        List<Span> kept = new ArrayList<>();
+        int room = columns - TerminalTextUtils.getColumnWidth(ELLIPSIS);
+        for (Span span : spans) {
+            if (room <= 0) {
+                break;
+            }
+            String text = TerminalTextUtils.fitString(span.text(), room);
+            kept.add(new Span(text, span.color(), span.bold()));
+            room -= TerminalTextUtils.getColumnWidth(text);
+            if (!text.equals(span.text())) {
+                break;
+            }
+        }
+        if (columns > 0) {
+            Span last = kept.isEmpty() ? spans.get(0) : kept.get(kept.size() - 1);
+            kept.add(new Span(ELLIPSIS, last.color(), last.bold()));
+        }
+        return kept;
     }
 
     private void draw(TextGUIGraphics graphics, int startColumn, List<Span> spans) {

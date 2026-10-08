@@ -35,7 +35,8 @@ jobs:
         shell: bash
         run: gitleaks git --redact --no-banner --config tools/cert-rules/gitleaks.toml .
       - name: Build, tests, static analysis, CERT report
-        run: ./gradlew --no-daemon --console=plain check certReport
+        # --continue: one run reports every module's failures, not only the first module's.
+        run: ./gradlew --no-daemon --console=plain --continue check certReport
       - name: env run writes nothing to disk, under strace (plan.md §13 M2)
         if: runner.os == 'Linux'
         shell: bash

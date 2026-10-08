@@ -13,6 +13,9 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import pm.crypto.SecretBytes;
 
@@ -37,6 +40,7 @@ class SshKeyExportTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the file is made 0600; Windows refuses the export")
     void writesAnOwnerOnlyFileThatParsesBack() throws IOException, SshException {
         // Comments of every length mod 8, so the private section needs every amount of padding.
         for (int extra = 0; extra < 8; extra++) {
@@ -63,6 +67,7 @@ class SshKeyExportTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the file is made 0600; Windows refuses the export")
     void neverOverwritesOrFollowsALink() throws IOException, SshException {
         try (SshKey k = key(KeyFixtures.File.of(KeyFixtures.ed25519()))) {
             Path existing = Files.writeString(tmp.resolve("existing"), "keep");
@@ -79,6 +84,7 @@ class SshKeyExportTest {
     }
 
     @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "the file is made 0600; Windows refuses the export")
     void aFailedWriteLeavesNoPartialFile() throws SshException {
         Path out = tmp.resolve("id");
         try (SshKey k = key(KeyFixtures.File.of(KeyFixtures.ed25519()))) {
@@ -87,6 +93,17 @@ class SshKeyExportTest {
                 throw new IOException("disk full");
             }));
             assertEquals(SshException.Code.IO, e.code());
+        }
+        assertFalse(Files.exists(out, LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void windowsRefusesTheExportBecauseTheFileCannotBeMade0600() throws SshException {
+        Path out = tmp.resolve("id");
+        try (SshKey k = key(KeyFixtures.File.of(KeyFixtures.ed25519()))) {
+            assertEquals(SshException.Code.UNSAFE_TARGET,
+                    assertThrows(SshException.class, () -> SshKeyExport.write(k, out)).code());
         }
         assertFalse(Files.exists(out, LinkOption.NOFOLLOW_LINKS));
     }

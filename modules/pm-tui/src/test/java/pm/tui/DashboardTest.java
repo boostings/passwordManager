@@ -59,10 +59,24 @@ class DashboardTest {
     }
 
     @Test
+    void oneEnterInTheBoxUnlocksAndSoDoesTheUnlockButton() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.type(CANARY);
+            h.press(KeyType.Enter); // the hint says ⏎ unlock: no second Enter on the button
+            assertTrue(h.controller.isUnlocked());
+        }
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.type(CANARY);
+            h.press(KeyType.Tab, KeyType.Enter); // box -> Unlock
+            assertTrue(h.controller.isUnlocked());
+        }
+    }
+
+    @Test
     void recoveryKeyButtonUnlocksThroughRecoverySlot() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.type(RECOVERY);
-            h.press(KeyType.Enter, KeyType.Tab, KeyType.Enter); // box -> Unlock -> Use recovery key
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Enter); // box -> Unlock -> Use recovery key
             assertTrue(h.controller.isUnlocked());
             assertTrue(h.screenText().contains("GitHub"));
         }
@@ -132,7 +146,7 @@ class DashboardTest {
     @Test
     void emptyPassphraseIsRejectedWithoutCallingTheVault() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
-            h.press(KeyType.Enter, KeyType.Enter);
+            h.press(KeyType.Enter);
             assertTrue(h.screenText().contains(Messages.EMPTY_CREDENTIAL));
             assertEquals(0, h.port.attemptCount());
         }
@@ -350,7 +364,7 @@ class DashboardTest {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.type(CANARY);
             assertTrue(h.screenText().contains("*".repeat(CANARY.length())));
-            h.press(KeyType.Enter, KeyType.Enter);
+            h.press(KeyType.Enter);
             openAddLogin(h);
             fillAddLogin(h, "Canary", "user", CANARY);
             h.press(KeyType.Tab, KeyType.Enter);
@@ -465,7 +479,6 @@ class DashboardTest {
         try (DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(100, 30))) {
             CANARY.chars().forEach(c -> terminal.addInput(new KeyStroke((char) c, false, false)));
             terminal.addInput(new KeyStroke(KeyType.Enter));
-            terminal.addInput(new KeyStroke(KeyType.Enter));
             terminal.addInput(new KeyStroke('x', false, false)); // search throws on the GUI thread
 
             TuiApp app = new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK);
@@ -481,7 +494,6 @@ class DashboardTest {
         FakeVaultPort port = newPort();
         try (DefaultVirtualTerminal terminal = new DefaultVirtualTerminal(new TerminalSize(100, 30))) {
             CANARY.chars().forEach(c -> terminal.addInput(new KeyStroke((char) c, false, false)));
-            terminal.addInput(new KeyStroke(KeyType.Enter));
             terminal.addInput(new KeyStroke(KeyType.Enter));
             terminal.addInput(new KeyStroke(KeyType.EOF));
 

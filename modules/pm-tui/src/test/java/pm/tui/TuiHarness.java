@@ -132,7 +132,7 @@ final class TuiHarness implements AutoCloseable {
     /** Unlocks with {@code credential} through the passphrase button (Enter moves to it). */
     void unlockWith(String credential) {
         type(credential);
-        press(KeyType.Enter, KeyType.Enter);
+        press(KeyType.Enter);
     }
 
     /** The visible screen, one line per row. */

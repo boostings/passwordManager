@@ -98,6 +98,29 @@ class HelpTest {
         }
     }
 
+    /** A row of an option table: {@code --name [<arg>]}, two or more spaces, then its description. */
+    private static boolean isOptionRow(String line) {
+        String text = line.stripLeading();
+        return text.startsWith("--") && text.contains("  ") && !text.endsWith(" ");
+    }
+
+    @Test
+    void everyOptionTableIsIndentedAndUnbroken() {
+        for (Command c : Command.values()) {
+            List<String> lines = Command.lines(c.help());
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (isOptionRow(line)) {
+                    assertTrue(line.startsWith("  --"), () -> c + ": " + line);
+                    if (i >= 2 && lines.get(i - 1).isEmpty()) {
+                        String before = lines.get(i - 2);
+                        assertFalse(isOptionRow(before), () -> c + ": blank line inside its options: " + line);
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     void everyHelpSpellingExitsZeroWithoutAVault() {
         for (String[] args : List.of(new String[] {"--help"}, new String[] {"-h"}, new String[] {"help"})) {

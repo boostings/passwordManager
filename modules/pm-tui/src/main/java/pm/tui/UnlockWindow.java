@@ -10,8 +10,12 @@ import com.googlecode.lanterna.gui2.LinearLayout;
 import com.googlecode.lanterna.gui2.Panel;
 import com.googlecode.lanterna.gui2.TextBox;
 import com.googlecode.lanterna.gui2.Window;
+import com.googlecode.lanterna.gui2.WindowListenerAdapter;
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import pm.crypto.SecretChars;
 import pm.vault.VaultException;
 
@@ -70,6 +74,7 @@ final class UnlockWindow implements InputForm {
         basicWindow.setHints(List.of(Window.Hint.CENTERED));
         basicWindow.setComponent(content);
         basicWindow.setFocusedInteractable(credentialBox);
+        basicWindow.addWindowListener(new EnterUnlocks());
     }
 
     static Label dim(PmTheme theme, String text) {
@@ -113,6 +118,17 @@ final class UnlockWindow implements InputForm {
             controller.unlock(credential, recoveryKey);
         } catch (VaultException e) {
             showError(Messages.of(e.code()));
+        }
+    }
+
+    /** Enter in the box unlocks, as the hint says; a one-line box would only move the focus on. */
+    private final class EnterUnlocks extends WindowListenerAdapter {
+        @Override
+        public void onInput(Window basePane, KeyStroke key, AtomicBoolean deliverEvent) {
+            if (key.getKeyType() == KeyType.Enter && credentialBox.isFocused()) {
+                deliverEvent.set(false);
+                submit(false);
+            }
         }
     }
 

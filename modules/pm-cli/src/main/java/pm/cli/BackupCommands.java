@@ -85,6 +85,10 @@ final class BackupCommands {
         if (missing(backup, io)) {
             return ExitCodes.STORAGE;
         }
+        // Refuse before asking for a passphrase; restore still refuses an existing vault itself.
+        if (!args.has(OVERWRITE) && Files.exists(vaultPath, LinkOption.NOFOLLOW_LINKS)) {
+            throw new UsageException(Messages.RESTORE_EXISTS);
+        }
         VaultBackups.Restored restored;
         try (SecretChars passphrase =
                 Cli.readSecret(io, Messages.PROMPT_BACKUP_PASSPHRASE, Messages.EMPTY_PASSPHRASE)) {

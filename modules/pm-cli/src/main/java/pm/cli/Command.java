@@ -210,6 +210,7 @@ enum Command {
             usage: pm env list [--project <title>] [--profile <name>]
 
             Lists the variable names of a profile. Values are never printed.
+
             """ + Command.ENV_OPTIONS),
     ENV_IMPORT(Area.ENV, "env", "import", Command.OWN_ARGS, "env import <file>", "import a .env file into a profile",
             """
@@ -217,6 +218,7 @@ enum Command {
 
             Imports a .env file into a profile. Delete the plaintext file once the
             import is checked.
+
             """ + Command.ENV_OPTIONS),
     ENV_EXPORT(Area.ENV, "env", "export", Command.OWN_ARGS, "env export <file>", "write a profile to a plaintext .env file",
             """
@@ -225,6 +227,7 @@ enum Command {
 
             Writes a profile to a new owner-only .env file; never overwrites one.
             --plaintext confirms that the values are written unencrypted.
+
             """ + Command.ENV_OPTIONS),
     ENV_RUN(Area.ENV, "env", "run", Command.OWN_ARGS, "env run -- <command>", "run a command with a profile's variables",
             """
@@ -342,10 +345,10 @@ enum Command {
     static final int MAX_COLUMNS = 80;
     /** Marks a command that parses the words after it itself (all but the M1 commands). */
     static final int OWN_ARGS = -1;
-    private static final String ENV_OPTIONS = """
-
-              --project <title>   the project (default: the one for this directory)
-              --profile <name>    the profile (default: default)""";
+    // Built from INDENT: a text block closed on its last line would lose its indent.
+    private static final String ENV_OPTIONS = Command.INDENT
+            + "--project <title>   the project (default: the one for this directory)" + Command.NEWLINE
+            + Command.INDENT + "--profile <name>    the profile (default: default)";
     private static final int SYNOPSIS_WIDTH = 28;
     private static final String INDENT = "  ";
     private static final String NEWLINE = "\n";

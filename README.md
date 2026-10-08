@@ -196,10 +196,11 @@ common terminals support. Ctrl+X quits rather than Ctrl+Q, because many terminal
 use Ctrl+Q and Ctrl+S for flow control.
 
 **A real terminal is required.** Passphrases are read only through `System.console()`. When stdin
-or stdout is not a terminal (a pipe, CI, an IDE run window), every command except `generate`,
-including `--help`, prints `interactive terminal required` and exits with 2. `generate` reads
-nothing, so it also runs without a terminal. To test from a script, run the command
-under a pseudo-terminal, for example `script -q /dev/null scripts/pm --help` or `expect`.
+or stdout is not a terminal (a pipe, CI, an IDE run window), every command prints
+`interactive terminal required` and exits with 2, except `generate`, `help`, `--help` and
+`--version`, which read nothing and also run without a terminal. To test the other commands from a
+script, run them under a pseudo-terminal, for example `script -q /dev/null scripts/pm list` or
+`expect`.
 
 ### Default vault path
 

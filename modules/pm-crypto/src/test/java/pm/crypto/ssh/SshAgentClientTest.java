@@ -26,6 +26,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -36,6 +38,7 @@ import pm.crypto.SecretBytes;
  * temporary directory (ADR 0013, SR-060 to SR-062): add, list and remove round trips, the exact
  * add-identity encoding, constraints, refused and malformed replies, and the socket path checks.
  */
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "ssh-agent is not in v1 on Windows (named pipes, ADR 0013)")
 class SshAgentClientTest {
     @TempDir
     Path tmp;
