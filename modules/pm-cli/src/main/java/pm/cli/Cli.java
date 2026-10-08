@@ -17,6 +17,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -573,7 +574,7 @@ final class Cli {
         return ExitCodes.OK;
     }
 
-    /** Production TUI: a text terminal on stdin/stdout (FIO11-J: explicit UTF-8). */
+    /** Production TUI: desktop terminal on Windows, stdin/stdout elsewhere (explicit UTF-8). */
     private static void launchLanterna(VaultPort port, Path vaultPath) throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory(System.out, System.in, StandardCharsets.UTF_8)
                 .setForceTextTerminal(true);
@@ -582,11 +583,21 @@ final class Cli {
         try (ApprovalHost host = ApprovalHost.socketFor(vaultPath, Env.system(), Clock.systemUTC(),
                         Objects.requireNonNull(System.getProperty("user.name"), "user.name"),
                         isDefaultVault(vaultPath, System::getProperty));
-                Terminal terminal = factory.createTerminal()) {
+                Terminal terminal = createTuiTerminal(factory, System.getProperty("os.name", ""))) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
             new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath),
                     CliClipboard.forSystem(System::getProperty), CliClipboard.clearAfter(Env.system())).run(terminal);
         }
+    }
+
+    /**
+     * Lanterna 3.1.3 ships no native WindowsTerminal; forcing text mode falls back to Cygwin's
+     * stty, which cannot configure a normal Windows console. The desktop emulator receives
+     * Ctrl keys directly, without the console's line editing or terminal shortcut interception.
+     */
+    static Terminal createTuiTerminal(DefaultTerminalFactory factory, String osName) throws IOException {
+        return osName.toLowerCase(Locale.ROOT).startsWith("windows")
+                ? factory.createTerminalEmulator() : factory.createTerminal();
     }
 
     /**

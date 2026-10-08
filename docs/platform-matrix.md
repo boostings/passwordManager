@@ -19,7 +19,7 @@ confirmed by a Windows run. Read every **B** in the Windows column as "builds; n
 | --- | --- | --- | --- |
 | Release archive with its own runtime (`.tar.gz`, `.zip`) | S | B — `bin/pm.bat` | B |
 | Native installer (`jpackage`) | C — `.dmg` and `.pkg` built and smoke-tested; **not signed or notarized** (R-008) | Not in v1 — `.msi` needs WiX 3 on a Windows host; never built | Not in v1 — `.deb`/`.rpm` need a Linux host; never built |
-| TUI (Lanterna) | S — Terminal.app, iTerm | B — Windows Terminal; legacy conhost **C**: limited colors | B |
+| TUI (Lanterna) | S — Terminal.app, iTerm | B — desktop terminal window (Swing); graphical desktop required | B |
 | Owner-only vault permissions | S — POSIX 0600/0700 | B — NTFS ACL via `AclFileAttributeView` | B — POSIX |
 | Atomic rename write | S | C — `ATOMIC_MOVE` on NTFS; network drives untested | B |
 | Local IPC (approval broker, browser relay) | S — Unix socket | C — AF_UNIX socket (Windows 10 1803+); the peer's user is not reported, so the folder ACL is the only check | B — Unix socket |
