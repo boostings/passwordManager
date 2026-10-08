@@ -37,6 +37,17 @@ final class CommandArgs {
      * @throws UsageException for an unknown or repeated option, a missing value, or unsafe text
      */
     static CommandArgs parse(List<String> raw, Set<String> flags, Set<String> valued) throws UsageException {
+        return parse(raw, flags, valued, Set.of());
+    }
+
+    /**
+     * As {@link #parse(List, Set, Set)}, except that the options in {@code clearable} may also be
+     * given the empty value ({@code --notes ""}), which {@code pm edit} reads as "clear this field".
+     *
+     * @throws UsageException for an unknown or repeated option, a missing value, or unsafe text
+     */
+    static CommandArgs parse(List<String> raw, Set<String> flags, Set<String> valued, Set<String> clearable)
+            throws UsageException {
         Deque<String> in = new ArrayDeque<>(raw);
         List<String> operands = new ArrayList<>();
         Set<String> seenFlags = new HashSet<>();
@@ -67,8 +78,10 @@ final class CommandArgs {
         for (String text : operands) {
             checkText(text);
         }
-        for (String text : values.values()) {
-            checkText(text);
+        for (Map.Entry<String, String> option : values.entrySet()) {
+            if (!option.getValue().isEmpty() || !clearable.contains(option.getKey())) {
+                checkText(option.getValue());
+            }
         }
         return new CommandArgs(operands, seenFlags, values);
     }

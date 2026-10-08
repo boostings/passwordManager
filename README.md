@@ -98,7 +98,7 @@ pm-crypto, pm-storage, lanterna-3.1.3, bcprov-jdk18on-1.86) into `modules/pm-cli
 `scripts/pm` runs that task and then launches the CLI on the module path:
 
 ```sh
-scripts/pm [--vault <path>] [--] [init | add-login | list | search <query> | tui]
+scripts/pm [--vault <path>] [--] [<command> [<arguments>]]   # scripts/pm --help lists every command
 ```
 
 `scripts/pm` uses the following environment variables:
@@ -124,6 +124,11 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | `add-login` | Unlocks the vault and prompts for title, username, password, URLs and tags |
 | `list` | Prints `id  type  title  updated` for each record. Secret fields are never printed. |
 | `search <query>` | Same output as `list`, filtered by the query |
+| `show <item> [--reveal]` | Prints one item's fields with every secret masked. `--reveal` is the one way the CLI prints a secret, and only a login's password or a Wi-Fi PSK; SSH private keys are never printed and project values leave only through `env`. `<item>` is a title or an id from `list`; a title several items share is refused with their ids |
+| `edit <item> [--title T] [--username U] [--urls U] [--tags T] [--notes N] [--password \| --generate]` | Changes a login; `--password` prompts twice (never a value on the command line), `--generate` takes the `generate` options; `""` clears username, URLs, tags or notes |
+| `edit <item> [--title T] [--ssid S] [--security WPA2\|WPA3\|WEP\|OPEN] [--hidden \| --not-hidden] [--notes N] [--password \| --generate]` | Changes a Wi-Fi network the same way |
+| `rm <item> [--yes]` | Removes any item after you type `y` (or at once with `--yes`); for an SSH key it reminds you that `ssh-agent` keeps a loaded copy |
+| `wifi add <ssid> [--title T] [--security S] [--hidden] [--notes N]` | Adds a Wi-Fi network; the PSK is prompted twice (none for `OPEN`); security defaults to `WPA2` |
 | `tui` | Opens the full-screen Lanterna UI (unlock window, dashboard, search, add login, idle lock) |
 | `generate [--length N] [--classes lower,upper,digits,symbols] [--exclude-ambiguous]` | Prints one random password on stdout and its entropy on stderr. Needs no vault and no terminal, so `pm generate \| pbcopy` works |
 | `generate --passphrase [--words N] [--separator C]` | Same, as a word passphrase |
@@ -134,7 +139,29 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | `ssh add <item> [--lifetime 1h] [--confirm]` | Sends a stored key to `ssh-agent` (audited first) |
 | `ssh remove <item>` or `ssh remove --all` | Removes a key, or every key, from `ssh-agent` |
 | `ssh export <item> <file>` | Writes the key to a new owner-only (0600) file; never overwrites (audited first) |
-| `--help`, `-h`, `help` | Prints the usage line |
+| `project add <title> [--dir <path>]` | Registers a directory (default: the current one) as a project, so `env` commands run there find it |
+| `project list` | Lists the projects: title, directory and profiles |
+| `env list [--project T] [--profile P]` | Lists the variable names of a profile; values are never printed |
+| `env import <file> [--project T] [--profile P]` | Imports a `.env` file into a profile; delete the plaintext file once the import is checked |
+| `env export <file> --plaintext [--project T] [--profile P]` | Writes a profile to a new owner-only `.env` file, never overwriting one; `--plaintext` confirms the values are written unencrypted |
+| `env run [--only A,B] [--project T] [--profile P] -- <command> [args...]` | Runs a command with the profile's variables once approved: in the open pm window if one runs, otherwise here by typing `y`. Nothing is written to disk |
+| `devices` | Shows this device's name and fingerprint and lists the paired devices |
+| `devices remove <name\|fingerprint>` | Unpairs a device and lists the items that were offered to it, so you can change those secrets |
+| `pair --listen [--bind <ip>] [--name <name>]` or `pair <ip:port> [--name <name>]` | Pairs with another device on the local network: one side listens, the other connects, then both compare a code |
+| `share <title> --to <device> [--ttl 10m] [--bind <ip>]` | Offers one item, after you type `y`, to a paired device; the window closes after one delivery or when its time (1s to 24h) is up |
+| `share <title> --browser [--ttl 10m] [--bind <ip>]` | The same, to a browser through a one-time link |
+| `receive <ip:port>` | Accepts the item a paired device is sharing, after you type `y` |
+| `revoke <share-id>` | Closes a share window this machine has open; nothing more is sent |
+| `browser install [--browser chrome\|chromium\|edge\|brave\|all] [--extension-id <id>]` | Registers pm as the native messaging host of the pm extension for this user and allows that extension (default vault only; on Windows it prints the manual steps). Every request still needs your yes in the open pm window |
+| `browser uninstall [--browser B] [--extension-id <id>]` | Removes pm's manifest from the named browsers, or only that extension from them |
+| `browser status [--browser B]` | Shows each browser's manifest, the extensions it allows, and pm's allowlist |
+| `passphrase [--recovery]` | Changes the master passphrase: asks for the current one (or, with `--recovery`, the recovery key), then the new one twice. The recovery key and every item stay as they are; earlier `.bak` files and backups still open with the old passphrase |
+| `recover` | For a lost passphrase: asks for the recovery key, then a new passphrase twice (the same as `passphrase --recovery`); the recovery key stays valid |
+| `backup create <folder> [--keep N]` | Writes an encrypted backup of the vault as last saved into the folder (created owner-only), then keeps the newest `N` (default 10) |
+| `backup verify <file>` | Checks a backup is intact, authentic and fully readable with the passphrase it was made with; writes nothing |
+| `restore <file> [--overwrite]` | Verifies the backup, then installs it at the vault path; an existing vault is replaced only with `--overwrite` and kept as `<vault>.bak.1`. The restored vault opens with the passphrase and recovery key it had when the backup was made |
+| `help`, `help <command> [<sub>]`, `--help`, `-h`, `<command> [<sub>] --help` | Prints the usage, grouped by area, or one command's help; exits 0 |
+| `--version` | Prints `pm <version>` |
 
 ### Keys in the app
 
@@ -182,15 +209,16 @@ Defined in `modules/pm-cli/src/main/java/pm/cli/ExitCodes.java`:
 | --- | --- |
 | 0 | OK |
 | 1 | Wrong passphrase or recovery key |
-| 2 | Usage error, no interactive terminal, or `init` on a path that already holds a vault |
-| 3 | Vault file corrupt, tampered with, or an unsupported format version |
-| 4 | Storage error, or the vault is locked by another process |
+| 2 | Usage error, no interactive terminal, `init` on a path that already holds a vault, or `restore` onto a vault without `--overwrite` |
+| 3 | Vault file corrupt, tampered with, or an unsupported format version; for `backup verify` and `restore`, the backup file |
+| 4 | Storage error, no vault at the path, or the vault is locked by another process |
 | 5 | Internal error (a bug; only "internal error" is printed, never a stack trace) |
 | 6 | `init` created the vault but could not show the recovery key: delete the new vault file and run `init` again |
 | 7 | Not enough Java heap for the vault's Argon2id memory: restart with a larger `-Xmx` (the vault is intact) |
-| 8 | `env run`: the approval was denied, timed out, or the vault was locked; nothing ran |
+| 8 | `env run`: the approval was denied, timed out, or the vault was locked; nothing ran. `rm`: not confirmed; nothing was removed |
 | 9 | A service outside pm failed: no `ssh-agent` (`SSH_AUTH_SOCK` unset or nothing listening), an unsafe agent socket, the agent refused, sent a bad reply or did not answer within 10 seconds; or the `health --breach` service failed |
 | 10 | A LAN step did not complete: `pair` was not confirmed, failed or is locked out after repeated failures, a `share` window expired or was revoked (also when the target device was removed), or `receive` found no paired peer, was refused or got an item that did not match the offer. Nothing was pinned or applied |
+| 11 | The change was made (or the item sent) but its audit log entry could not be written: `passphrase`, `recover`, `pair`, a delivered `share`, `receive`, `revoke`. Do not retry the change |
 
 ## Current state
 

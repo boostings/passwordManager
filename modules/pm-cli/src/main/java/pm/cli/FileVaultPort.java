@@ -1,5 +1,7 @@
 package pm.cli;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -48,7 +50,7 @@ final class FileVaultPort implements VaultPort {
 
     @Override
     public Session unlockWithPassphrase(SecretChars passphrase) throws VaultException {
-        VaultFileStore store = openStore();
+        VaultFileStore store = openExisting(vaultFile);
         try {
             return new StoreSession(adapter(store).unlockWithPassphrase(passphrase), store);
         } catch (VaultException | RuntimeException e) {
@@ -59,7 +61,7 @@ final class FileVaultPort implements VaultPort {
 
     @Override
     public Session unlockWithRecoveryKey(SecretChars recoveryKey) throws VaultException {
-        VaultFileStore store = openStore();
+        VaultFileStore store = openExisting(vaultFile);
         try {
             return new StoreSession(adapter(store).unlockWithRecoveryKey(recoveryKey), store);
         } catch (VaultException | RuntimeException e) {
@@ -73,6 +75,24 @@ final class FileVaultPort implements VaultPort {
     }
 
     private VaultFileStore openStore() throws VaultException {
+        try {
+            return VaultFileStore.open(vaultFile);
+        } catch (StorageException e) {
+            throw new VaultException(vaultCode(e.code()), e);
+        }
+    }
+
+    /**
+     * Opens the store of a vault that must already exist. {@link VaultFileStore#open} creates the
+     * parent directory and the {@code <vault>.lock} sibling, so a command that only reads or
+     * changes a vault checks first and leaves nothing behind at a path with no vault. A link is
+     * not followed here: the store refuses it with its own code.
+     */
+    static VaultFileStore openExisting(Path vaultFile) throws VaultException {
+        if (Files.notExists(vaultFile, LinkOption.NOFOLLOW_LINKS)) {
+            throw new VaultException(VaultException.Code.STORAGE,
+                    new StorageException(StorageException.Code.NOT_FOUND, null));
+        }
         try {
             return VaultFileStore.open(vaultFile);
         } catch (StorageException e) {

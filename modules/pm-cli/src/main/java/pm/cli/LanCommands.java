@@ -78,6 +78,8 @@ final class LanCommands {
     private static final String REMOVE_SUBCOMMAND = "remove";
     private static final int ONE = 1;
     private static final int REMOVE_OPERANDS = 2;
+    private static final long SECONDS_PER_MINUTE = 60;
+    private static final long SECONDS_PER_HOUR = 3600;
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
@@ -199,16 +201,20 @@ final class LanCommands {
             }
             return ExitCodes.OK;
         }
-        if (!REMOVE_SUBCOMMAND.equals(args.operands().get(0)) || args.operands().size() != REMOVE_OPERANDS) {
+        if (!REMOVE_SUBCOMMAND.equals(args.operands().get(0))) {
             throw new UsageException(Messages.UNKNOWN_COMMAND);
         }
-        LanState state = lanState(vaultPath);
+        if (args.operands().size() != REMOVE_OPERANDS) {
+            throw new UsageException(Messages.WRONG_ARG_COUNT);
+        }
         try (Session session = Cli.unlock(port, io)) {
+            // Only once the vault has opened: a missing vault leaves no LAN state behind it.
+            LanState state = lanState(vaultPath);
             TrustedDeviceRecord device = lan(() -> Devices.find(session, args.operands().get(1)));
             String name = device.title();
             List<String> rotate = Devices.sharedWith(session, device).stream()
                     .map(r -> SharePayload.typeName(r) + ": " + Cli.displaySafe(r.title())).toList();
-            audit(vaultPath, "revoke", name, "REMOVED", "pm devices");
+            audit(vaultPath, "revoke", name, "REMOVED", "pm devices", Messages.REMOVE_AUDIT_UNAVAILABLE);
             // Marked removed for every pm process first: a share window open to it elsewhere checks
             // this before releasing anything (SR-205). Only then is it taken off the trust list.
             byte[] key = device.rawPublicKey();
@@ -246,8 +252,9 @@ final class LanCommands {
             peer = Optional.of(lan(() -> LanAddress.parse(address)));
         }
         InetAddress bind = bindAddress(args);
-        LanState state = lanState(vaultPath);
         try (Session session = Cli.unlock(port, io)) {
+            // Only once the vault has opened: a missing vault leaves no LAN state behind it.
+            LanState state = lanState(vaultPath);
             Optional<PairedDevice> paired;
             try (Local self = args.name().isPresent() ? renamed(session, args.name().get()) : local(session)) {
                 io.out().println(Messages.THIS_DEVICE.text() + Cli.displaySafe(self.name()) + GAP + self.fingerprint());
@@ -266,10 +273,12 @@ final class LanCommands {
             }
             TrustedDeviceRecord pinned = Devices.pin(session, paired.get(), clock.instant());
             state.pinned(pinned.rawPublicKey());
-            audit(vaultPath, "pair", pinned.title(), "PAIRED", "pm pair");
+            // Pinned and saved already: a failed audit must not claim that nothing happened.
+            boolean audited = auditDone(vaultPath, "pair", pinned.title(), "PAIRED", "pm pair",
+                    Messages.PAIRED_AUDIT_FAILED, io);
             io.out().println(Messages.PAIRED.text() + Cli.displaySafe(pinned.title()) + GAP + pinned.fingerprint());
+            return audited ? ExitCodes.OK : ExitCodes.NOT_AUDITED;
         }
-        return ExitCodes.OK;
     }
 
     private Optional<PairedDevice> initiate(Local self, InetSocketAddress peer, Lockout lockout, SasPrompt prompt,
@@ -350,17 +359,19 @@ final class LanCommands {
         }
         Duration ttl = args.ttl().isPresent() ? lan(() -> LanAddress.ttl(args.ttl().get())) : Shares.DEFAULT_TTL;
         InetAddress bind = bindAddress(args);
-        Path runDir = runDir(vaultPath);
-        return args.browser() ? shareToBrowser(title, ttl, bind, runDir, port, io, vaultPath)
-                : shareToDevice(title, args.to().get(), ttl, bind, runDir, port, io, vaultPath);
+        return args.browser() ? shareToBrowser(title, ttl, bind, port, io, vaultPath)
+                : shareToDevice(title, args.to().get(), ttl, bind, port, io, vaultPath);
     }
 
     @SuppressWarnings({"PMD.CloseResource", "checkstyle:ParameterNumber"}) // CE-035: records are the session's; the window closes its Local; PrintWriter is the ConsoleIo's
-    private int shareToDevice(String title, String to, Duration ttl, InetAddress bind, Path runDir, VaultPort port,
+    private int shareToDevice(String title, String to, Duration ttl, InetAddress bind, VaultPort port,
             ConsoleIo io, Path vaultPath) throws UsageException, VaultException {
         SendWindow opened;
         String itemTitle;
+        Path runDir;
         try (Session session = Cli.unlock(port, io)) {
+            // Only once the vault has opened: a missing vault leaves no run directory behind it.
+            runDir = runDir(vaultPath);
             VaultRecord item = lan(() -> item(session, title));
             itemTitle = item.title();
             TrustedDeviceRecord device = lan(() -> Devices.find(session, to));
@@ -368,7 +379,7 @@ final class LanCommands {
                 PrintWriter out = io.out();
                 out.println(Messages.SHARE_SUMMARY.text() + Cli.displaySafe(prepared.summary())
                         + Messages.SHARE_WITH.text() + Cli.displaySafe(device.title()) + GAP + device.fingerprint()
-                        + Messages.SHARE_FOR.text() + ttl);
+                        + Messages.SHARE_FOR.text() + ttlText(ttl));
                 out.flush();
                 if (!confirmed(io, Messages.SHARE_CONFIRM)) {
                     io.err().println(Messages.SHARE_DENIED.text());
@@ -402,11 +413,13 @@ final class LanCommands {
     }
 
     @SuppressWarnings("PMD.CloseResource") // CE-035: the item record is the session's; the PrintWriter is the ConsoleIo's
-    private int shareToBrowser(String title, Duration ttl, InetAddress bind, Path runDir, VaultPort port,
+    private int shareToBrowser(String title, Duration ttl, InetAddress bind, VaultPort port,
             ConsoleIo io, Path vaultPath) throws UsageException, VaultException {
         BrowserWindow window;
         String itemTitle;
+        Path runDir;
         try (Session session = Cli.unlock(port, io)) {
+            runDir = runDir(vaultPath);
             VaultRecord item = lan(() -> item(session, title));
             itemTitle = item.title();
             if (SharePayload.kindOf(item) == Message.Kind.PROJECT) {
@@ -416,7 +429,7 @@ final class LanCommands {
             out.println(Messages.BROWSER_HEADER.text());
             BrowserWindow.WARNINGS.forEach(w -> out.println("  - " + w));
             out.println(Messages.SHARE_SUMMARY.text() + Cli.displaySafe(SharePayload.summary(item))
-                    + Messages.SHARE_FOR.text() + ttl);
+                    + Messages.SHARE_FOR.text() + ttlText(ttl));
             out.flush();
             if (!confirmed(io, Messages.SHARE_CONFIRM)) {
                 io.err().println(Messages.SHARE_DENIED.text());
@@ -443,15 +456,20 @@ final class LanCommands {
         }
     }
 
-    private int finish(SendWindow.Outcome outcome, String itemTitle, Path vaultPath, ConsoleIo io)
-            throws UsageException {
-        audit(vaultPath, "share", itemTitle, outcome.name(), "pm share");
+    private int finish(SendWindow.Outcome outcome, String itemTitle, Path vaultPath, ConsoleIo io) {
+        boolean delivered = outcome == SendWindow.Outcome.DELIVERED;
+        // The window has closed: what happened stands whether or not it can be audited.
+        boolean audited = auditDone(vaultPath, "share", itemTitle, outcome.name(), "pm share",
+                delivered ? Messages.DELIVERED_AUDIT_FAILED : Messages.SHARE_CLOSED_AUDIT_FAILED, io);
         switch (outcome) {
             case DELIVERED -> io.out().println(Messages.SHARE_DELIVERED.text());
             case REVOKED -> io.err().println(Messages.SHARE_REVOKED.text());
             default -> io.err().println(Messages.SHARE_EXPIRED.text());
         }
-        return outcome == SendWindow.Outcome.DELIVERED ? ExitCodes.OK : ExitCodes.NOT_DONE;
+        if (!delivered) {
+            return ExitCodes.NOT_DONE;
+        }
+        return audited ? ExitCodes.OK : ExitCodes.NOT_AUDITED;
     }
 
     /** A share window's wait, as the CLI needs it. */
@@ -565,9 +583,11 @@ final class LanCommands {
                         Devices.receivedShares(session, clock.instant()), prompt,
                         (offer, fingerprint, payload) -> SharePayload.apply(session, offer, fingerprint, payload,
                                 clock.instant()));
-                audit(vaultPath, "share", applied.summary(), "RECEIVED", "pm receive");
+                // Saved already: a failed audit must not claim that nothing happened.
+                boolean audited = auditDone(vaultPath, "share", applied.summary(), "RECEIVED", "pm receive",
+                        Messages.RECEIVED_AUDIT_FAILED, io);
                 io.out().println(Messages.RECEIVED.text() + Cli.displaySafe(applied.summary()));
-                return ExitCodes.OK;
+                return audited ? ExitCodes.OK : ExitCodes.NOT_AUDITED;
             } catch (ShareException e) {
                 io.err().println(Messages.RECEIVE_FAILED.text() + e.code().name());
                 return e.code() == ShareException.Code.DECLINED ? ExitCodes.DENIED : ExitCodes.NOT_DONE;
@@ -599,9 +619,11 @@ final class LanCommands {
         } catch (IOException e) {
             throw new UsageException(Messages.RUN_DIR_UNAVAILABLE);
         }
-        audit(vaultPath, "revoke", id, "REVOKED", "pm revoke");
+        // The marker is gone, so the window closes: a failed audit must not claim otherwise.
+        boolean audited = auditDone(vaultPath, "revoke", id, "REVOKED", "pm revoke", Messages.REVOKED_AUDIT_FAILED,
+                io);
         io.out().println(Messages.REVOKED.text());
-        return ExitCodes.OK;
+        return audited ? ExitCodes.OK : ExitCodes.NOT_AUDITED;
     }
 
     // ---- helpers -----------------------------------------------------------------------------
@@ -665,15 +687,62 @@ final class LanCommands {
         };
     }
 
-    /** Appends to the vault's audit log; an audit failure stops the operation (approval-model §7). */
+    /**
+     * Appends to the vault's audit log before an item is released; a failure stops the operation
+     * (approval-model §7), and nothing has been exported.
+     */
     private void audit(Path vaultPath, String kind, String subject, String decision, String program)
             throws UsageException {
+        audit(vaultPath, kind, subject, decision, program, Messages.AUDIT_UNAVAILABLE);
+    }
+
+    /** As {@link #audit(Path, String, String, String, String)}, reporting a failure as {@code ifFailed}. */
+    private void audit(Path vaultPath, String kind, String subject, String decision, String program,
+            Messages ifFailed) throws UsageException {
         try {
-            AuditLog.append(vaultDirOf(vaultPath).resolve(AuditLog.FILE_NAME), clock, new AuditEvent(kind,
-                    Optional.empty(), Optional.of("CLI"), Optional.ofNullable(properties.apply("user.name")),
-                    Optional.of(subject), Optional.empty(), -1, Optional.of(decision), Optional.of(program)));
+            append(vaultPath, kind, subject, decision, program);
         } catch (AuditException e) {
-            throw new UsageException(Messages.AUDIT_UNAVAILABLE);
+            throw new UsageException(ifFailed);
         }
+    }
+
+    /**
+     * Appends the entry for a change already made, which a failed audit write cannot undo: the
+     * failure is reported as {@code ifFailed}, which says what did happen, the command still
+     * prints its result, and it exits {@link ExitCodes#NOT_AUDITED}.
+     *
+     * @return whether the entry was written
+     */
+    private boolean auditDone(Path vaultPath, String kind, String subject, String decision, String program,
+            Messages ifFailed, ConsoleIo io) {
+        try {
+            append(vaultPath, kind, subject, decision, program);
+            return true;
+        } catch (AuditException e) {
+            io.err().println(ifFailed.text());
+            return false;
+        }
+    }
+
+    private void append(Path vaultPath, String kind, String subject, String decision, String program)
+            throws AuditException {
+        AuditLog.append(vaultDirOf(vaultPath).resolve(AuditLog.FILE_NAME), clock, new AuditEvent(kind,
+                Optional.empty(), Optional.of("CLI"), Optional.ofNullable(properties.apply("user.name")),
+                Optional.of(subject), Optional.empty(), -1, Optional.of(decision), Optional.of(program)));
+    }
+
+    /**
+     * A share window's time to live as {@code --ttl} spells it: whole hours, else whole minutes,
+     * else seconds ({@code 2m}, not the ISO {@code PT2M}).
+     */
+    static String ttlText(Duration ttl) {
+        long seconds = ttl.toSeconds();
+        if (seconds % SECONDS_PER_HOUR == 0 && seconds != 0) {
+            return seconds / SECONDS_PER_HOUR + "h";
+        }
+        if (seconds % SECONDS_PER_MINUTE == 0 && seconds != 0) {
+            return seconds / SECONDS_PER_MINUTE + "m";
+        }
+        return seconds + "s";
     }
 }

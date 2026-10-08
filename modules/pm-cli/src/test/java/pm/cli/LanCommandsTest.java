@@ -52,8 +52,18 @@ class LanCommandsTest {
     void usageNamesEveryLanCommand() {
         for (String shape : List.of("devices", "devices remove", "pair --listen", "share <title> --to <device>",
                 "share <title> --browser", "receive <ip:port>", "revoke <share-id>")) {
-            assertTrue(Messages.USAGE.text().contains(shape), shape);
+            assertTrue(Command.usage().contains(shape) || Command.helpFor(shape.split(" ", -1)[0]).contains(shape), shape);
         }
+    }
+
+    @Test
+    void theShareTimeToLiveIsShownAsTypedNotAsIso8601() {
+        assertEquals("2m", LanCommands.ttlText(java.time.Duration.ofMinutes(2)));
+        assertEquals("10m", LanCommands.ttlText(pm.sharing.share.Shares.DEFAULT_TTL));
+        assertEquals("90s", LanCommands.ttlText(java.time.Duration.ofSeconds(90)));
+        assertEquals("1h", LanCommands.ttlText(java.time.Duration.ofHours(1)));
+        assertEquals("24h", LanCommands.ttlText(java.time.Duration.ofHours(24)));
+        assertEquals("0s", LanCommands.ttlText(java.time.Duration.ZERO));
     }
 
     @Test
@@ -77,7 +87,7 @@ class LanCommandsTest {
     @SuppressWarnings("PMD.AvoidUsingHardCodedIP") // CE-036: --bind must refuse these literal addresses
     void refusalsAreUsageErrorsWithTheirOwnMessage() {
         usage(Messages.UNKNOWN_COMMAND, "devices", "extra");
-        usage(Messages.UNKNOWN_COMMAND, "devices", "remove");
+        usage(Messages.WRONG_ARG_COUNT, "devices", "remove");
         usage(Messages.NO_SUCH_DEVICE, "devices", "remove", "nobody");
         usage(Messages.UNKNOWN_OPTION, "pair", "--nope");
         usage(Messages.WRONG_ARG_COUNT, "pair");

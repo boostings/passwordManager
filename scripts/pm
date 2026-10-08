@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds (incrementally) and runs the pm CLI from its JPMS module path.
 #
-#   scripts/pm [--vault <path>] [init | add-login | list | search <query> | tui]
+#   scripts/pm [--vault <path>] [<command> [<arguments>]]   (scripts/pm --help lists them)
 #
 # With no command it opens the whole app (first run creates the vault). scripts/install-pm
 # links this script into ~/.local/bin as `pm`, so `pm` alone works from any directory.

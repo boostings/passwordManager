@@ -37,8 +37,10 @@ final class GenerateCommand {
     static final String SEPARATOR = "--separator";
 
     private static final int SEPARATOR_CHARS = 1;
-    private static final Set<String> FLAGS = Set.of(EXCLUDE_AMBIGUOUS, PASSPHRASE_FLAG);
-    private static final Set<String> VALUED = Set.of(LENGTH, CLASSES, WORDS, SEPARATOR);
+    /** The generator's flags; {@code pm edit --generate} takes them too. */
+    static final Set<String> FLAGS = Set.of(EXCLUDE_AMBIGUOUS, PASSPHRASE_FLAG);
+    /** The generator's options that take a value; {@code pm edit --generate} takes them too. */
+    static final Set<String> VALUED = Set.of(LENGTH, CLASSES, WORDS, SEPARATOR);
 
     private GenerateCommand() {
     }
@@ -46,13 +48,7 @@ final class GenerateCommand {
     /** Runs {@code pm generate} with the arguments after the command word. */
     static int run(List<String> sub, ConsoleIo io) throws UsageException {
         CommandArgs args = CommandArgs.parse(sub, FLAGS, VALUED).arity(0);
-        boolean passphrase = args.has(PASSPHRASE_FLAG);
-        boolean passwordOptions = args.given(LENGTH) || args.given(CLASSES) || args.given(EXCLUDE_AMBIGUOUS);
-        boolean passphraseOptions = args.given(WORDS) || args.given(SEPARATOR);
-        if (passphrase ? passwordOptions : passphraseOptions) {
-            throw new UsageException(Messages.GENERATE_MIXED_OPTIONS);
-        }
-        try (Generated generated = passphrase ? newPassphrase(args) : newPassword(args)) {
+        try (Generated generated = generate(args)) {
             printOnce(generated, io.out());
             io.err().println(Messages.GENERATED_ENTROPY.text() + String.format(Locale.ROOT, "%.1f", generated.entropyBits()));
         }
@@ -61,6 +57,22 @@ final class GenerateCommand {
             return ExitCodes.STORAGE;
         }
         return ExitCodes.OK;
+    }
+
+    /**
+     * A new password, or with {@code --passphrase} a passphrase, made by the policy the generator
+     * options in {@code args} describe. The caller closes it.
+     *
+     * @throws UsageException if password and passphrase options are mixed or the policy is invalid
+     */
+    static Generated generate(CommandArgs args) throws UsageException {
+        boolean passphrase = args.has(PASSPHRASE_FLAG);
+        boolean passwordOptions = args.given(LENGTH) || args.given(CLASSES) || args.given(EXCLUDE_AMBIGUOUS);
+        boolean passphraseOptions = args.given(WORDS) || args.given(SEPARATOR);
+        if (passphrase ? passwordOptions : passphraseOptions) {
+            throw new UsageException(Messages.GENERATE_MIXED_OPTIONS);
+        }
+        return passphrase ? newPassphrase(args) : newPassword(args);
     }
 
     /** The password policy from the options; the defaults are ADR 0012's (20 characters, all classes). */

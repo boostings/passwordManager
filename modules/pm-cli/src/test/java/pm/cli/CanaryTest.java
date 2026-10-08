@@ -75,6 +75,27 @@ class CanaryTest {
                 scenario("corrupt", () -> populated().failing(VaultException.Code.CORRUPT),
                         () -> new FakeConsoleIo().secret(CANARY), "list"),
                 scenario("passphrase as argument", CanaryTest::populated, FakeConsoleIo::new, "list", CANARY),
+                // M7.7. show --reveal is left out on purpose: it is the one command meant to print
+                // a stored secret (SR-132), and RecordCommandsTest checks it with a non-canary value.
+                scenario("show", CanaryTest::populated, () -> new FakeConsoleIo().secret(CANARY), "show", STORED_TITLE),
+                scenario("edit --password", CanaryTest::populated,
+                        () -> new FakeConsoleIo().secret(CANARY).secret(CANARY).secret(CANARY),
+                        "edit", STORED_TITLE, "--password"),
+                scenario("edit --password mismatch", CanaryTest::populated,
+                        () -> new FakeConsoleIo().secret(CANARY).secret(CANARY).secret(CANARY + "!"),
+                        "edit", STORED_TITLE, "--password"),
+                scenario("edit --generate", CanaryTest::populated, () -> new FakeConsoleIo().secret(CANARY),
+                        "edit", STORED_TITLE, "--generate", "--title", "Renamed"),
+                scenario("rm", CanaryTest::populated, () -> new FakeConsoleIo().secret(CANARY).line("y"),
+                        "rm", STORED_TITLE),
+                scenario("wifi add", CanaryTest::populated,
+                        () -> new FakeConsoleIo().secret(CANARY).secret(CANARY).secret(CANARY), "wifi", "add", "Home"),
+                scenario("wifi add mismatch", CanaryTest::populated,
+                        () -> new FakeConsoleIo().secret(CANARY).secret(CANARY).secret(CANARY + "!"),
+                        "wifi", "add", "Home"),
+                scenario("backup verify, no such file", CanaryTest::populated,
+                        () -> new FakeConsoleIo().secret(CANARY), "backup", "verify", "/nonexistent-pm/x.pmbackup"),
+                scenario("help", CanaryTest::populated, FakeConsoleIo::new, "help"),
                 scenario("tui", CanaryTest::populated, FakeConsoleIo::new, "tui"));
     }
 

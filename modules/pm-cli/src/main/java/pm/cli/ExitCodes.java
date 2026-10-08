@@ -7,7 +7,8 @@ import pm.vault.VaultException;
  * Process exit codes (plan.md §5 E, SR-501): 0 ok, 1 wrong credential, 2 usage, 3 corrupt or
  * unsupported, 4 storage, 5 internal error, 6 recovery key not shown, 7 not enough memory, 8 denied
  * ({@code env run}), 9 external service failed ({@code ssh-agent}, breach service), 10 a LAN
- * step (pair, share, receive) did not complete. Both
+ * step (pair, share, receive) did not complete, 11 a change was made but its audit log entry
+ * could not be written. Both
  * mappings switch exhaustively over {@link VaultException.Code}, so a new code is a compile error
  * rather than a silent default.
  *
@@ -49,6 +50,15 @@ final class ExitCodes {
      * refused. Nothing was pinned or applied.
      */
     static final int NOT_DONE = 10;
+
+    /**
+     * The change was made and saved (or the item sent), but its audit log entry could not be
+     * written (M7.7): {@code passphrase} and {@code recover}, {@code pair}, a delivered
+     * {@code share}, {@code receive} and {@code revoke}. It is not 2 (usage) or 4 (storage), whose
+     * failures change nothing, so a script that sees it must not retry the change. A failed audit
+     * write before a change still stops it, and nothing is changed.
+     */
+    static final int NOT_AUDITED = 11;
 
     private ExitCodes() {
     }

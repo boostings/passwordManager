@@ -269,7 +269,7 @@ class CliHardeningTest {
 
         assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort().withVault(CANARY), "--vault", value, "list"));
         assertEquals(Messages.MISSING_VAULT_PATH.text(), io.errText().strip());
-        assertFalse(io.outText().contains(Messages.USAGE.text()), "--help after --vault is not help");
+        assertFalse(io.outText().contains(Command.usage()), "--help after --vault is not help");
         assertTrue(opened.isEmpty());
     }
 

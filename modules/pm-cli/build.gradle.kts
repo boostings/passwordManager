@@ -7,6 +7,18 @@ dependencies {
     implementation(project(":modules:pm-browser"))
 }
 
+// M7.7: `pm --version` reads the version at run time, from the pm.cli module descriptor or, on
+// the class path, the jar manifest; both come from the one project version, never a literal.
+val pmVersion: String = project.version.toString()
+tasks.named<JavaCompile>("compileJava") {
+    options.javaModuleVersion.set(pmVersion)
+}
+tasks.named<Jar>("jar") {
+    manifest {
+        attributes("Implementation-Version" to pmVersion)
+    }
+}
+
 // No application plugin: this copies the pm-cli jar and every runtime module jar into one
 // directory, used as the JPMS module path by scripts/pm (java -p build/modules -m pm.cli/pm.cli.Main).
 tasks.register<Sync>("installModules") {

@@ -51,7 +51,7 @@ import pm.vault.record.WifiRecord;
  * {@code project} and {@code env} groups ({@link EnvCommands}), the M4 {@code generate},
  * {@code health} and {@code ssh} groups ({@link GenerateCommand}, {@link HealthCommand},
  * {@link SshCommands}), the M5.4 {@code browser} group and native host ({@link BrowserCommands},
- * {@link BrowserHost}), the bare {@code pm}
+ * {@link BrowserHost}), the M7.7 command table ({@link Command}), the bare {@code pm}
  * that opens the whole app (creating the vault first when there is none), and the mapping from
  * failures to {@link ExitCodes}. Every line printed comes from {@link Messages} or is non-secret
  * record metadata (SR-501); passphrases live only in {@link SecretChars} and are zeroed after use
@@ -65,15 +65,11 @@ final class Cli {
     private static final String VAULT_OPTION = "--vault";
     private static final String END_OF_OPTIONS = "--";
     private static final String OPTION_PREFIX = "-";
-    private static final String INIT_COMMAND = "init";
-    private static final String GENERATE_GROUP = "generate";
-    private static final String HEALTH_GROUP = "health";
-    private static final String SSH_GROUP = "ssh";
-    private static final String BROWSER_GROUP = "browser";
-    private static final java.util.Set<String> GROUPS =
-            java.util.Set.of("project", "env", GENERATE_GROUP, HEALTH_GROUP, SSH_GROUP, BROWSER_GROUP);
-    /** LAN sharing commands (M3.6); like the groups they parse their own options. */
-    private static final java.util.Set<String> LAN = java.util.Set.of("devices", "pair", "share", "receive", "revoke");
+    private static final String HELP_SHORT = "-h";
+    private static final String HELP_LONG = "--help";
+    private static final String VERSION_OPTION = "--version";
+    private static final int ONE_WORD = 1;
+    private static final int HELP_MAX_WORDS = 2;
 
     private final UnaryOperator<String> properties;
     private final Clock clock;
@@ -137,15 +133,15 @@ final class Cli {
         return this;
     }
 
-    /** Test hook: the platform {@code pm browser} installs for (temporary folders in tests). */
-    Cli withBrowserPlatform(BrowserPlatforms platforms) {
-        this.browserPlatform = Objects.requireNonNull(platforms, "platforms");
-        return this;
-    }
-
     /** Test hook: told where a {@code pair --listen} or {@code share} window listens. */
     Cli withLanListener(java.util.function.Consumer<String> listener) {
         this.lanListening = Objects.requireNonNull(listener, "listener");
+        return this;
+    }
+
+    /** Test hook: the platform {@code pm browser} installs for (temporary folders in tests). */
+    Cli withBrowserPlatform(BrowserPlatforms platforms) {
+        this.browserPlatform = Objects.requireNonNull(platforms, "platforms");
         return this;
     }
 
@@ -163,22 +159,18 @@ final class Cli {
 
     /**
      * {@link #run(String[])} with the console and standard streams given. Without a console only
-     * {@code generate} runs (it reads nothing, so {@code pm generate | pbcopy} works); every other
-     * command is refused, since a passphrase is never read from a pipe.
+     * the commands that read nothing run: {@code generate} (so {@code pm generate | pbcopy} works),
+     * {@code browser install/uninstall/status}, {@code help}, {@code --help} and {@code --version}. Every other command is refused, since a
+     * passphrase is never read from a pipe.
      */
     int run(String[] args, Optional<Console> console, PrintStream out, PrintStream err) {
         if (console.isPresent()) {
             return run(args, new SystemConsoleIo(console.get()),
                     (path, creating) -> new FileVaultPort(path, clock, kdfFor(creating, () -> Kdf.tune(KDF_TARGET))));
         }
-        if (args.length > 0 && (GENERATE_GROUP.equals(args[0]) || BROWSER_GROUP.equals(args[0]))) {
-            return run(args, new PipedIo(out, err, Charset.defaultCharset()), (path, creating) -> {
-                throw new IllegalStateException("generate and browser open no vault");
-            });
-        }
-        err.println(Messages.NO_TERMINAL.text());
-        err.flush();
-        return ExitCodes.USAGE;
+        return run(args, new PipedIo(out, err, Charset.defaultCharset()), (path, creating) -> {
+            throw new IllegalStateException("a run without a terminal opens no vault");
+        }, false);
     }
 
     /**
@@ -209,11 +201,15 @@ final class Cli {
      *     touch the vault
      */
     int run(String[] args, ConsoleIo io, VaultOpener opener) {
+        return run(args, io, opener, true);
+    }
+
+    private int run(String[] args, ConsoleIo io, VaultOpener opener, boolean terminal) {
         Objects.requireNonNull(args, "args");
         Objects.requireNonNull(io, "io");
         Objects.requireNonNull(opener, "opener");
         try {
-            return dispatch(args, io, opener);
+            return dispatch(args, io, opener, terminal);
         } catch (UsageException e) {
             io.err().println(e.reason().text());
             return ExitCodes.USAGE;
@@ -234,7 +230,12 @@ final class Cli {
         }
     }
 
-    private int dispatch(String[] args, ConsoleIo io, VaultOpener opener)
+    /**
+     * Parses the global options, resolves the command against {@link Command} and runs it.
+     * {@code -h} or {@code --help} before the command word prints the usage, after it the
+     * command's help; {@code --version} counts only before the command word.
+     */
+    private int dispatch(String[] args, ConsoleIo io, VaultOpener opener, boolean terminal)
             throws UsageException, VaultException, IOException {
         Deque<String> remaining = new ArrayDeque<>(List.of(args));
         String vaultArg = null;
@@ -258,8 +259,15 @@ final class Cli {
                     positional.addAll(remaining);
                     remaining.clear();
                 }
-                case "-h", "--help", "help" -> {
-                    io.out().println(Messages.USAGE.text());
+                case HELP_SHORT, HELP_LONG -> {
+                    // Before a command word: the usage. After one of the M1 commands: its help.
+                    return help(positional.isEmpty() ? List.of() : List.of(positional.get(0)), io);
+                }
+                case VERSION_OPTION -> {
+                    if (!positional.isEmpty()) {
+                        throw new UsageException(Messages.UNKNOWN_OPTION);
+                    }
+                    io.out().println(Messages.VERSION.text() + Version.current());
                     return ExitCodes.OK;
                 }
                 default -> {
@@ -267,75 +275,159 @@ final class Cli {
                         throw new UsageException(Messages.UNKNOWN_OPTION);
                     }
                     positional.add(arg);
-                    if (positional.size() == 1 && (GROUPS.contains(arg) || LAN.contains(arg))) {
-                        // project/env parse their own options (EnvCommands.Args).
+                    if (positional.size() == ONE_WORD && parsesOwnArgs(arg)) {
+                        // The command parses the words after it itself (CommandArgs, EnvCommands.Args).
                         sub = new ArrayList<>(remaining);
                         remaining.clear();
                     }
                 }
             }
         }
-        Path vaultPath = vaultArg == null
-                ? VaultPaths.defaultPath(properties)
-                : VaultPaths.fromArgument(vaultArg);
         if (positional.isEmpty()) {
-            return openApp(vaultPath, io, opener);
+            requireTerminal(terminal);
+            return openApp(vaultPath(vaultArg), io, opener);
         }
-        if (sub != null && LAN.contains(positional.get(0))) {
-            return new LanCommands(properties, clock, environment, lanListening)
-                    .run(positional.get(0), sub, opener, vaultPath, io);
+        String word = positional.get(0);
+        if (!Command.known(word)) {
+            io.err().println(Command.usage());
+            throw new UsageException(Messages.UNKNOWN_COMMAND);
         }
-        if (sub != null) {
-            String group = positional.get(0);
-            if (GENERATE_GROUP.equals(group)) {
-                return GenerateCommand.run(sub, io);
-            }
-            if (BROWSER_GROUP.equals(group)) {
-                Path defaultVault = VaultPaths.defaultPath(properties);
-                if (!defaultVault.equals(vaultPath)) {
-                    throw new UsageException(Messages.BRIDGE_DEFAULT_VAULT_ONLY);
-                }
-                Path vaultDir = defaultVault.getParent();
-                if (vaultDir == null) {
-                    throw new UsageException(Messages.NO_HOME_DIR);
-                }
-                return new BrowserCommands(browserPlatform.apply(properties), vaultDir).run(sub, io);
-            }
-            if (HEALTH_GROUP.equals(group)) {
-                return new HealthCommand(clock, breachClients).run(sub, opener.open(vaultPath, false), io);
-            }
-            if (SSH_GROUP.equals(group)) {
-                return new SshCommands(properties, clock, environment).run(sub, opener.open(vaultPath, false), io,
-                        vaultPath);
-            }
-            EnvCommands env = new EnvCommands(properties, clock, environment);
-            VaultPort port = opener.open(vaultPath, false);
-            return "project".equals(positional.get(0))
-                    ? env.project(sub, port, io)
-                    : env.env(sub, port, io, vaultPath);
+        List<String> rest = List.copyOf(sub == null ? positional.subList(1, positional.size()) : sub);
+        if (parsesOwnArgs(word) && asksForHelp(rest)) {
+            return help(helpTarget(word, rest), io);
         }
-        String command = positional.get(0);
-        List<String> operands = positional.subList(1, positional.size());
-        int arity = switch (command) {
-            case INIT_COMMAND, "add-login", "list", "tui" -> 0;
-            case "search" -> 1;
-            default -> {
-                io.err().println(Messages.USAGE.text());
-                throw new UsageException(Messages.UNKNOWN_COMMAND);
-            }
-        };
-        if (operands.size() != arity) {
+        Command command = Command.resolve(word, rest);
+        if (command.topLevelOperands() && rest.size() != command.arity()) {
             throw new UsageException(Messages.WRONG_ARG_COUNT);
         }
-        String query = arity == 0 ? null : validQuery(operands.get(0));
-        VaultPort port = opener.open(vaultPath, INIT_COMMAND.equals(command));
+        if (command == Command.HELP) {
+            return help(rest, io);
+        }
+        if (command != Command.GENERATE && command.area() != Command.Area.BROWSER) {
+            requireTerminal(terminal);
+        }
+        return run(command, rest, vaultPath(vaultArg), io, opener);
+    }
+
+    /** Runs a resolved command: one case per {@link Command} entry, so every entry is dispatched. */
+    private int run(Command command, List<String> rest, Path vaultPath, ConsoleIo io, VaultOpener opener)
+            throws UsageException, VaultException, IOException {
+        List<String> afterSub = rest.isEmpty() ? rest : rest.subList(1, rest.size());
         return switch (command) {
-            case INIT_COMMAND -> init(port, io);
-            case "add-login" -> addLogin(port, io);
-            case "list" -> list(port, io);
-            case "search" -> search(port, io, query);
-            default -> tui(port, vaultPath);
+            case HELP -> help(rest, io);
+            case INIT -> init(opener.open(vaultPath, true), io);
+            case TUI -> tui(opener.open(vaultPath, false), vaultPath);
+            case ADD_LOGIN -> addLogin(opener.open(vaultPath, false), io);
+            case LIST -> list(opener.open(vaultPath, false), io);
+            case SEARCH -> search(validQuery(rest.get(0)), opener, vaultPath, io);
+            case WIFI_ADD -> records().wifiAdd(afterSub, opener.open(vaultPath, false), io);
+            case SHOW -> records().show(rest, opener.open(vaultPath, false), io);
+            case EDIT -> records().edit(rest, opener.open(vaultPath, false), io);
+            case RM -> records().rm(rest, opener.open(vaultPath, false), io);
+            case GENERATE -> GenerateCommand.run(rest, io);
+            case HEALTH -> new HealthCommand(clock, breachClients).run(rest, opener.open(vaultPath, false), io);
+            case SSH_IMPORT, SSH_LIST, SSH_ADD, SSH_REMOVE, SSH_EXPORT ->
+                    new SshCommands(properties, clock, environment).run(rest, opener.open(vaultPath, false), io,
+                            vaultPath);
+            case PROJECT_ADD, PROJECT_LIST ->
+                    new EnvCommands(properties, clock, environment).project(rest, opener.open(vaultPath, false), io);
+            case ENV_LIST, ENV_IMPORT, ENV_EXPORT, ENV_RUN ->
+                    new EnvCommands(properties, clock, environment).env(rest, opener.open(vaultPath, false), io,
+                            vaultPath);
+            case DEVICES, DEVICES_REMOVE, PAIR, SHARE, RECEIVE, REVOKE ->
+                    new LanCommands(properties, clock, environment, lanListening)
+                            .run(command.word(), rest, opener, vaultPath, io);
+            case PASSPHRASE -> new PassphraseCommands(properties, clock).passphrase(rest, vaultPath, io);
+            case RECOVER -> new PassphraseCommands(properties, clock).recover(rest, vaultPath, io);
+            case BACKUP_CREATE -> backups().create(afterSub, vaultPath, io);
+            case BACKUP_VERIFY -> backups().verify(afterSub, io);
+            case RESTORE -> backups().restore(rest, vaultPath, io);
+            case BROWSER_INSTALL, BROWSER_UNINSTALL, BROWSER_STATUS -> browser(rest, vaultPath, io);
         };
+    }
+
+    /** {@code pm browser}: the default vault only, since that is the one the native host reaches. */
+    private int browser(List<String> rest, Path vaultPath, ConsoleIo io) throws UsageException {
+        Path defaultVault = VaultPaths.defaultPath(properties);
+        if (!defaultVault.equals(vaultPath)) {
+            throw new UsageException(Messages.BRIDGE_DEFAULT_VAULT_ONLY);
+        }
+        Path vaultDir = defaultVault.getParent();
+        if (vaultDir == null) {
+            throw new UsageException(Messages.NO_HOME_DIR);
+        }
+        return new BrowserCommands(browserPlatform.apply(properties), vaultDir).run(rest, io);
+    }
+
+    private RecordCommands records() {
+        return new RecordCommands(clock);
+    }
+
+    private BackupCommands backups() {
+        return new BackupCommands(clock);
+    }
+
+    private Path vaultPath(String vaultArg) throws UsageException {
+        return vaultArg == null ? VaultPaths.defaultPath(properties) : VaultPaths.fromArgument(vaultArg);
+    }
+
+    private static void requireTerminal(boolean terminal) throws UsageException {
+        if (!terminal) {
+            throw new UsageException(Messages.NO_TERMINAL);
+        }
+    }
+
+    /** Whether {@code word} names a command that parses the words after it itself. */
+    private static boolean parsesOwnArgs(String word) {
+        return Command.named(word).stream().anyMatch(c -> !c.topLevelOperands());
+    }
+
+    /** Whether {@code -h} or {@code --help} comes before any {@code --} in {@code words}. */
+    private static boolean asksForHelp(List<String> words) {
+        for (String w : words) {
+            if (END_OF_OPTIONS.equals(w)) {
+                return false;
+            }
+            if (HELP_SHORT.equals(w) || HELP_LONG.equals(w)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** {@code ssh add --help} asks about {@code ssh add}; {@code ssh --help} about every ssh command. */
+    private static List<String> helpTarget(String word, List<String> rest) {
+        boolean namesSub = !rest.isEmpty()
+                && Command.named(word).stream().anyMatch(c -> c.sub().filter(rest.get(0)::equals).isPresent());
+        return namesSub ? List.of(word, rest.get(0)) : List.of(word);
+    }
+
+    /**
+     * {@code pm help [<command> [<subcommand>]]}: the usage, the help of every entry of a command,
+     * or the help of one subcommand, on stdout.
+     */
+    private static int help(List<String> words, ConsoleIo io) throws UsageException {
+        if (words.isEmpty()) {
+            io.out().println(Command.usage());
+            return ExitCodes.OK;
+        }
+        String word = words.get(0);
+        if (!Command.known(word)) {
+            io.err().println(Command.usage());
+            throw new UsageException(Messages.UNKNOWN_COMMAND);
+        }
+        if (words.size() == ONE_WORD) {
+            io.out().println(Command.helpFor(word));
+            return ExitCodes.OK;
+        }
+        if (words.size() > HELP_MAX_WORDS) {
+            throw new UsageException(Messages.WRONG_ARG_COUNT);
+        }
+        String subWord = words.get(1);
+        Command entry = Command.named(word).stream().filter(c -> c.sub().filter(subWord::equals).isPresent())
+                .findFirst().orElseThrow(() -> new UsageException(Messages.UNKNOWN_COMMAND));
+        io.out().println(entry.help());
+        return ExitCodes.OK;
     }
 
     // ---- commands ----------------------------------------------------------------------------
@@ -405,7 +497,7 @@ final class Cli {
      * (ADR 0008). If the session refuses it, the record is closed here so its password buffer is
      * zeroed rather than left to the garbage collector (SR-505).
      */
-    private static void handOver(Session session, VaultRecord record) {
+    static void handOver(Session session, VaultRecord record) {
         try (PendingOwnership pending = new PendingOwnership(record)) {
             session.put(record);
             pending.transferred();
@@ -440,9 +532,9 @@ final class Cli {
         return ExitCodes.OK;
     }
 
-    private static int search(VaultPort port, ConsoleIo io, String query)
+    private static int search(String query, VaultOpener opener, Path vaultPath, ConsoleIo io)
             throws UsageException, VaultException {
-        try (Session session = unlock(port, io)) {
+        try (Session session = unlock(opener.open(vaultPath, false), io)) {
             printRecords(io.out(), session.search(query));
         }
         return ExitCodes.OK;
@@ -522,13 +614,13 @@ final class Cli {
      * {@code java.security} outside pm-crypto (SR-017), so this uses {@link SecretBytes#equals},
      * which is {@code MessageDigest.isEqual} over both internal buffers.
      */
-    private static boolean sameSecret(SecretChars a, SecretChars b) throws UsageException {
+    static boolean sameSecret(SecretChars a, SecretChars b) throws UsageException {
         try (SecretBytes left = utf8(a); SecretBytes right = utf8(b)) {
             return left.equals(right);
         }
     }
 
-    private static SecretBytes utf8(SecretChars chars) throws UsageException {
+    static SecretBytes utf8(SecretChars chars) throws UsageException {
         try {
             return chars.toUtf8();
         } catch (IllegalArgumentException e) {
@@ -537,7 +629,7 @@ final class Cli {
     }
 
     /** Reads a non-empty secret; the console's array is handed to {@link SecretChars} (and zeroed) at once. */
-    private static SecretChars readSecret(ConsoleIo io, Messages prompt, Messages ifEmpty) throws UsageException {
+    static SecretChars readSecret(ConsoleIo io, Messages prompt, Messages ifEmpty) throws UsageException {
         char[] typed = io.readPassword(prompt.text());
         if (typed == null) {
             throw new UsageException(Messages.INPUT_CLOSED);
@@ -585,7 +677,7 @@ final class Cli {
         return normalized;
     }
 
-    private static List<String> splitList(String line) {
+    static List<String> splitList(String line) {
         return LIST_SEPARATOR.splitAsStream(line).map(String::strip).filter(s -> !s.isEmpty()).toList();
     }
 
@@ -599,7 +691,7 @@ final class Cli {
         return s.codePoints().anyMatch(Cli::isUnsafe);
     }
 
-    private static boolean isUnsafe(int codePoint) {
+    static boolean isUnsafe(int codePoint) {
         if (Character.isISOControl(codePoint)) {
             return true;
         }
@@ -615,12 +707,12 @@ final class Cli {
     }
 
     /** One list row; the record stays owned by the session (ADR 0008). */
-    private static String row(VaultRecord r) {
+    static String row(VaultRecord r) {
         return String.join(COLUMN_GAP, r.id().toString(), typeOf(r), displaySafe(r.title()), r.updated().toString());
     }
 
     /** The item types (ADR 0006, ADR 0016); device records never reach here ({@link #printRecords} drops them). */
-    private static String typeOf(VaultRecord r) {
+    static String typeOf(VaultRecord r) {
         if (r instanceof LoginRecord) {
             return "login";
         }

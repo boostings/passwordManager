@@ -1,28 +1,13 @@
 package pm.cli;
 
 /**
- * Fixed catalogue of every user-facing string the CLI prints (SR-501, ERR01-J). Nothing else is
- * ever written: no exception message, path, passphrase or secret field.
+ * Fixed catalogue of every user-facing string the CLI prints (SR-501, ERR01-J), with the usage and
+ * help texts of {@link Command}. Nothing else is ever written but non-secret record metadata and
+ * paths the user named, through {@link Cli#displaySafe}: no exception message, passphrase or secret
+ * field. The one exception is {@code pm show --reveal}, which prints the password asked for
+ * (SR-132).
  */
 enum Messages {
-    USAGE("usage: pm [--vault <path>] [--] [init | add-login | list | search <query> | tui"
-            + " | project add <title> [--dir <path>] | project list"
-            + " | env list | env import <file> | env export <file> --plaintext"
-            + " | env run [--only A,B] -- <command> [args...]"
-            + " | generate [--length N] [--classes lower,upper,digit,symbol] [--exclude-ambiguous]"
-            + " | generate --passphrase [--words N] [--separator C]"
-            + " | health [--max-age-days N] [--breach]"
-            + " | ssh import <file> [--title T] | ssh list | ssh add <item> [--lifetime 1h] [--confirm]"
-            + " | ssh remove <item> | ssh remove --all | ssh export <item> <file>"
-            + " | devices | devices remove <name|fingerprint>"
-            + " | pair --listen [--bind <ip>] [--name <name>] | pair <ip:port> [--name <name>]"
-            + " | share <title> --to <device> [--ttl 10m] [--bind <ip>]"
-            + " | share <title> --browser [--ttl 10m] [--bind <ip>]"
-            + " | receive <ip:port> | revoke <share-id>"
-            + " | browser install [--browser chrome|chromium|edge|brave|all] [--extension-id <id>]"
-            + " | browser uninstall [--browser B] | browser status [--browser B]]"
-            + " (env commands take [--project <title>] [--profile <name>]);"
-            + " with no command, pm opens the app"),
     NO_TERMINAL("interactive terminal required"),
     JVM_OPTIONS_IN_ENVIRONMENT("JAVA_TOOL_OPTIONS, _JAVA_OPTIONS or JDK_JAVA_OPTIONS is set;"
             + " pm does not run with JVM options from the environment. Unset them and run pm again"),
@@ -60,6 +45,12 @@ enum Messages {
     EXPORT_UNREPRESENTABLE("a value holds control characters a .env file cannot carry; nothing was exported"),
     EXPORT_FAILED("the export file could not be written"),
     AUDIT_UNAVAILABLE("the audit log could not be written, so nothing was exported"),
+    PAIRED_AUDIT_FAILED("the device was paired, but its audit log entry could not be written"),
+    DELIVERED_AUDIT_FAILED("the item was delivered, but its audit log entry could not be written"),
+    SHARE_CLOSED_AUDIT_FAILED("the share window closed, but its audit log entry could not be written"),
+    RECEIVED_AUDIT_FAILED("the item was received and saved, but its audit log entry could not be written"),
+    REVOKED_AUDIT_FAILED("the share was revoked, but its audit log entry could not be written"),
+    REMOVE_AUDIT_UNAVAILABLE("the audit log could not be written, so the device was not removed"),
     NO_SUCH_DEVICE("no paired device has this name or fingerprint; 'pm devices' lists them"),
     AMBIGUOUS_DEVICE("more than one paired device has this name; give its fingerprint instead"),
     NO_SUCH_ITEM("no item has this title; 'pm list' shows them"),
@@ -262,8 +253,107 @@ enum Messages {
             + " it could be committed"),
     WARN_PLAINTEXT_LEFT("warning: the plaintext .env file is still on disk; delete it once the import is checked"),
 
+    // ---- M7.7: version, show, edit, rm, wifi add, backup, restore ----
+    VERSION("pm "),
+    NO_SUCH_RECORD("no item has this title or id; 'pm list' shows them"),
+    AMBIGUOUS_RECORD("several items have this title (listed above); give the id of the one you mean"),
+    FIELD_ID("id"),
+    FIELD_TYPE("type"),
+    FIELD_TITLE("title"),
+    FIELD_USERNAME("username"),
+    FIELD_PASSWORD("password"),
+    FIELD_URLS("urls"),
+    FIELD_TAGS("tags"),
+    FIELD_NOTES("notes"),
+    FIELD_SSID("ssid"),
+    FIELD_SECURITY("security"),
+    FIELD_HIDDEN("hidden"),
+    FIELD_KEY_TYPE("key type"),
+    FIELD_FINGERPRINT("fingerprint"),
+    FIELD_PUBLIC_KEY("public key"),
+    FIELD_COMMENT("comment"),
+    FIELD_HOSTS("hosts"),
+    FIELD_PRIVATE_KEY("private key"),
+    FIELD_SITE("site"),
+    FIELD_ACCOUNT("account"),
+    FIELD_DISPLAY_NAME("display name"),
+    FIELD_SIGN_COUNT("sign count"),
+    FIELD_DIRECTORY("directory"),
+    FIELD_GIT_REMOTE("git remote"),
+    FIELD_VARIABLES("variables"),
+    FIELD_CREATED("created"),
+    FIELD_UPDATED("updated"),
+    FIELD_LAST_USED("last used"),
+    VALUE_MASKED("********"),
+    VALUE_NONE("(none)"),
+    VALUE_YES("yes"),
+    VALUE_NO("no"),
+    REVEAL_SSH_KEY("pm never prints an SSH private key; load it with 'pm ssh add' or write it to a file with"
+            + " 'pm ssh export'"),
+    REVEAL_PROJECT("pm never prints project variables; use them with 'pm env run' or write them to a file with"
+            + " 'pm env export --plaintext'"),
+    REVEAL_NOTHING("this item has no password that pm prints"),
+    REVEAL_UNPRINTABLE("this password holds control or invisible characters, so it is not printed;"
+            + " set a new one with 'pm edit <item> --password'"),
+    EDIT_NOTHING("say what to change, for example --username or --password; 'pm edit --help' lists the options"),
+    EDIT_TWO_SOURCES("give --password or --generate, not both"),
+    EDIT_HIDDEN_BOTH("give --hidden or --not-hidden, not both"),
+    EDIT_GENERATE_OPTIONS("--length, --classes, --exclude-ambiguous, --passphrase, --words and --separator"
+            + " go with --generate"),
+    EDIT_LOGIN_ONLY("--username, --urls and --tags change logins only"),
+    EDIT_WIFI_ONLY("--ssid, --security, --hidden and --not-hidden change Wi-Fi networks only"),
+    EDIT_UNSUPPORTED("pm edit changes logins and Wi-Fi networks only"),
+    EDITED("item changed: "),
+    EDIT_GENERATED("a new password was generated and saved; see it with 'pm show <item> --reveal'."
+            + " Entropy (bits): "),
+    PROMPT_NEW_PASSWORD("New password: "),
+    PROMPT_REPEAT_PASSWORD("Repeat password: "),
+    PROMPT_WIFI_PASSWORD("Wi-Fi password: "),
+    PASSWORD_MISMATCH("passwords do not match; nothing was changed"),
+    BAD_SECURITY("--security is WPA2, WPA3, WEP or OPEN"),
+    OPEN_HAS_NO_PASSWORD("an OPEN network has no password; leave out --password and --generate"),
+    WIFI_NEEDS_PASSWORD("a WPA2, WPA3 or WEP network needs a password; add --password or --generate"),
+    EMPTY_SSID("SSID must not be empty"),
+    WIFI_ADDED("Wi-Fi network added: "),
+    RM_ITEM("item: "),
+    RM_SSH_AGENT("removing an SSH key from the vault does not take it out of a running ssh-agent;"
+            + " if it is loaded, run 'pm ssh remove <item>' first"),
+    RM_CONFIRM("Type y and press Enter to remove it: "),
+    RM_CANCELLED("not confirmed; nothing was removed"),
+    REMOVED("item removed: "),
+    BAD_KEEP("--keep takes a whole number from 1 to 999"),
+    BAD_PATH("the path is empty or not valid"),
+    PROMPT_BACKUP_PASSPHRASE("Passphrase the vault had when the backup was made: "),
+    BACKUP_WRITTEN("backup written: "),
+    BACKUP_DELETED("older backup deleted: "),
+    BACKUP_LEFT("backup-named file left alone (not an owner-only file, or it could not be deleted): "),
+    BACKUP_OVER_KEEP("warning: more backups than --keep remain in the folder; see the files named above"),
+    BACKUP_MADE("backup made at: "),
+    BACKUP_RECORDS("records in it: "),
+    BACKUP_VERIFIED("backup verified: intact, authentic and fully readable with this passphrase; nothing was written"),
+    BACKUP_CORRUPT("the backup file is damaged, truncated or has been changed"),
+    BACKUP_UNSUPPORTED("this backup, or the vault in it, has a format this pm cannot read"),
+    BACKUP_NOT_FOUND("no backup file at: "),
+    RESTORE_EXISTS("a vault already exists at this path; add --overwrite to replace it (it is then kept as"
+            + " <vault>.bak.1)"),
+    PROMPT_CURRENT_PASSPHRASE("Current passphrase: "),
+    PROMPT_RECOVERY_KEY("Recovery key: "),
+    EMPTY_RECOVERY_KEY("recovery key must not be empty"),
+    CHANGE_MISMATCH("passphrases do not match; the passphrase was not changed"),
+    CHANGE_DONE("passphrase changed; the recovery key is unchanged"),
+    CHANGE_OLD_BACKUPS("note: earlier .bak files and backups still open with the old passphrase; make a new"
+            + " backup, then delete them if the old passphrase may be known"),
+    CHANGE_AUDIT_FAILED("the passphrase was changed, but its audit log entry could not be written"),
+    RESTORED("vault restored to: "),
+    RESTORE_KEPT("the replaced vault was kept as: "),
+    RESTORE_OPENS_WITH("the restored vault opens with the passphrase it had when the backup was made, and with"
+            + " that vault's recovery key; change the passphrase with 'pm passphrase'"),
+    RESTORE_ROLLBACK("warning: the replaced vault had been saved after this backup was made; changes since the"
+            + " backup are not in the restored vault (the replaced one is the .bak.1 file)"),
+
     ERR_WRONG_CREDENTIAL("wrong passphrase or recovery key"),
-    ERR_CORRUPT("vault file is corrupt or has been tampered with"),
+    ERR_CORRUPT("vault file is corrupt or has been tampered with; restore a backup with"
+            + " 'pm restore <file> --overwrite'"),
     ERR_UNSUPPORTED_VERSION("vault format version is not supported"),
     ERR_ALREADY_EXISTS("a vault already exists at this path"),
     ERR_LOCKED("vault is in use by another process"),

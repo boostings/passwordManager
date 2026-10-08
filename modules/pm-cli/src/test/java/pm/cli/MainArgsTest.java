@@ -383,7 +383,7 @@ class MainArgsTest {
     void helpPrintsUsageAndSucceeds() {
         FakeConsoleIo io = new FakeConsoleIo();
         assertEquals(ExitCodes.OK, run(io, new FakeVaultPort(), "--help"));
-        assertTrue(io.outText().contains(Messages.USAGE.text()));
+        assertTrue(io.outText().contains(Command.usage()));
         assertTrue(opened.isEmpty());
     }
 

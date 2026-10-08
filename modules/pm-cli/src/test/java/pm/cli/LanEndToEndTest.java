@@ -179,12 +179,70 @@ class LanEndToEndTest {
             assertTrue(out.contains(warning), warning);
         }
         assertTrue(out.contains(Messages.BROWSER_URL.text() + url));
+        assertTrue(out.contains(Messages.SHARE_FOR.text() + "5m"), out);
+        assertFalse(out.contains("PT5M"), "the time to live is not printed as ISO 8601");
         assertTrue(out.indexOf(Messages.SHARE_CONFIRM.text()) > out.indexOf(BrowserWindow.WARNINGS.get(0)),
                 "the warnings come before the approval");
         assertTrue(out.lines().anyMatch(l -> l.startsWith(Messages.BROWSER_FINGERPRINT.text())
                 && l.substring(Messages.BROWSER_FINGERPRINT.text().length()).matches("([0-9A-F]{2}:){31}[0-9A-F]{2}")),
                 out);
         assertFalse(out.contains(LOGIN_SECRET), "the value itself is never printed");
+    }
+
+    @Test
+    void anAuditFailureAfterPinningSaysTheDeviceWasPaired() throws IOException, InterruptedException,
+            ExecutionException, TimeoutException, VaultException {
+        // A directory where bob's audit log belongs: the append fails after the device is pinned.
+        Files.createDirectory(bob.resolveSibling(AuditLog.FILE_NAME));
+        LinkedBlockingQueue<String> listening = new LinkedBlockingQueue<>();
+        FakeConsoleIo responder = unlocking().line("y");
+        CompletableFuture<Integer> listen = async(() -> run(alice, "alice", listening::add, responder,
+                "pair", "--listen", "--bind", LOOPBACK));
+        String address = take(listening);
+        FakeConsoleIo initiator = unlocking().line("y");
+        assertEquals(ExitCodes.NOT_AUDITED, run(bob, "bob", null, initiator, "pair", address));
+        assertEquals(ExitCodes.OK, listen.get(WAIT.toSeconds(), TimeUnit.SECONDS), responder::errText);
+        assertTrue(initiator.errText().contains(Messages.PAIRED_AUDIT_FAILED.text()), initiator::errText);
+        assertFalse(initiator.errText().contains(Messages.AUDIT_UNAVAILABLE.text()), "nothing was exported is untrue");
+        assertEquals(1, trusted(bob).size(), "the device was paired");
+    }
+
+    @Test
+    void anAuditFailureAfterAChangeSaysWhatHappenedAndExitsNotAudited() throws IOException, InterruptedException,
+            ExecutionException, TimeoutException, VaultException {
+        pair();
+        // Bob's audit log is a directory: the item is saved, then its entry cannot be written.
+        breakAuditLog(bob);
+        LinkedBlockingQueue<String> listening = new LinkedBlockingQueue<>();
+        FakeConsoleIo sender = unlocking().line("y");
+        CompletableFuture<Integer> share = async(() -> run(alice, "alice", listening::add, sender,
+                "share", TITLE, "--to", "pm bob", "--bind", LOOPBACK));
+        String address = take(listening);
+        FakeConsoleIo receiver = unlocking().line("y");
+        assertEquals(ExitCodes.NOT_AUDITED, run(bob, "bob", null, receiver, "receive", address), receiver::errText);
+        assertEquals(ExitCodes.OK, share.get(WAIT.toSeconds(), TimeUnit.SECONDS), sender::errText);
+        assertTrue(receiver.errText().contains(Messages.RECEIVED_AUDIT_FAILED.text()), receiver::errText);
+        assertEquals(1, items(bob).size(), "the message is true: it was received and saved");
+
+        // Alice's log breaks while a window is open: the revoke stands, the window closes.
+        FakeConsoleIo second = unlocking().line("y");
+        CompletableFuture<Integer> revoked = async(() -> run(alice, "alice", listening::add, second,
+                "share", TITLE, "--to", "pm bob", "--bind", LOOPBACK));
+        take(listening);
+        String id = shareId();
+        breakAuditLog(alice);
+        FakeConsoleIo revoke = new FakeConsoleIo();
+        assertEquals(ExitCodes.NOT_AUDITED, run(alice, "alice", null, revoke, "revoke", id), revoke::errText);
+        assertTrue(revoke.errText().contains(Messages.REVOKED_AUDIT_FAILED.text()), revoke::errText);
+        assertTrue(revoke.outText().contains(Messages.REVOKED.text()), revoke::outText);
+        assertEquals(ExitCodes.NOT_DONE, revoked.get(WAIT.toSeconds(), TimeUnit.SECONDS), second::errText);
+        assertTrue(second.errText().contains(Messages.SHARE_CLOSED_AUDIT_FAILED.text()), second::errText);
+
+        // Removing a device is audited first: with no log it is not removed, and says so.
+        FakeConsoleIo remove = unlocking();
+        assertEquals(ExitCodes.USAGE, run(alice, "alice", null, remove, "devices", "remove", "pm bob"));
+        assertTrue(remove.errText().contains(Messages.REMOVE_AUDIT_UNAVAILABLE.text()), remove::errText);
+        assertEquals(1, trusted(alice).size(), "the message is true: the device is still paired");
     }
 
     @Test
@@ -372,6 +430,15 @@ class LanEndToEndTest {
         assertTrue(wrong.outText().contains(Messages.PAIR_CODE.text()), "a ceremony took place");
     }
 
+
+    /** Puts a directory where {@code vault}'s audit log belongs, so every append fails. */
+    private static void breakAuditLog(Path vault) throws IOException {
+        Path log = vault.resolveSibling(AuditLog.FILE_NAME);
+        if (Files.exists(log)) {
+            Files.move(log, log.resolveSibling(AuditLog.FILE_NAME + ".moved"));
+        }
+        Files.createDirectory(log);
+    }
 
     private void pair() throws InterruptedException, ExecutionException, TimeoutException {
         LinkedBlockingQueue<String> listening = new LinkedBlockingQueue<>();
