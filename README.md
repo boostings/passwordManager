@@ -176,6 +176,10 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 
 ### Keys in the app
 
+On Windows the app opens a separate desktop terminal window. Focus that window to use the
+shortcuts below; macOS and Linux continue to use the launching terminal. Lanterna 3.1.3 has
+no native Windows console backend, so the Windows app requires a graphical desktop session.
+
 | Key | Where | Does |
 | --- | --- | --- |
 | Enter | Unlock | Unlocks with the passphrase (Tab reaches "Use recovery key") |

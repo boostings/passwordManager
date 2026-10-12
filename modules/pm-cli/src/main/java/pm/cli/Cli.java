@@ -17,6 +17,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -586,7 +587,7 @@ final class Cli {
         return ExitCodes.OK;
     }
 
-    /** Production TUI: a text terminal on stdin/stdout (FIO11-J: explicit UTF-8). */
+    /** Production TUI: desktop terminal on Windows, stdin/stdout elsewhere (explicit UTF-8). */
     private static void launchLanterna(VaultPort port, Path vaultPath) throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory(System.out, System.in, StandardCharsets.UTF_8)
                 .setForceTextTerminal(true);
@@ -595,17 +596,34 @@ final class Cli {
         try (ApprovalHost host = ApprovalHost.socketFor(vaultPath, Env.system(), Clock.systemUTC(),
                         Objects.requireNonNull(System.getProperty("user.name"), "user.name"),
                         isDefaultVault(vaultPath, System::getProperty));
-                Terminal terminal = newTerminal(factory)) {
+                Terminal terminal = createTuiTerminal(factory, System.getProperty("os.name", ""), Cli::rawTerminal)) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
             new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath),
                     CliClipboard.forSystem(System::getProperty), CliClipboard.clearAfter(Env.system())).run(terminal);
         }
     }
 
-    /** {@link RawTerminal} on macOS and Linux, so Ctrl+S reaches the app; Lanterna's own on Windows. */
-    private static Terminal newTerminal(DefaultTerminalFactory factory) throws IOException {
-        return VaultPaths.isWindows(System::getProperty) ? factory.createTerminal()
-                : new RawTerminal(System.in, System.out, StandardCharsets.UTF_8);
+    /** The terminal on the process's own streams, with flow control off so Ctrl+S reaches the app. */
+    private static Terminal rawTerminal() throws IOException {
+        return new RawTerminal(System.in, System.out, StandardCharsets.UTF_8);
+    }
+
+    /** Opens the text terminal the app runs in on macOS and Linux. */
+    @FunctionalInterface
+    interface TextTerminal {
+        Terminal open() throws IOException;
+    }
+
+    /**
+     * Lanterna 3.1.3 ships no native WindowsTerminal; forcing text mode falls back to Cygwin's
+     * stty, which cannot configure a normal Windows console. The desktop emulator receives
+     * Ctrl keys directly, without the console's line editing or terminal shortcut interception.
+     * Elsewhere {@code text} opens the terminal: {@link RawTerminal} in production, so Ctrl+S
+     * reaches the app rather than pausing output (M7.15 D1).
+     */
+    static Terminal createTuiTerminal(DefaultTerminalFactory factory, String osName, TextTerminal text)
+            throws IOException {
+        return osName.toLowerCase(Locale.ROOT).startsWith("windows") ? factory.createTerminalEmulator() : text.open();
     }
 
     /**
