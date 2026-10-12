@@ -45,5 +45,11 @@ has no tty driver, so they could not catch it.
     device, "10 minutes" instead of PT10M, no share id, no empty device table. Found and fixed:
     Enter in Search did not open the highlighted item; the footer ran past 80 columns (cut before
     quit); the card's label column took half the width. Header browser note dimmed, Tools padded.
-- [ ] **D5** Full gate, README key table and user guide, final walkthrough of the demo path. Accept:
+- [x] **D5** Full gate, README key table and user guide, final walkthrough of the demo path. Accept:
   gate green with output reported.
+  - Result: `./gradlew check certReport` BUILD SUCCESSFUL; PMD 0, SpotBugs 0, Semgrep 0; 2068
+    tests, 0 failed, 9 skipped. README key table and user guide cover the New item menu, SSH
+    import, Generate/Show, Enter to save, card letters, the Devices pairing and receiving steps
+    and the private-address bind. Final run on fresh vaults in two ptys: add login, pair, Ctrl+S,
+    approve, receive; the login arrives. Also: a command with the wrong number of arguments now
+    prints its usage line (pm env import showed only the error).

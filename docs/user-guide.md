@@ -94,8 +94,8 @@ counts down to that lock.
 | Key | Does |
 | --- | --- |
 | type | filter the list |
-| ↑ ↓, Enter | open an item's card (secrets stay masked) |
-| Ctrl+N | new login |
+| ↑ ↓, Enter | open an item's card (secrets stay masked); Enter in the search box opens the highlighted item |
+| Ctrl+N | new item: login, Wi-Fi network or SSH key (see below) |
 | Ctrl+T | tools: generator, health report, ssh-agent actions on the selected SSH key, new Wi-Fi network, change passphrase |
 | Ctrl+S | share the selected item with a paired device |
 | Ctrl+D | devices: this device, paired devices, pairing |
@@ -103,7 +103,22 @@ counts down to that lock.
 | Esc | clear the search, or close a card or dialog |
 | Ctrl+X | lock and quit |
 
-An item's card has buttons (Tab moves between them, Enter presses one):
+In a form, Enter moves to the next field and, in the last one, saves; Esc cancels.
+
+Ctrl+N opens the New item menu:
+
+- **Login**: title, username, password, websites and tags. **Generate** fills in a 20-character
+  random password and shows it; **Show** and **Hide** toggle the password.
+- **Wi-Fi network**: SSID, security, hidden, password.
+- **SSH key**: imports a private key file, as `pm ssh import` does (unencrypted Ed25519 or ECDSA
+  P-256). The path starts as `~/.ssh/id_ed25519`. A key with a passphrase, a missing file or a key
+  already in the vault is refused with a message saying which.
+- **Passkey**: pm v1 does not store passkeys; the menu says so. Save the site as a login.
+- **Project secrets**: these come from a project's `.env` file; the menu shows the
+  `pm env import` command to run in the project's folder.
+
+An item's card has buttons (Tab moves between them and Enter presses one; the letters c, r, e, s
+and d press Copy, Reveal, Edit, Share and Delete):
 
 - **Reveal** shows a login's or Wi-Fi network's password for 15 seconds, then masks it again; so
   do Hide, Close and every lock. A password containing control or invisible characters is not
@@ -114,6 +129,7 @@ An item's card has buttons (Tab moves between them, Enter presses one):
   Linux and Windows the card says the clipboard is not available, and Reveal still works.
   A clipboard manager can keep its own copy, and pm cannot clear the clipboard if it is killed.
 - **Edit** (logins and Wi-Fi networks) changes the fields; leave the password empty to keep it.
+- **Share** opens the Share window for this item (the same as Ctrl+S).
 - **Delete** asks first, as `pm rm` does.
 
 While the app is unlocked it is also the place where requests from `pm env run` and the browser
@@ -217,6 +233,15 @@ pm revoke <share-id>                     # closes an open share window early
 pm devices                               # this device and the paired ones
 pm devices remove laptop                 # unpair; lists what was offered to it
 ```
+
+In the app, Ctrl+D opens Devices. To pair, choose **Start pairing** on one device: it shows an
+address. On the other, type that address and choose **Join pairing**; compare the 6-digit codes
+and choose Yes on both. To send an item, select it and press Ctrl+S, choose the device, **Send to
+device** and **Approve**; the window shows an address. On the receiving device open Devices, type
+that address, choose **Receive**, then Yes. pm listens on the computer's private network address
+(192.168.x, 10.x, 172.16-31.x, or 100.64-127.x as campus and carrier networks hand out); a
+network that keeps its Wi-Fi clients apart blocks this, and then a phone hotspot or a home
+router works.
 
 A share is offered once and is open for 10 minutes by default (`--ttl`, at most 24 hours). After
 one delivery, or when the time is up, the window closes. Revoking cannot recall a copy that was

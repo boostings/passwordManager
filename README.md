@@ -180,20 +180,22 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew \
 | --- | --- | --- |
 | Enter | Unlock | Unlocks with the passphrase (Tab reaches "Use recovery key") |
 | Type | Dashboard | Filters the list live |
-| ↑ ↓, Enter | Dashboard | Selects a record and opens its card (secrets stay masked) |
-| Tab, Enter | Card | Reveal (masked again after 15 s), Copy (cleared from the clipboard after 30 s or on lock; macOS only in v1), Edit (logins and Wi-Fi networks), Delete, Close |
-| Ctrl+N | Dashboard | New login |
+| ↑ ↓, Enter | Dashboard | Selects a record and opens its card (secrets stay masked); Enter in the search box opens the highlighted one |
+| Tab, Enter or c r e s d | Card | Copy (cleared from the clipboard after 30 s or on lock; macOS only in v1), Reveal (masked again after 15 s), Edit (logins and Wi-Fi networks), Share, Delete, Close |
+| Ctrl+N | Dashboard | New item: login (with Generate), Wi-Fi network, SSH key imported from a key file; the passkey and project entries say where those come from |
 | Ctrl+L | Dashboard | Locks now |
 | Ctrl+T | Dashboard | Tools: password generator, health report, ssh-agent actions on the selected SSH key, new Wi-Fi network, change passphrase |
 | Ctrl+S | Dashboard | Shares the selected item with a paired device |
 | Ctrl+D | Dashboard | Devices: this device, paired devices, pairing |
+| Enter | Forms | Next field; in the last field, saves |
 | Esc | Dashboard, cards | Clears the search, or closes the card or dialog (cancel) |
 | Ctrl+X | Everywhere | Locks and quits |
 
 The header counts down to the idle lock: its meter drains from green through amber to red and
 pulses in the last 30 seconds. Colors use the 256-color palette, which macOS Terminal and other
 common terminals support. Ctrl+X quits rather than Ctrl+Q, because many terminals
-use Ctrl+Q and Ctrl+S for flow control.
+use Ctrl+Q and Ctrl+S for flow control; pm turns that flow control off while it runs, so Ctrl+S
+reaches it.
 
 **A real terminal is required.** Passphrases are read only through `System.console()`. When stdin
 or stdout is not a terminal (a pipe, CI, an IDE run window), every command prints
