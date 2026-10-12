@@ -36,7 +36,7 @@ enum Messages {
     NO_SUCH_VARIABLE("a variable named with --only is not in this profile"),
     BAD_PROFILE("profile names use a-z, 0-9, - and _, at most 32 characters"),
     PROJECT_EXISTS("a project with this title or directory already exists"),
-    NO_SUCH_PROJECT("no project with this title"),
+    NO_SUCH_PROJECT("no project with this title; pm project list shows them, and pm project add <title> in the project's folder creates one"),
     NO_PROJECT_HERE("no project registered for this directory; run 'pm project add <title>' or pass --project"),
     NOT_A_DIRECTORY("project directory does not exist or is not a directory"),
     ENV_FILE_UNREADABLE(".env file is missing, unreadable or larger than 1 MiB"),
