@@ -126,7 +126,8 @@ final class SshCommands {
 
     private int importKey(CommandArgs args, VaultPort port, ConsoleIo io)
             throws UsageException, VaultException, SshException {
-        SshKeyRecord record = newRecord(args.value(TITLE), readKeyFile(resolve(args.operand(0)), io));
+        SshKeyRecord record = newRecord(args.value(TITLE), readKeyFile(resolve(args.operand(0)),
+                () -> io.err().println(Messages.SSH_KEY_FILE_SHARED.text())));
         try (Session session = Cli.unlock(port, io)) {
             store(session, record);
         } catch (UsageException | VaultException | RuntimeException e) {
@@ -136,6 +137,19 @@ final class SshCommands {
         io.out().println(Messages.SSH_IMPORTED.text() + Cli.displaySafe(record.title()) + GAP + record.fingerprint());
         io.err().println(Messages.SSH_DELETE_ORIGINAL.text());
         return ExitCodes.OK;
+    }
+
+    /**
+     * The TUI's import: reads the key file at {@code path} ({@code ~/} is the home folder, a
+     * relative path is taken from the working folder) and builds a new item, under the same checks as
+     * {@code pm ssh import}. The caller owns the record. {@code onShared} runs when group or others
+     * can read the file.
+     */
+    SshKeyRecord importFile(String path, Optional<String> title, Runnable onShared)
+            throws UsageException, SshException {
+        String home = Objects.requireNonNull(properties.apply("user.home"), "user.home");
+        String expanded = path.equals("~") ? home : path.startsWith("~/") ? home + path.substring(1) : path;
+        return newRecord(title, readKeyFile(resolve(expanded), onShared));
     }
 
     /**
@@ -394,10 +408,10 @@ final class SshCommands {
      * regular file, not a link; it is opened once without following a final link
      * ({@code O_NOFOLLOW}) and read through that one channel, capped whatever it grows to. The JDK
      * has no {@code fstat} on a channel, so the opened file is tied to the checked one by its
-     * (device, inode) key, read before and after the open: a swap in between is refused. Warns when
+     * (device, inode) key, read before and after the open: a swap in between is refused. Runs {@code onShared} when
      * group or others can read the file.
      */
-    private static SecretBytes readKeyFile(Path file, ConsoleIo io) throws UsageException {
+    private static SecretBytes readKeyFile(Path file, Runnable onShared) throws UsageException {
         try {
             PosixFileAttributes before = posix(file);
             if (!before.isRegularFile()) {
@@ -412,7 +426,7 @@ final class SshCommands {
                 }
                 Set<PosixFilePermission> perms = after.permissions();
                 if (perms.contains(PosixFilePermission.GROUP_READ) || perms.contains(PosixFilePermission.OTHERS_READ)) {
-                    io.err().println(Messages.SSH_KEY_FILE_SHARED.text());
+                    onShared.run();
                 }
                 return readCapped(ch);
             }

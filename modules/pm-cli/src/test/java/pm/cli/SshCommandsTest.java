@@ -20,6 +20,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -410,6 +411,27 @@ class SshCommandsTest {
         assertEquals(SshActions.Outcome.NO_AGENT, unset.add(record.privateKey(), Duration.ZERO, false));
         assertEquals(SshActions.Outcome.NO_AGENT, unset.remove(record.privateKey()));
         assertTrue(audit().contains("TUI"), "the TUI release is audited");
+    }
+
+    @Test
+    void tuiImportReadsTheKeyFileAndNamesEachProblem() throws IOException, UsageException {
+        CliSshActions actions = new CliSshActions(
+                new SshCommands(props()::get, Clock.fixed(NOW, ZoneOffset.UTC), env()), vaultPath());
+        SshActions.Imported ok = actions.importKey("id_ed25519", "  ");
+        assertEquals(Optional.empty(), ok.problem());
+        try (SshKeyRecord record = ok.key().orElseThrow()) {
+            assertEquals("alice@laptop", record.title(), "an empty title falls back to the comment");
+            assertTrue(record.fingerprint().startsWith("SHA256:"));
+        }
+        Files.write(home.resolve("id_home"), key.file());
+        try (SshKeyRecord record = actions.importKey("~/id_home", "Laptop").key().orElseThrow()) {
+            assertEquals("Laptop", record.title());
+        }
+        assertEquals(Optional.of(SshActions.ImportProblem.UNREADABLE), actions.importKey("missing", "").problem());
+        Files.writeString(work.resolve("junk"), "not a key");
+        assertEquals(Optional.of(SshActions.ImportProblem.UNSUPPORTED), actions.importKey("junk", "").problem());
+        assertEquals(Optional.of(SshActions.ImportProblem.UNAVAILABLE),
+                SshActions.none().importKey("id_ed25519", "").problem());
     }
 
     @Test

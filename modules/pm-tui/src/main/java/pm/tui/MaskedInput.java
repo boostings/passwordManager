@@ -15,10 +15,11 @@ final class MaskedInput {
     private MaskedInput() {
     }
 
-    /** A single-line masked text box. */
+    /** A single-line masked text box; Ctrl and Alt letters are shortcuts, never typed into it. */
     static TextBox newBox(int columns) {
         TextBox box = new TextBox(new TerminalSize(columns, 1));
         box.setMask(MASK);
+        box.setInputFilter((interactable, key) -> !DisplaySafe.isShortcut(key));
         return box;
     }
 

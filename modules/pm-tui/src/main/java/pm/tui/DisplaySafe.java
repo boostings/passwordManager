@@ -70,12 +70,20 @@ final class DisplaySafe {
      */
     static InputFilter rejectUnsafe(Runnable onRejected) {
         return (interactable, key) -> {
+            if (isShortcut(key)) {
+                return false; // Lanterna's TextBox would type the letter of Ctrl+N or Alt+N
+            }
             if (!isUnsafeKey(key)) {
                 return true;
             }
             onRejected.run();
             return false;
         };
+    }
+
+    /** Whether {@code key} is a letter typed with Ctrl or Alt held: a shortcut, never text. */
+    static boolean isShortcut(KeyStroke key) {
+        return key.getKeyType() == KeyType.Character && (key.isCtrlDown() || key.isAltDown());
     }
 
     /**

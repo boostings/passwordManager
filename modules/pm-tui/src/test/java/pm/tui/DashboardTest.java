@@ -213,8 +213,8 @@ class DashboardTest {
         try (TuiHarness h = new TuiHarness(newPort())) {
             h.unlockWith(CANARY);
             openAddLogin(h);
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
-                    KeyType.Enter); // five fields, OK, Cancel
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
+                    KeyType.Tab, KeyType.Enter); // five fields, Generate, Show, OK, Cancel
             assertFalse(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertEquals(0, h.port.last().saveCount());
         }
@@ -229,7 +229,8 @@ class DashboardTest {
             typeIntoAddLogin(h);
             assertTrue(TuiHarness.boxTexts(dialog).contains(TYPED_PW));
 
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // urls, tags, OK, Cancel
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
+                    KeyType.Enter); // Generate, Show, website, tags, OK, Cancel
 
             assertFalse(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertAllEmpty(dialog);
@@ -314,7 +315,8 @@ class DashboardTest {
             h.type("user\u0085");
             h.press(KeyType.Tab);
             h.type("pw");
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // urls, tags, OK
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
+                    KeyType.Enter); // Generate, Show, website, tags, OK
 
             assertEquals(List.of("Login", "ABCD", "user"),
                     DashboardWindow.row(h.port.last().records().get(3)).subList(0, 3));
@@ -505,7 +507,8 @@ class DashboardTest {
     }
 
     private static void openAddLogin(TuiHarness h) {
-        h.ctrl('n');
+        h.ctrl('n'); // the New item menu, Login first
+        h.press(KeyType.Enter);
     }
 
     private static void typeIntoAddLogin(TuiHarness h) {
@@ -541,7 +544,7 @@ class DashboardTest {
         h.type(user);
         h.press(KeyType.Tab);
         h.type(pw);
-        h.press(KeyType.Tab);
+        h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab); // Generate, Show, website
         h.type("https://gitea.example, https://git.example");
         h.press(KeyType.Tab);
         h.type("dev, work");

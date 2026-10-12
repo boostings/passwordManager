@@ -3,6 +3,8 @@ package pm.cli;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -12,6 +14,7 @@ import pm.crypto.ssh.SshAgentClient;
 import pm.crypto.ssh.SshException;
 import pm.crypto.ssh.SshKey;
 import pm.tui.SshActions;
+import pm.vault.record.SshKeyRecord;
 
 /**
  * The TUI's {@link SshActions}, implemented in {@code pm.cli} so that only this module touches
@@ -63,6 +66,22 @@ final class CliSshActions implements SshActions {
             return Outcome.REMOVED;
         } catch (SshException e) {
             return e.code() == SshException.Code.AGENT_REFUSED ? Outcome.NOT_IN_AGENT : outcome(e.code());
+        }
+    }
+
+    @Override
+    public Imported importKey(String path, String title) {
+        AtomicBoolean shared = new AtomicBoolean();
+        try {
+            SshKeyRecord key = ssh.importFile(path, Optional.of(title.strip()).filter(t -> !t.isEmpty()),
+                    () -> shared.set(true));
+            return new Imported(Optional.of(key), Optional.empty(), shared.get());
+        } catch (SshException e) {
+            return Imported.failed(e.code() == SshException.Code.ENCRYPTED_KEY ? ImportProblem.ENCRYPTED
+                    : ImportProblem.UNSUPPORTED);
+        } catch (UsageException e) {
+            return Imported.failed(e.reason() == Messages.INVALID_RECORD ? ImportProblem.UNSUPPORTED
+                    : ImportProblem.UNREADABLE);
         }
     }
 

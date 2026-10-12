@@ -18,7 +18,7 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +36,7 @@ import pm.vault.record.WifiRecord;
  * search box that filters the record table live through {@link Session#search(String)}, empty
  * states, and a footer of key hints with a toast slot. Only non-secret fields ever reach the
  * table (SR-503, ADR 0008), and each cell passes through {@link DisplaySafe#text(String)} first
- * (SR-501). Shortcuts: Ctrl+N add login, Ctrl+T tools (generator, health, ssh-agent; M4.4),
+ * (SR-501). Shortcuts: Ctrl+N new item (login, Wi-Fi, SSH key; M7.15), Ctrl+T tools (generator, health, ssh-agent; M4.4),
  * Ctrl+S share the selected item, Ctrl+D devices (M3.6), Ctrl+L lock, Esc clears the search; Ctrl+X quits
  * everywhere (see {@link TuiController}).
  */
@@ -45,7 +45,7 @@ final class DashboardWindow {
     static final String BRAND = "◆ pm";
     static final String SEARCH_LABEL = "Search";
     static final List<List<String>> KEY_HINTS = List.of(
-            List.of("↑↓", "select"), List.of("⏎", "open"), List.of("^N", "new login"),
+            List.of("↑↓", "select"), List.of("⏎", "open"), List.of("^N", "new item"),
             List.of("^T", "tools"), List.of("^S", "share"), List.of("^D", "devices"), List.of("^L", "lock"),
             List.of("esc", "clear search"), List.of("^X", "quit"));
     private static final String[] COLUMNS = {"Type", "Title", "Username/SSID", "Updated"};
@@ -65,7 +65,7 @@ final class DashboardWindow {
     private static final Duration TOAST_FADE = Duration.ofMillis(700);
     private static final long FRAME_MILLIS = 40;
     private static final DateTimeFormatter UPDATED_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneOffset.UTC);
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault());
 
     private final TuiController controller;
     private final Session session;
@@ -312,8 +312,8 @@ final class DashboardWindow {
         }
     }
 
-    private void openAddLogin() {
-        controller.showForm(LoginDialog.add(controller, session));
+    private void openNewItem() {
+        controller.show(new NewItemMenu(controller, session).window());
     }
 
     /** Opens the tools menu over the dashboard; SSH actions apply to the selected row (M4.4). */
@@ -331,7 +331,7 @@ final class DashboardWindow {
         public void onInput(Window basePane, KeyStroke key, AtomicBoolean deliverEvent) {
             if (TuiController.isCtrl(key, 'n')) {
                 deliverEvent.set(false);
-                openAddLogin();
+                openNewItem();
             } else if (TuiController.isCtrl(key, 't')) {
                 deliverEvent.set(false);
                 openTools();

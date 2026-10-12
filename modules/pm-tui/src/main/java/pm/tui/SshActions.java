@@ -1,8 +1,11 @@
 package pm.tui;
 
 import java.time.Duration;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import pm.crypto.SecretBytes;
+import pm.vault.record.SshKeyRecord;
 
 /**
  * ssh-agent actions the TUI offers on an SSH key item (plan.md §13 M4.4, ADR 0013). The TUI passes
@@ -48,6 +51,50 @@ public interface SshActions {
 
     /** Removes the identity of the key whose OpenSSH text is {@code privateKey} from the agent. */
     Outcome remove(SecretBytes privateKey);
+
+    /** Why a key file did not become an item. */
+    enum ImportProblem {
+        /** The file is missing, not a regular file, a link, too large or not readable. */
+        UNREADABLE,
+        /** The key is protected by a passphrase. */
+        ENCRYPTED,
+        /** The file is not an unencrypted Ed25519 or ECDSA P-256 OpenSSH private key. */
+        UNSUPPORTED,
+        /** Importing is not available in this build of the UI. */
+        UNAVAILABLE
+    }
+
+    /**
+     * What importing a key file gave: the new item (owned by the caller), or the problem.
+     *
+     * @param key the item, present exactly when {@code problem} is empty
+     * @param problem why there is no item
+     * @param sharedFile whether group or others can read the key file
+     */
+    record Imported(Optional<SshKeyRecord> key, Optional<ImportProblem> problem, boolean sharedFile) {
+        /** Checks that exactly one of {@code key} and {@code problem} is present. */
+        public Imported {
+            Objects.requireNonNull(key, "key");
+            Objects.requireNonNull(problem, "problem");
+            if (key.isPresent() == problem.isPresent()) {
+                throw new IllegalArgumentException("exactly one of key and problem");
+            }
+        }
+
+        /** No item, because of {@code problem}. */
+        public static Imported failed(ImportProblem problem) {
+            return new Imported(Optional.empty(), Optional.of(problem), false);
+        }
+    }
+
+    /**
+     * Reads the OpenSSH private key file at {@code path} ({@code ~/} is the home folder) into a new
+     * SSH key item titled {@code title}, or the key's comment when the title is empty. Nothing is
+     * stored; the caller adds the item to the vault.
+     */
+    default Imported importKey(String path, String title) {
+        return Imported.failed(ImportProblem.UNAVAILABLE);
+    }
 
     /** Where the TUI runs {@link #add} and {@link #remove}: off the GUI thread. Runs inline by default. */
     default Executor executor() {

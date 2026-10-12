@@ -12,16 +12,22 @@ import com.googlecode.lanterna.gui2.Label;
 import com.googlecode.lanterna.gui2.LinearLayout;
 import com.googlecode.lanterna.gui2.Panel;
 import com.googlecode.lanterna.gui2.TextBox;
+import com.googlecode.lanterna.gui2.Container;
 import com.googlecode.lanterna.gui2.Window;
+import com.googlecode.lanterna.gui2.WindowListenerAdapter;
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** The layout every input dialog shares: a label/field grid, then buttons, a notice and a key hint. */
 final class FormLayout {
     static final String OK = "OK";
     static final String CANCEL = "Cancel";
     static final String REQUIRED = " *";
-    static final String HINT = "⇥ next field   esc cancel";
+    static final String HINT = "⏎ next field (saves on the last)   ⇥ next   esc cancel";
     static final int FIELD_COLUMNS = 40;
 
     private static final int GRID_COLUMNS = 2;
@@ -48,7 +54,7 @@ final class FormLayout {
 
     /** Adds {@code label} and {@code field} as one row. */
     static void row(Panel grid, Component label, Component field) {
-        grid.addComponent(label, GridLayout.createLayoutData(GridLayout.Alignment.END, GridLayout.Alignment.CENTER));
+        grid.addComponent(label, GridLayout.createLayoutData(GridLayout.Alignment.BEGINNING, GridLayout.Alignment.CENTER));
         grid.addComponent(field);
     }
 
@@ -76,7 +82,8 @@ final class FormLayout {
 
     /**
      * Sets up {@code window} as a centered modal dialog: the grid, then {@code note} (if not
-     * empty), the buttons, the notice and the hint; Esc runs {@code onEscape}.
+     * empty), the buttons, the notice and the hint; Esc runs {@code onEscape}. Enter moves to the
+     * next field as usual, and in the grid's last text box presses the first button (OK).
      */
     static void dialog(BasicWindow window, PmTheme theme, Panel grid, String note, Notice notice,
             List<Button> buttons, Interactable focus, Runnable onEscape) {
@@ -105,6 +112,30 @@ final class FormLayout {
         window.setComponent(content);
         window.setFocusedInteractable(focus);
         window.addWindowListener(TuiController.closeOnEscape(onEscape));
+        List<TextBox> boxes = new ArrayList<>();
+        collectBoxes(grid, boxes);
+        if (!boxes.isEmpty() && !buttons.isEmpty()) {
+            TextBox last = boxes.get(boxes.size() - 1);
+            Button submit = buttons.get(0);
+            window.addWindowListener(new WindowListenerAdapter() {
+                @Override
+                public void onInput(Window basePane, KeyStroke key, AtomicBoolean deliverEvent) {
+                    if (key.getKeyType() == KeyType.Enter && last.isFocused()) {
+                        deliverEvent.set(false);
+                        basePane.setFocusedInteractable(submit); // a Button takes Enter only when focused
+                        submit.handleInput(key);
+                    }
+                }
+            });
+        }
+    }
+
+    private static void collectBoxes(Component c, List<TextBox> boxes) {
+        if (c instanceof TextBox box) {
+            boxes.add(box);
+        } else if (c instanceof Container container) {
+            container.getChildren().forEach(child -> collectBoxes(child, boxes));
+        }
     }
 
     /**

@@ -1,6 +1,9 @@
 package pm.tui;
 
 import com.googlecode.lanterna.gui2.BasicWindow;
+import com.googlecode.lanterna.gui2.Button;
+import com.googlecode.lanterna.gui2.Direction;
+import com.googlecode.lanterna.gui2.LinearLayout;
 import com.googlecode.lanterna.gui2.Panel;
 import com.googlecode.lanterna.gui2.TextBox;
 import com.googlecode.lanterna.gui2.Window;
@@ -9,8 +12,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import pm.crypto.SecretBoundary;
 import pm.crypto.SecretBytes;
 import pm.crypto.SecretChars;
+import pm.domain.generate.Generated;
+import pm.domain.generate.PasswordGenerator;
+import pm.domain.generate.PasswordPolicy;
 import pm.vault.record.LoginRecord;
 
 /**
@@ -21,12 +28,18 @@ import pm.vault.record.LoginRecord;
  * writes back a field shown with replacement characters (SR-501) only if the user changed it.
  * Failures show a catalogue message only (SR-501). The visible fields refuse control and
  * formatting characters as they are typed, and every box, masked or not, is emptied on OK, Cancel,
- * lock and quit (ADR 0008, SR-504).
+ * lock and quit (ADR 0008, SR-504). Generate fills the password box with a 20-character password
+ * from the generator's defaults and shows it; Show and Hide toggle the mask (M7.15).
  */
 final class LoginDialog implements InputForm {
     static final String TITLE = "Add login";
     static final String EDIT_TITLE = "Edit login";
-    static final String TAGS_LABEL = "Tags (comma-separated):";
+    static final String TAGS_LABEL = "Tags";
+    static final String URLS_LABEL = "Website";
+    static final String GENERATE = "Generate";
+    static final String SHOW = "Show";
+    static final String HIDE = "Hide";
+    static final String LISTS_NOTE = "Separate several websites or tags with commas.";
     static final String KEEP_PASSWORD = "Leave the password empty to keep the current one.";
 
     private static final Pattern COMMA = Pattern.compile(",");
@@ -41,6 +54,7 @@ final class LoginDialog implements InputForm {
     private final TextBox passwordBox = MaskedInput.newBox(FormLayout.FIELD_COLUMNS);
     private final TextBox urlsBox = FormLayout.textBox();
     private final TextBox tagsBox = FormLayout.textBox();
+    private final Button showButton = PmTheme.pill(SHOW, this::toggleShow);
     private final Notice notice;
 
     private LoginDialog(TuiController controller, Session session, Optional<LoginRecord> editing) {
@@ -52,16 +66,21 @@ final class LoginDialog implements InputForm {
         basicWindow = new BasicWindow(editing.isPresent() ? EDIT_TITLE : TITLE);
 
         Panel grid = FormLayout.grid();
-        FormLayout.row(grid, FormLayout.requiredLabel(theme, "Title:"), titleBox);
-        FormLayout.row(grid, FormLayout.label(theme, "Username:"), usernameBox);
-        FormLayout.row(grid, FormLayout.label(theme, editing.isPresent() ? "New password:" : "Password:"), passwordBox);
-        FormLayout.row(grid, FormLayout.label(theme, "URLs (comma-separated):"), urlsBox);
+        FormLayout.row(grid, FormLayout.requiredLabel(theme, "Title"), titleBox);
+        FormLayout.row(grid, FormLayout.label(theme, "Username"), usernameBox);
+        FormLayout.row(grid, FormLayout.label(theme, editing.isPresent() ? "New password" : "Password"), passwordBox);
+        Panel passwordTools = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(1));
+        passwordTools.addComponent(PmTheme.pill(GENERATE, this::fillGenerated));
+        passwordTools.addComponent(showButton);
+        FormLayout.row(grid, FormLayout.label(theme, ""), passwordTools);
+        FormLayout.row(grid, FormLayout.label(theme, URLS_LABEL), urlsBox);
         FormLayout.row(grid, FormLayout.label(theme, TAGS_LABEL), tagsBox);
         FormLayout.visibleTextOnly(() -> notice.error(Messages.UNSAFE_CHARACTER, controller.clock().instant()),
                 titleBox, usernameBox, urlsBox, tagsBox);
         editing.ifPresent(this::fill);
 
-        FormLayout.dialog(basicWindow, theme, grid, editing.isPresent() ? KEEP_PASSWORD : "", notice,
+        FormLayout.dialog(basicWindow, theme, grid, editing.isPresent() ? KEEP_PASSWORD + " " + LISTS_NOTE : LISTS_NOTE,
+                notice,
                 List.of(PmTheme.pill(FormLayout.OK, this::submit), PmTheme.pill(FormLayout.CANCEL, this::dismiss)),
                 titleBox, this::dismiss);
     }
@@ -98,7 +117,34 @@ final class LoginDialog implements InputForm {
         for (TextBox box : List.of(titleBox, usernameBox, passwordBox, urlsBox, tagsBox)) {
             box.setText("");
         }
+        maskPassword();
         notice.clear();
+    }
+
+    /** Fills the password box with a fresh password and shows it. */
+    @SecretBoundary(reason = "Lanterna's TextBox holds text only as String (R-009): the generated password"
+            + " goes into the masked box the user would otherwise type it into, and is drained from"
+            + " there on OK like a typed one")
+    void fillGenerated() {
+        try (Generated generated = PasswordGenerator.secure().generate(PasswordPolicy.defaults())) {
+            generated.secret().withChars(chars -> passwordBox.setText(String.valueOf(chars)));
+        }
+        passwordBox.setMask(null);
+        showButton.setLabel(HIDE);
+    }
+
+    private void toggleShow() {
+        if (passwordBox.getMask() == null) {
+            maskPassword();
+        } else {
+            passwordBox.setMask(null);
+            showButton.setLabel(HIDE);
+        }
+    }
+
+    private void maskPassword() {
+        passwordBox.setMask(MaskedInput.MASK);
+        showButton.setLabel(SHOW);
     }
 
     @Override

@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -100,7 +100,7 @@ final class DevicesWindow implements InputForm {
     private static final int FIELD_COLUMNS = 30;
     private static final String GAP = "  ";
     private static final DateTimeFormatter PAIRED_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneOffset.UTC);
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault());
 
     private final TuiController controller;
     private final Session session;

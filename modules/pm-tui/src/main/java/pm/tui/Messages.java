@@ -19,7 +19,7 @@ final class Messages {
     static final String UNLOCKING = "Unlocking…";
     static final String SAVED = "Login saved";
     static final String EMPTY_VAULT = "Your vault is empty";
-    static final String EMPTY_VAULT_HINT = "Press Ctrl+N to add your first login.";
+    static final String EMPTY_VAULT_HINT = "Press Ctrl+N to add a login, Wi-Fi network or SSH key.";
     static final String NO_MATCHES = "No matches";
     static final String NO_MATCHES_HINT = "Try a shorter search, or press Esc to clear it.";
 
@@ -62,6 +62,22 @@ final class Messages {
     static final String CHANGE_UNKNOWN = "Not known whether it changed: the recovery key opens the vault either way.";
     static final String CHANGE_AUDIT_FAILED = "The passphrase was changed, but its audit log entry could not be"
             + " written.";
+    // M7.15: new item menu, SSH key import.
+    static final String KEY_FILE_REQUIRED = "Enter the path of a private key file.";
+    static final String SSH_KEY_EXISTS = "This key is already in the vault.";
+    static final String SSH_SAVED = "SSH key saved";
+    static final String SSH_SAVED_SHARED_FILE = "SSH key saved. Its file can be read by other users; delete it.";
+
+    /** Why a key file was not imported (SR-501: fixed text only). */
+    static String of(SshActions.ImportProblem problem) {
+        return switch (problem) {
+            case UNREADABLE -> "That file cannot be read: check the path (a link is not followed).";
+            case ENCRYPTED -> "This key has a passphrase. Remove it (ssh-keygen -p) on a copy, then import that.";
+            case UNSUPPORTED -> "Not an Ed25519 or ECDSA P-256 OpenSSH private key.";
+            case UNAVAILABLE -> "Importing keys is not available here.";
+        };
+    }
+
     static final String OLD_BACKUPS = "Earlier .bak files and backups still open with the old passphrase.";
 
     /** After Copy: when the clipboard is cleared (SR-503). */

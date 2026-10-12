@@ -279,7 +279,8 @@ class RecordActionsTest {
             h.press(KeyType.Tab); // title -> username
             h.press(KeyType.End);
             h.type("-renamed");
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // password, urls, tags, OK
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
+                    KeyType.Enter); // password, Generate, Show, website, tags, OK
 
             LoginRecord edited = login(h, "GitHub");
             assertEquals(id, edited.id());
@@ -302,14 +303,14 @@ class RecordActionsTest {
             pressCardButton(h, RecordDetailWindow.EDIT);
             h.press(KeyType.Tab, KeyType.Tab);
             h.type("brand-new-pw");
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
 
             assertTrue(h.screenText().contains(Messages.of(VaultException.Code.STORAGE)), h.screenText());
             assertEquals(FakeVaultPort.LOGIN_SECRET, utf8(login(h, "GitHub").password()));
 
             h.port.last().failSaves(null);
             h.type("brand-new-pw"); // the focus is back on the emptied password box
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
             assertEquals("brand-new-pw", utf8(login(h, "GitHub").password()));
             assertFalse(h.screenText().contains(LoginDialog.EDIT_TITLE));
         }

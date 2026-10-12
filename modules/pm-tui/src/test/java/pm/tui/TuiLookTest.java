@@ -37,6 +37,9 @@ class TuiLookTest {
         try (TuiHarness h = unlocked()) {
             Window dashboard = h.activeWindow();
             h.ctrl('n');
+            assertTrue(h.screenText().contains(NewItemMenu.LOGIN), h.screenText());
+            assertEquals("", TuiHarness.boxTexts(dashboard).get(0));
+            h.press(KeyType.Enter); // Login, the first choice
             assertTrue(h.screenText().contains(LoginDialog.TAGS_LABEL));
             assertEquals("", TuiHarness.boxTexts(dashboard).get(0)); // ^N never typed an "n"
             Window dialog = h.activeWindow();
@@ -135,8 +138,10 @@ class TuiLookTest {
     void savedToastShowsThenFadesAway() throws IOException {
         try (TuiHarness h = unlocked()) {
             h.ctrl('n');
+            h.press(KeyType.Enter); // New item: Login
             h.type("Gitea");
-            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Tab,
+                    KeyType.Enter); // username, password, Generate, Show, website, tags, OK
             h.tick();
             assertTrue(h.screenText().contains(Messages.SAVED), h.screenText());
 

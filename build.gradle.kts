@@ -65,7 +65,8 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform { excludeTags("hardware") }
-        jvmArgs("-XX:+DisableAttachMechanism")
+        // -Duser.timezone: the TUI shows times in the local zone; tests compare them as UTC.
+        jvmArgs("-XX:+DisableAttachMechanism", "-Duser.timezone=UTC")
         systemProperty("pm.canary.secret", "CANARY-7f3a9c2e-DO-NOT-LOG")
     }
 

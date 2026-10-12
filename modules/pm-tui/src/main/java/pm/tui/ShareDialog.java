@@ -15,7 +15,7 @@ import com.googlecode.lanterna.gui2.table.TableModel;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +81,7 @@ final class ShareDialog implements InputForm {
     private static final int TTL_COLUMNS = 8;
     private static final Duration POLL = Duration.ofMillis(100);
     private static final DateTimeFormatter TIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT).withZone(ZoneOffset.UTC);
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT).withZone(ZoneId.systemDefault());
 
     private final TuiController controller;
     private final Session session;

@@ -25,9 +25,17 @@ has no tty driver, so they could not catch it.
     This Mac's Wi-Fi address is 100.70.68.69 (RFC 6598, as campus networks hand out), and the default
     listen address took only RFC 1918, so pm fell back to loopback and another machine could never
     connect; it now takes 100.64.0.0/10 after RFC 1918. Wording and layout issues go to D4.
-- [ ] **D3** Adding more than logins: Ctrl+N opens a "New item" chooser with Login, Wi-Fi network,
+- [x] **D3** Adding more than logins: Ctrl+N opens a "New item" chooser with Login, Wi-Fi network,
   SSH key (import a key file through the CLI's ssh port, SR-060) and Passkey (explains that sites create
   passkeys through the browser extension). Accept: each type added in the pty; tests green.
+  - Result: Ctrl+N menu: Login, Wi-Fi, SSH key (import through `SshActions.importKey`, implemented by
+    `CliSshActions` over `pm ssh import`'s reader), Passkey and Project secrets (both explain: v1 has
+    no passkeys, ADR 0016 addendum; projects come from `pm env import`). In the pty: login (with
+    Generate), Wi-Fi, SSH key added; missing, passphrase-protected and duplicate keys refused with
+    their own message. Found by driving and fixed: Ctrl+letter typed its letter into form boxes;
+    Enter in a form's last field did nothing (a Lanterna Button takes Enter only when focused);
+    the prefilled key path put the caret at its start; times showed in UTC. Login form: Generate,
+    Show/Hide, short left-aligned labels. Tests: NewItemTest (6), CLI import test.
 - [ ] **D4** UI polish from the walkthrough: item card (Copy first, Share), add/edit login (generate and
   show password), Devices and Share windows (layout, plain wording), dashboard footer and header.
   Accept: every screen re-captured and reviewed.
