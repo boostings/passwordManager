@@ -7,6 +7,7 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -26,6 +27,9 @@ public final class LanAddress {
     private static final Pattern WINDOW = Pattern.compile("([1-9]\\d{0,4})([smh])");
     private static final int MAX_OCTET = 255;
     private static final int MAX_PORT = 65_535;
+    private static final byte SHARED_FIRST_OCTET = 100;
+    private static final int SHARED_MASK = 0xC0;
+    private static final int SHARED_SECOND_BITS = 0x40;
 
     private LanAddress() {
     }
@@ -100,25 +104,31 @@ public final class LanAddress {
     }
 
     /**
-     * Where to listen when the user names nothing: the first private (site-local) IPv4 address of
-     * an interface that is up and not loopback, otherwise loopback. Never a wildcard address.
+     * Where to listen when the user names nothing: the first private IPv4 address of an interface
+     * that is up and not loopback, otherwise loopback. Never a wildcard address. RFC 1918 addresses
+     * come first, then the RFC 6598 shared space (100.64.0.0/10) that campus and carrier networks
+     * hand out; neither is routed on the internet.
      */
     public static InetAddress defaultBind() {
         try {
-            List<NetworkInterface> interfaces = Collections.list(NetworkInterface.getNetworkInterfaces());
-            for (NetworkInterface nif : interfaces) {
+            List<InetAddress> candidates = new ArrayList<>();
+            for (NetworkInterface nif : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 if (nif.isUp() && !nif.isLoopback()) {
-                    for (InetAddress a : Collections.list(nif.getInetAddresses())) {
-                        if (a instanceof Inet4Address && a.isSiteLocalAddress()) {
-                            return a;
-                        }
-                    }
+                    candidates.addAll(Collections.list(nif.getInetAddresses()));
                 }
             }
+            return candidates.stream().filter(a -> a instanceof Inet4Address && a.isSiteLocalAddress()).findFirst()
+                    .or(() -> candidates.stream().filter(LanAddress::isSharedSpace).findFirst())
+                    .orElse(InetAddress.getLoopbackAddress());
         } catch (SocketException e) {
             return InetAddress.getLoopbackAddress();
         }
-        return InetAddress.getLoopbackAddress();
+    }
+
+    /** Whether {@code a} is in the RFC 6598 shared address space, 100.64.0.0/10. */
+    public static boolean isSharedSpace(InetAddress a) {
+        byte[] b = a.getAddress();
+        return a instanceof Inet4Address && b[0] == SHARED_FIRST_OCTET && (b[1] & SHARED_MASK) == SHARED_SECOND_BITS;
     }
 
     /** {@code address:port} as the other device types it. */

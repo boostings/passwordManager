@@ -19,8 +19,12 @@ has no tty driver, so they could not catch it.
   - Result: RawTerminal (pm-cli) adds `-ixon`; in the pty IXON is off while pm runs and back on after quit,
     and ^S opens Share. Card: Copy first and focused, Share button, c/r/e/s/d letters and ^S. pm rm now
     checks remove's result (SpotBugs RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT appeared with the new class).
-- [ ] **D2** Share between two paired devices end to end (two vaults, two ptys): pair, send a login,
+- [x] **D2** Share between two paired devices end to end (two vaults, two ptys): pair, send a login,
   receive it, see it on the other dashboard. Fix whatever breaks. Accept: the item arrives.
+  - Result: pair, Send to device, Approve, Receive, Yes: GitHub arrives on the empty vault (0 to 1 item).
+    This Mac's Wi-Fi address is 100.70.68.69 (RFC 6598, as campus networks hand out), and the default
+    listen address took only RFC 1918, so pm fell back to loopback and another machine could never
+    connect; it now takes 100.64.0.0/10 after RFC 1918. Wording and layout issues go to D4.
 - [ ] **D3** Adding more than logins: Ctrl+N opens a "New item" chooser with Login, Wi-Fi network,
   SSH key (import a key file through the CLI's ssh port, SR-060) and Passkey (explains that sites create
   passkeys through the browser extension). Accept: each type added in the pty; tests green.

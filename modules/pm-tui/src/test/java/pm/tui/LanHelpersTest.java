@@ -75,6 +75,24 @@ class LanHelpersTest {
     }
 
     @Test
+    void campusAndCarrierAddressesCountAsPrivate() throws java.net.UnknownHostException {
+        for (int[] ip : new int[][] {{100, 64, 0, 1}, {100, 70, 68, 69}, {100, 127, 255, 254}}) {
+            assertTrue(LanAddress.isSharedSpace(InetAddress.getByAddress(bytes(ip))), java.util.Arrays.toString(ip));
+        }
+        for (int[] ip : new int[][] {{100, 63, 255, 255}, {100, 128, 0, 1}, {8, 8, 8, 8}, {192, 168, 1, 2}}) {
+            assertFalse(LanAddress.isSharedSpace(InetAddress.getByAddress(bytes(ip))), java.util.Arrays.toString(ip));
+        }
+    }
+
+    private static byte[] bytes(int... octets) {
+        byte[] b = new byte[octets.length];
+        for (int i = 0; i < b.length; i++) {
+            b[i] = (byte) octets[i];
+        }
+        return b;
+    }
+
+    @Test
     void windowsAreBoundedToADay() throws LanException {
         assertEquals(Duration.ofSeconds(90), LanAddress.ttl("90s"));
         assertEquals(Duration.ofMinutes(10), LanAddress.ttl("10m"));

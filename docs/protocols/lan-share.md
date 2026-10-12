@@ -239,7 +239,10 @@ these secrets" checklist built from audit entries `kind=share` with that
   exists is added beside it under a fresh id (nothing is overwritten); a project whose title exists
   is refused.
 - **Bind address.** `--bind` must be an address of a local interface or loopback; the wildcard
-  addresses `0.0.0.0` and `::` and addresses of other machines are refused.
+  addresses `0.0.0.0` and `::` and addresses of other machines are refused. Without `--bind` (and
+  always in the TUI) pm listens on the first private IPv4 address of an interface that is up: an
+  RFC 1918 address if there is one, otherwise one in the RFC 6598 shared space `100.64.0.0/10` that
+  campus and carrier networks hand out, otherwise loopback (only the same machine can connect).
 - **TUI.** Ctrl+D opens the Devices screen (pair here, pair with address, receive, remove), Ctrl+S the
   Share dialog for the selected item (to a paired device or a browser link, with Approve/Deny). Network
   steps run on worker threads; vault access and questions run on the GUI thread; a question that is
