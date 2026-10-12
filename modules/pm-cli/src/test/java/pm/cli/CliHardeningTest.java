@@ -300,8 +300,22 @@ class CliHardeningTest {
         FakeConsoleIo io = new FakeConsoleIo();
 
         assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort(), "list", "--", "--vault", "x.pmv"));
-        assertEquals(Messages.WRONG_ARG_COUNT.text(), io.errText().strip());
+        assertEquals(Messages.WRONG_ARG_COUNT.text(), io.errText().lines().findFirst().orElse(""));
+        assertTrue(io.errText().contains("usage: pm list"), io::errText); // what the command takes
         assertTrue(opened.isEmpty());
+    }
+
+    @Test
+    void aMissingArgumentShowsWhatTheCommandTakes() {
+        FakeConsoleIo io = new FakeConsoleIo();
+        assertEquals(ExitCodes.USAGE, run(io, new FakeVaultPort(), "env", "import"));
+        assertTrue(io.errText().contains("usage: pm env import <file>"), io::errText);
+        assertTrue(io.errText().contains("pm env --help"), io::errText);
+
+        FakeConsoleIo bare = new FakeConsoleIo();
+        assertEquals(ExitCodes.USAGE, run(bare, new FakeVaultPort(), "env"));
+        assertTrue(bare.errText().contains("usage: pm env import <file>"), bare::errText);
+        assertTrue(bare.errText().contains("usage: pm env run"), bare::errText);
     }
 
     @Test

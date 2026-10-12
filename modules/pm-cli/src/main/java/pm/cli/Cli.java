@@ -296,17 +296,30 @@ final class Cli {
         if (parsesOwnArgs(word) && asksForHelp(rest)) {
             return help(helpTarget(word, rest), io);
         }
-        Command command = Command.resolve(word, rest);
-        if (command.topLevelOperands() && rest.size() != command.arity()) {
-            throw new UsageException(Messages.WRONG_ARG_COUNT);
+        List<Command> named = Command.named(word);
+        try {
+            Command command = Command.resolve(word, rest);
+            named = List.of(command);
+            if (command.topLevelOperands() && rest.size() != command.arity()) {
+                throw new UsageException(Messages.WRONG_ARG_COUNT);
+            }
+            if (command == Command.HELP) {
+                return help(rest, io);
+            }
+            if (command != Command.GENERATE && command.area() != Command.Area.BROWSER) {
+                requireTerminal(terminal);
+            }
+            return run(command, rest, vaultPath(vaultArg), io, opener);
+        } catch (UsageException e) {
+            if (e.reason() != Messages.WRONG_ARG_COUNT) {
+                throw e;
+            }
+            // Say what the command takes, not only that the count was wrong.
+            io.err().println(e.text());
+            named.forEach(c -> io.err().println(c.help().lines().findFirst().orElse("")));
+            io.err().println("Run pm " + word + " --help for details.");
+            return ExitCodes.USAGE;
         }
-        if (command == Command.HELP) {
-            return help(rest, io);
-        }
-        if (command != Command.GENERATE && command.area() != Command.Area.BROWSER) {
-            requireTerminal(terminal);
-        }
-        return run(command, rest, vaultPath(vaultArg), io, opener);
     }
 
     /** Runs a resolved command: one case per {@link Command} entry, so every entry is dispatched. */
