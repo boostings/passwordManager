@@ -9,12 +9,16 @@ import com.googlecode.lanterna.gui2.Label;
 import com.googlecode.lanterna.gui2.LinearLayout;
 import com.googlecode.lanterna.gui2.Panel;
 import com.googlecode.lanterna.gui2.Window;
+import com.googlecode.lanterna.gui2.WindowListenerAdapter;
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import pm.crypto.SecretBoundary;
 import pm.crypto.SecretBytes;
 import pm.vault.record.LoginRecord;
@@ -29,8 +33,9 @@ import pm.vault.record.WifiRecord;
  * network's password can be revealed for {@link #REVEAL_FOR}, after which it is masked again, as it
  * is on Hide, Close, lock and quit; a password with control or invisible characters is never
  * revealed (m77-004). Copy puts it on the clipboard, which {@link ClipboardGuard} clears again.
- * Edit (logins and Wi-Fi networks) and Delete (any item) open their own dialogs. The window title
- * and every label pass through {@link DisplaySafe#text(String)} (SR-501).
+ * Edit (logins and Wi-Fi networks), Share and Delete (any item) open their own dialogs. Each button
+ * also answers to its first letter, and Ctrl+S shares, as on the dashboard. The window title and
+ * every label pass through {@link DisplaySafe#text(String)} (SR-501).
  */
 final class RecordDetailWindow implements InputForm {
     static final String CLOSE = "Close";
@@ -39,7 +44,9 @@ final class RecordDetailWindow implements InputForm {
     static final String COPY = "Copy";
     static final String EDIT = "Edit";
     static final String DELETE = "Delete";
-    static final String HINT = "⇥ next button   esc close";
+    static final String SHARE = "Share";
+    static final String HINT_SECRET = "c copy   r reveal   e edit   s share   d delete   esc close";
+    static final String HINT = "s share   d delete   esc close";
     /** How long a revealed password stays on screen. */
     static final Duration REVEAL_FOR = Duration.ofSeconds(15);
 
@@ -82,26 +89,30 @@ final class RecordDetailWindow implements InputForm {
             grid.addComponent(value);
         }
         Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(2));
+        Button close = PmTheme.pill(CLOSE, this::closeCard);
+        Button first = close;
         if (secret().isPresent()) {
+            first = PmTheme.pill(COPY, this::copyPassword);
+            buttons.addComponent(first);
             buttons.addComponent(revealButton);
-            buttons.addComponent(PmTheme.pill(COPY, this::copyPassword));
             buttons.addComponent(PmTheme.pill(EDIT, this::openEdit));
         }
+        buttons.addComponent(PmTheme.pill(SHARE, this::openShare));
         buttons.addComponent(PmTheme.pill(DELETE, this::askDelete));
-        Button close = PmTheme.pill(CLOSE, this::closeCard);
         buttons.addComponent(close);
         grid.addComponent(new EmptySpace(), GridLayout.createHorizontallyFilledLayoutData(GRID_COLUMNS));
         grid.addComponent(buttons, GridLayout.createLayoutData(GridLayout.Alignment.END,
                 GridLayout.Alignment.CENTER, true, false, GRID_COLUMNS, 1));
         grid.addComponent(notice.label(), GridLayout.createHorizontallyFilledLayoutData(GRID_COLUMNS));
-        grid.addComponent(UnlockWindow.dim(theme, HINT), GridLayout.createLayoutData(GridLayout.Alignment.END,
+        grid.addComponent(UnlockWindow.dim(theme, secret().isPresent() ? HINT_SECRET : HINT), GridLayout.createLayoutData(GridLayout.Alignment.END,
                 GridLayout.Alignment.CENTER, true, false, GRID_COLUMNS, 1));
 
         basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
         basicWindow.setComponent(grid);
-        basicWindow.setFocusedInteractable(close);
+        basicWindow.setFocusedInteractable(first);
         basicWindow.addWindowListener(TuiController.closeOnEscape(this::closeCard));
+        basicWindow.addWindowListener(new Letters());
     }
 
     /** The Lanterna window. */
@@ -207,6 +218,11 @@ final class RecordDetailWindow implements InputForm {
         controller.openEdit(shownRecord);
     }
 
+    private void openShare() {
+        closeCard();
+        controller.openShare(shownRecord);
+    }
+
     /** The card closes as soon as the item is out of the session: its secrets are closed then. */
     private void askDelete() {
         controller.openDelete(shownRecord, this::closeCard);
@@ -215,6 +231,34 @@ final class RecordDetailWindow implements InputForm {
     private void closeCard() {
         clearInputs();
         basicWindow.close();
+    }
+
+    /** Letter shortcuts for the buttons; the card has no text box, so no letter is ever typed. */
+    private final class Letters extends WindowListenerAdapter {
+        @Override
+        public void onInput(Window basePane, KeyStroke key, AtomicBoolean deliverEvent) {
+            if (TuiController.isCtrl(key, 's')) {
+                deliverEvent.set(false);
+                openShare();
+                return;
+            }
+            if (key.getKeyType() != KeyType.Character || key.isCtrlDown() || key.isAltDown()) {
+                return;
+            }
+            boolean secret = secret().isPresent();
+            Runnable action = switch (Character.toLowerCase(key.getCharacter())) {
+                case 'c' -> secret ? RecordDetailWindow.this::copyPassword : null;
+                case 'r' -> secret ? RecordDetailWindow.this::toggleReveal : null;
+                case 'e' -> secret ? RecordDetailWindow.this::openEdit : null;
+                case 's' -> RecordDetailWindow.this::openShare;
+                case 'd' -> RecordDetailWindow.this::askDelete;
+                default -> null;
+            };
+            if (action != null) {
+                deliverEvent.set(false);
+                action.run();
+            }
+        }
     }
 
     /** The value cell: masked secrets recede, the type gets its color, the rest is plain text. */

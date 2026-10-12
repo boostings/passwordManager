@@ -582,11 +582,17 @@ final class Cli {
         try (ApprovalHost host = ApprovalHost.socketFor(vaultPath, Env.system(), Clock.systemUTC(),
                         Objects.requireNonNull(System.getProperty("user.name"), "user.name"),
                         isDefaultVault(vaultPath, System::getProperty));
-                Terminal terminal = factory.createTerminal()) {
+                Terminal terminal = newTerminal(factory)) {
             SshCommands ssh = new SshCommands(System::getProperty, Clock.systemUTC(), Env.system());
             new TuiApp(port, TuiApp.DEFAULT_IDLE_LOCK, host, new CliSshActions(ssh, vaultPath),
                     CliClipboard.forSystem(System::getProperty), CliClipboard.clearAfter(Env.system())).run(terminal);
         }
+    }
+
+    /** {@link RawTerminal} on macOS and Linux, so Ctrl+S reaches the app; Lanterna's own on Windows. */
+    private static Terminal newTerminal(DefaultTerminalFactory factory) throws IOException {
+        return VaultPaths.isWindows(System::getProperty) ? factory.createTerminal()
+                : new RawTerminal(System.in, System.out, StandardCharsets.UTF_8);
     }
 
     /**

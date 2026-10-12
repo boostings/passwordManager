@@ -444,7 +444,9 @@ final class RecordCommands {
                 io.err().println(Messages.RM_CANCELLED.text());
                 return ExitCodes.DENIED;
             }
-            session.remove(id); // closes the record (ADR 0008); it was just found, so it is there
+            if (!session.remove(id)) { // closes the record (ADR 0008); it was just found, so it is there
+                throw new UsageException(Messages.NO_SUCH_RECORD);
+            }
             session.save();
             io.out().println(Messages.REMOVED.text() + id);
         }

@@ -36,6 +36,12 @@ final class VaultPaths {
         return os.startsWith(MAC_PREFIX) || os.startsWith(DARWIN_PREFIX);
     }
 
+    /** Whether {@code os.name} names Windows. */
+    static boolean isWindows(UnaryOperator<String> properties) {
+        return Objects.requireNonNullElse(properties.apply(OS_NAME), "").toLowerCase(Locale.ROOT)
+                .startsWith(WINDOWS_PREFIX);
+    }
+
     /**
      * Default vault file: macOS {@code ~/Library/Application Support/pm/vault.pmv}, Windows
      * {@code ~\AppData\Roaming\pm\vault.pmv}, otherwise {@code ~/.local/share/pm/vault.pmv}.
@@ -47,12 +53,11 @@ final class VaultPaths {
         if (home == null || home.isBlank()) {
             throw new UsageException(Messages.NO_HOME_DIR);
         }
-        String os = Objects.requireNonNullElse(properties.apply(OS_NAME), "").toLowerCase(Locale.ROOT);
         Path base = toPath(home, Messages.NO_HOME_DIR);
         Path dataDir;
         if (isMac(properties)) {
             dataDir = base.resolve("Library").resolve("Application Support");
-        } else if (os.startsWith(WINDOWS_PREFIX)) {
+        } else if (isWindows(properties)) {
             dataDir = base.resolve("AppData").resolve("Roaming");
         } else {
             dataDir = base.resolve(".local").resolve("share");

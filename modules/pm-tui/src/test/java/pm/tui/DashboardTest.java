@@ -343,7 +343,7 @@ class DashboardTest {
             assertTrue(screen.contains("https://github.com"));
             assertFalse(screen.contains(FakeVaultPort.LOGIN_SECRET));
 
-            h.press(KeyType.Enter); // Close
+            h.press(KeyType.Escape); // close
             assertFalse(h.screenText().contains(Messages.SECRET_MASK));
         }
     }

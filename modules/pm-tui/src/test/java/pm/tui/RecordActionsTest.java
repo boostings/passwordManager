@@ -79,20 +79,20 @@ class RecordActionsTest {
         }
     }
 
-    /** Unlocks and opens the first row's card (the GitHub login); Close has the focus. */
+    /** Unlocks and opens the first row's card (the GitHub login); Copy has the focus. */
     private static void openGitHub(TuiHarness h) {
         h.unlockWith(CANARY);
         h.press(KeyType.Tab, KeyType.Enter);
         assertTrue(h.screenText().contains(RecordDetailWindow.REVEAL), h.screenText());
     }
 
-    /** From Close: Tab wraps to Reveal, then Copy, then Edit; Shift+Tab goes to Delete. */
+    /** From Copy: Tab goes to Reveal, then Edit; Shift+Tab wraps to Close, then Delete. */
     private static void pressCardButton(TuiHarness h, String button) {
         switch (button) {
             case RecordDetailWindow.REVEAL -> h.press(KeyType.Tab, KeyType.Enter);
-            case RecordDetailWindow.COPY -> h.press(KeyType.Tab, KeyType.Tab, KeyType.Enter);
-            case RecordDetailWindow.EDIT -> h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter);
-            case RecordDetailWindow.DELETE -> h.press(KeyType.ReverseTab, KeyType.Enter);
+            case RecordDetailWindow.COPY -> h.press(KeyType.Enter);
+            case RecordDetailWindow.EDIT -> h.press(KeyType.Tab, KeyType.Tab, KeyType.Enter);
+            case RecordDetailWindow.DELETE -> h.press(KeyType.ReverseTab, KeyType.ReverseTab, KeyType.Enter);
             default -> throw new IllegalArgumentException(button);
         }
     }
@@ -470,6 +470,39 @@ class RecordActionsTest {
             h.type("no such item");
             h.ctrl('s');
             assertToast(h, Messages.SELECT_ITEM);
+        }
+    }
+
+    @Test
+    void theCardSharesThroughItsButtonItsLetterAndCtrlS() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            openGitHub(h);
+            assertTrue(h.screenText().contains(RecordDetailWindow.SHARE), h.screenText());
+            h.press(KeyType.Tab, KeyType.Tab, KeyType.Tab, KeyType.Enter); // Copy, Reveal, Edit, Share
+            assertTrue(h.screenText().contains(ShareDialog.ITEM + "login: GitHub"), h.screenText());
+            h.press(KeyType.Escape);
+            h.press(KeyType.Enter);
+            h.type("s");
+            assertTrue(h.screenText().contains(ShareDialog.ITEM + "login: GitHub"), h.screenText());
+            h.press(KeyType.Escape);
+            h.press(KeyType.Enter);
+            h.ctrl('s');
+            assertTrue(h.screenText().contains(ShareDialog.ITEM + "login: GitHub"), h.screenText());
+        }
+    }
+
+    @Test
+    void cardLettersCopyAndRevealWithoutTypingAnywhere() throws IOException {
+        FakeClipboard clipboard = new FakeClipboard();
+        try (TuiHarness h = new TuiHarness(newPort(), clipboard)) {
+            openGitHub(h);
+            h.type("c");
+            assertEquals(FakeVaultPort.LOGIN_SECRET, clipboard.text());
+            h.type("r");
+            assertTrue(h.screenText().contains(FakeVaultPort.LOGIN_SECRET), h.screenText());
+            h.type("r");
+            assertFalse(h.screenText().contains(FakeVaultPort.LOGIN_SECRET), h.screenText());
+            assertTrue(h.screenText().contains(RecordDetailWindow.HINT_SECRET), h.screenText());
         }
     }
 
