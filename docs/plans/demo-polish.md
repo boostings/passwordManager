@@ -36,8 +36,14 @@ has no tty driver, so they could not catch it.
     Enter in a form's last field did nothing (a Lanterna Button takes Enter only when focused);
     the prefilled key path put the caret at its start; times showed in UTC. Login form: Generate,
     Show/Hide, short left-aligned labels. Tests: NewItemTest (6), CLI import test.
-- [ ] **D4** UI polish from the walkthrough: item card (Copy first, Share), add/edit login (generate and
+- [x] **D4** UI polish from the walkthrough: item card (Copy first, Share), add/edit login (generate and
   show password), Devices and Share windows (layout, plain wording), dashboard footer and header.
   Accept: every screen re-captured and reviewed.
+  - Result: pair, send, approve and receive re-driven in two ptys on fresh vaults, and dashboard,
+    card, Tools, New item, Share and Devices captured at 80x24. Devices and Share: padded, fixed
+    width, wrapped text, "Start pairing" / "Join pairing", each step says what to do on the other
+    device, "10 minutes" instead of PT10M, no share id, no empty device table. Found and fixed:
+    Enter in Search did not open the highlighted item; the footer ran past 80 columns (cut before
+    quit); the card's label column took half the width. Header browser note dimmed, Tools padded.
 - [ ] **D5** Full gate, README key table and user guide, final walkthrough of the demo path. Accept:
   gate green with output reported.

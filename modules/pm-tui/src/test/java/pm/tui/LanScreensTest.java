@@ -56,6 +56,13 @@ class LanScreensTest {
     }
 
     @Test
+    void shareTimesReadAsWords() {
+        assertEquals("10 minutes", ShareDialog.words(Duration.ofMinutes(10)));
+        assertEquals("1 hour 30 minutes", ShareDialog.words(Duration.ofMinutes(90)));
+        assertEquals("1 second", ShareDialog.words(Duration.ofSeconds(1)));
+    }
+
+    @Test
     void ctrlDOpensDevicesAndCtrlSSharesTheSelectedItem() {
         alice.ctrl('d');
         DevicesWindow devices = alice.controller.shownForm(DevicesWindow.class);

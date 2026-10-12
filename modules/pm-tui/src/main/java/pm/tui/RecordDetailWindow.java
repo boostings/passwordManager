@@ -76,17 +76,18 @@ final class RecordDetailWindow implements InputForm {
         layout.setLeftMarginSize(SIDE_MARGIN);
         layout.setRightMarginSize(SIDE_MARGIN);
         layout.setTopMarginSize(1);
-        layout.setBottomMarginSize(1);
         Panel grid = new Panel(layout);
         for (List<String> field : fields(shownRecord)) {
             Label name = UnlockWindow.dim(theme, DisplaySafe.text(field.get(0)));
             grid.addComponent(name, GridLayout.createLayoutData(
-                    GridLayout.Alignment.END, GridLayout.Alignment.BEGINNING));
+                    GridLayout.Alignment.BEGINNING, GridLayout.Alignment.BEGINNING));
             Label value = value(theme, field);
             if (PASSWORD_LABEL.equals(field.get(0))) {
                 secretCells.add(value);
             }
-            grid.addComponent(value);
+            // The values take the spare width, so the labels sit right beside them.
+            grid.addComponent(value, GridLayout.createLayoutData(
+                    GridLayout.Alignment.BEGINNING, GridLayout.Alignment.BEGINNING, true, false));
         }
         Panel buttons = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(2));
         Button close = PmTheme.pill(CLOSE, this::closeCard);
@@ -100,16 +101,24 @@ final class RecordDetailWindow implements InputForm {
         buttons.addComponent(PmTheme.pill(SHARE, this::openShare));
         buttons.addComponent(PmTheme.pill(DELETE, this::askDelete));
         buttons.addComponent(close);
-        grid.addComponent(new EmptySpace(), GridLayout.createHorizontallyFilledLayoutData(GRID_COLUMNS));
-        grid.addComponent(buttons, GridLayout.createLayoutData(GridLayout.Alignment.END,
-                GridLayout.Alignment.CENTER, true, false, GRID_COLUMNS, 1));
-        grid.addComponent(notice.label(), GridLayout.createHorizontallyFilledLayoutData(GRID_COLUMNS));
-        grid.addComponent(UnlockWindow.dim(theme, secret().isPresent() ? HINT_SECRET : HINT), GridLayout.createLayoutData(GridLayout.Alignment.END,
-                GridLayout.Alignment.CENTER, true, false, GRID_COLUMNS, 1));
+        // Buttons and hints sit below the field grid, not in it, so their width never widens the label column.
+        GridLayout footerLayout = new GridLayout(1);
+        footerLayout.setLeftMarginSize(SIDE_MARGIN);
+        footerLayout.setRightMarginSize(SIDE_MARGIN);
+        footerLayout.setBottomMarginSize(1);
+        Panel footer = new Panel(footerLayout);
+        footer.addComponent(buttons, GridLayout.createLayoutData(GridLayout.Alignment.END,
+                GridLayout.Alignment.CENTER, true, false));
+        footer.addComponent(notice.label(), GridLayout.createHorizontallyFilledLayoutData(1));
+        footer.addComponent(UnlockWindow.dim(theme, secret().isPresent() ? HINT_SECRET : HINT),
+                GridLayout.createLayoutData(GridLayout.Alignment.END, GridLayout.Alignment.CENTER, true, false));
+        Panel card = new Panel(new LinearLayout(Direction.VERTICAL).setSpacing(1));
+        card.addComponent(grid);
+        card.addComponent(footer, LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
 
         basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
-        basicWindow.setComponent(grid);
+        basicWindow.setComponent(card);
         basicWindow.setFocusedInteractable(first);
         basicWindow.addWindowListener(TuiController.closeOnEscape(this::closeCard));
         basicWindow.addWindowListener(new Letters());

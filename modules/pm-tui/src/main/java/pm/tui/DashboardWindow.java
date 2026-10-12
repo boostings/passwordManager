@@ -45,9 +45,9 @@ final class DashboardWindow {
     static final String BRAND = "◆ pm";
     static final String SEARCH_LABEL = "Search";
     static final List<List<String>> KEY_HINTS = List.of(
-            List.of("↑↓", "select"), List.of("⏎", "open"), List.of("^N", "new item"),
-            List.of("^T", "tools"), List.of("^S", "share"), List.of("^D", "devices"), List.of("^L", "lock"),
-            List.of("esc", "clear search"), List.of("^X", "quit"));
+            // Fits 80 columns; the arrows that select need no hint.
+            List.of("⏎", "open"), List.of("^N", "new"), List.of("^S", "share"), List.of("^D", "devices"),
+            List.of("^T", "tools"), List.of("^L", "lock"), List.of("^X", "quit"), List.of("esc", "clear"));
     private static final String[] COLUMNS = {"Type", "Title", "Username/SSID", "Updated"};
     private static final String SEPARATOR = "  ·  ";
     private static final String CHECK = "✓ ";
@@ -223,7 +223,7 @@ final class DashboardWindow {
         // Why the browser extension is not served here (ADR 0014 §8), if it is not.
         controller.host().browserNote().ifPresent(note -> {
             spans.add(Strip.Span.of(SEPARATOR, theme.color(PmTheme.Tone.BORDER)));
-            spans.add(Strip.Span.of(note, theme.color(PmTheme.Tone.AMBER)));
+            spans.add(Strip.Span.of(note, theme.color(PmTheme.Tone.MUTED)));
         });
         return spans;
     }
@@ -249,7 +249,7 @@ final class DashboardWindow {
         List<Strip.Span> spans = new ArrayList<>();
         for (List<String> hint : KEY_HINTS) {
             if (!spans.isEmpty()) {
-                spans.add(Strip.Span.of("   ", theme.color(PmTheme.Tone.DIM)));
+                spans.add(Strip.Span.of("  ", theme.color(PmTheme.Tone.DIM)));
             }
             spans.add(Strip.Span.bold(hint.get(0), theme.color(PmTheme.Tone.CYAN)));
             spans.add(Strip.Span.of(" " + hint.get(1), theme.color(PmTheme.Tone.DIM)));
@@ -349,6 +349,9 @@ final class DashboardWindow {
             } else if (TuiController.isCtrl(key, 'l')) {
                 deliverEvent.set(false);
                 controller.lock();
+            } else if (key.getKeyType() == KeyType.Enter && searchBox.isFocused()) {
+                deliverEvent.set(false); // Enter in Search opens the highlighted item, as the footer says
+                openSelected();
             } else if (key.getKeyType() == KeyType.Escape) {
                 deliverEvent.set(false);
                 searchBox.setText("");

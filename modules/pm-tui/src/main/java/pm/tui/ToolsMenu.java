@@ -54,7 +54,7 @@ final class ToolsMenu {
 
         basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
-        basicWindow.setComponent(content);
+        basicWindow.setComponent(Padded.of(content));
         basicWindow.setFocusedInteractable(first);
         basicWindow.addWindowListener(TuiController.closeOnEscape(basicWindow::close));
     }

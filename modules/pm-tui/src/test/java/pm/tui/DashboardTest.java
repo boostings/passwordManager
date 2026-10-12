@@ -43,6 +43,15 @@ class DashboardTest {
     }
 
     @Test
+    void enterInSearchOpensTheHighlightedItem() throws IOException {
+        try (TuiHarness h = new TuiHarness(newPort())) {
+            h.unlockWith(CANARY); // focus is in Search
+            h.press(KeyType.Enter);
+            assertTrue(h.screenText().contains(RecordDetailWindow.EDIT), h::screenText);
+        }
+    }
+
+    @Test
     void rightPassphraseShowsDashboard() throws IOException {
         try (TuiHarness h = new TuiHarness(newPort())) {
             assertTrue(h.screenText().contains(UnlockWindow.TITLE));

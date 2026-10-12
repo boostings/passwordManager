@@ -52,36 +52,37 @@ final class ShareDialog implements InputForm {
     static final String DENY = "Deny";
     static final String REVOKE_BUTTON = "Revoke";
     static final String CLOSE = "Close";
-    static final String TTL_LABEL = "Window (e.g. 10m):";
+    static final String TTL_LABEL = "Keep open for (such as 10m or 1h):";
     static final String HINT = "⇥ next   esc close (revokes an open window)";
-    static final String ITEM = "Item: ";
+    static final String ITEM = "Sharing ";
     static final String NO_DEVICES = "No paired devices: pair one on the Devices screen (Ctrl+D), or use a browser link.";
-    static final String ASK_DEVICE = "Share %s with %s (%s) for %s?";
-    static final String ASK_BROWSER = "Share %s as a browser link for %s?";
-    static final String OPEN = "Open. On the other device choose Receive with ";
-    static final String SHARE_ID = "Share id: ";
-    static final String CLOSES = "Closes at ";
+    static final String ASK_DEVICE = "Send %s to %s (%s)? It can be received for %s.";
+    static final String ASK_BROWSER = "Share %s as a browser link? It can be opened for %s.";
+    static final String OPEN = "Ready. On the other device open Devices (Ctrl+D), type this address and choose"
+            + " Receive: ";
+    static final String CLOSES = "Stays open until ";
     static final String URL = "Link (holds the key; give it only to the recipient): ";
     static final String FINGERPRINT = "Certificate SHA-256 for the recipient to compare: ";
-    static final String DELIVERED = "Delivered; the window is closed.";
-    static final String EXPIRED = "The window expired; nothing was sent.";
+    static final String DELIVERED = "Delivered. The other device has it.";
+    static final String EXPIRED = "Time ran out; nothing was sent.";
     static final String REVOKED = "Revoked; nothing more will be sent.";
     static final String DENIED = "Not approved; nothing was shared.";
     static final String SELECT_DEVICE = "Select a paired device first.";
-    static final String BAD_TTL = "The window is a whole number of s, m or h, at most 24h.";
+    static final String BAD_TTL = "Type a time such as 90s, 10m or 1h (at most 24h).";
     static final String NOT_SHAREABLE = "This item cannot be shared this way.";
     static final String AUDIT_FAILED = "The audit log could not be written, so nothing was shared.";
     static final String LAN_FAILED = "The network port or this device's key could not be used.";
-    static final String BUSY = "A window is already open; revoke it or wait for it to close.";
+    static final String BUSY = "A share is already open; revoke it or wait for it to finish.";
     static final String DEVICE_GONE = "That device is no longer paired; nothing was shared.";
     static final String STATE_FAILED = "The owner-only LAN state directories could not be used, so nothing was shared.";
 
     private static final String[] COLUMNS = {"Device", "Fingerprint"};
     private static final String DEFAULT_TTL = "10m";
     private static final int TTL_COLUMNS = 8;
+    private static final int TEXT_COLUMNS = DevicesWindow.TEXT_COLUMNS;
     private static final Duration POLL = Duration.ofMillis(100);
     private static final DateTimeFormatter TIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT).withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT).withZone(ZoneId.systemDefault());
 
     private final TuiController controller;
     private final Session session;
@@ -108,6 +109,7 @@ final class ShareDialog implements InputForm {
         PmTheme theme = controller.theme();
         this.notice = new Notice(theme);
         status.setForegroundColor(theme.color(PmTheme.Tone.TEXT));
+        status.setLabelWidth(TEXT_COLUMNS);
         ttlBox.setInputFilter(DisplaySafe.rejectUnsafe(
                 () -> notice.error(Messages.UNSAFE_CHARACTER, clock.instant())));
         devices.addAll(Devices.trusted(session));
@@ -131,10 +133,10 @@ final class ShareDialog implements InputForm {
         approval.setVisible(false);
 
         Panel content = new Panel(new LinearLayout(Direction.VERTICAL).setSpacing(0));
-        content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        content.addComponent(new EmptySpace(new TerminalSize(TEXT_COLUMNS, 1))); // fixed width: no jump when text changes
         content.addComponent(summary);
         content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
-        content.addComponent(devices.isEmpty() ? UnlockWindow.dim(theme, NO_DEVICES) : table);
+        content.addComponent(devices.isEmpty() ? UnlockWindow.dim(theme, NO_DEVICES).setLabelWidth(TEXT_COLUMNS) : table);
         content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
         content.addComponent(ttl);
         content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
@@ -147,7 +149,7 @@ final class ShareDialog implements InputForm {
 
         basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
-        basicWindow.setComponent(content);
+        basicWindow.setComponent(Padded.of(content));
         basicWindow.addWindowListener(TuiController.closeOnEscape(this::dismiss));
     }
 
@@ -233,7 +235,7 @@ final class ShareDialog implements InputForm {
         }
         TrustedDeviceRecord device = devices.get(index);
         ask(String.format(Locale.ROOT, ASK_DEVICE, DisplaySafe.text(SharePayload.summary(item)),
-                DisplaySafe.text(device.title()), device.fingerprint(), window.get()),
+                DisplaySafe.text(device.title()), device.fingerprint(), words(window.get())),
                 () -> sendToDevice(device, window.get()));
     }
 
@@ -273,8 +275,7 @@ final class ShareDialog implements InputForm {
             notice.error(Messages.of(e.code()), clock.instant());
             return;
         }
-        status.setText(OPEN + window.address() + "\n" + SHARE_ID + window.id() + "\n" + CLOSES
-                + TIME.format(window.expires()));
+        status.setText(OPEN + window.address() + "\n" + CLOSES + TIME.format(window.expires()) + ".");
         watch(window::await, window::revoke, window::close);
     }
 
@@ -291,7 +292,7 @@ final class ShareDialog implements InputForm {
             return;
         }
         ask(String.join("\n", BrowserWindow.WARNINGS) + "\n" + String.format(Locale.ROOT, ASK_BROWSER,
-                DisplaySafe.text(SharePayload.summary(item)), window.get()), () -> sendToBrowser(window.get()));
+                DisplaySafe.text(SharePayload.summary(item)), words(window.get())), () -> sendToBrowser(window.get()));
     }
 
     @SuppressWarnings("PMD.CloseResource") // CE-035: watch closes the window when it ends
@@ -307,8 +308,9 @@ final class ShareDialog implements InputForm {
             notice.error(e.code() == LanException.Code.NETWORK ? LAN_FAILED : NOT_SHAREABLE, clock.instant());
             return;
         }
+        status.setLabelWidth(null); // the link stays on one line, so it can be selected and copied whole
         status.setText(String.join("\n", BrowserWindow.WARNINGS) + "\n" + URL + window.url() + "\n" + FINGERPRINT
-                + window.certificateFingerprint() + "\n" + SHARE_ID + window.id() + "\n" + CLOSES
+                + window.certificateFingerprint() + "\n" + CLOSES
                 + TIME.format(window.expires()));
         watch(window::await, window::revoke, window::close);
     }
@@ -353,6 +355,7 @@ final class ShareDialog implements InputForm {
             open = null;
         }
         revokeButton.setVisible(false);
+        status.setLabelWidth(TEXT_COLUMNS);
         status.setText(switch (outcome) {
             case DELIVERED -> DELIVERED;
             case REVOKED -> REVOKED;
@@ -364,6 +367,21 @@ final class ShareDialog implements InputForm {
         return controller.host().audit(new AuditEvent(kind, Optional.empty(), Optional.of("TUI"),
                 Optional.of(System.getProperty("user.name", "")), Optional.of(item.title()), Optional.empty(), -1,
                 Optional.of(decision), Optional.of("pm share")));
+    }
+
+    /** {@code d} in words, as "10 minutes" or "1 hour 30 minutes", for the approval question. */
+    static String words(Duration d) {
+        List<String> parts = new ArrayList<>();
+        unit(parts, d.toHours(), "hour");
+        unit(parts, d.toMinutesPart(), "minute");
+        unit(parts, d.toSecondsPart(), "second");
+        return parts.isEmpty() ? "0 seconds" : String.join(" ", parts);
+    }
+
+    private static void unit(List<String> parts, long count, String name) {
+        if (count > 0) {
+            parts.add(count + " " + name + (count == 1 ? "" : "s"));
+        }
     }
 
     /** For tests: the status text. */

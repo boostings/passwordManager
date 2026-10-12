@@ -61,30 +61,33 @@ import pm.vault.record.VaultRecord;
  */
 final class DevicesWindow implements InputForm {
     static final String TITLE = "Devices";
-    static final String PAIR_HERE = "Pair (wait here)";
-    static final String PAIR_WITH = "Pair with address";
+    static final String PAIR_HERE = "Start pairing";
+    static final String PAIR_WITH = "Join pairing";
     static final String RECEIVE_BUTTON = "Receive";
     static final String REMOVE_BUTTON = "Remove";
     static final String YES = "Yes";
     static final String NO = "No";
     static final String CLOSE = "Close";
-    static final String ADDRESS_LABEL = "Other device (ip:port):";
+    static final String ADDRESS_LABEL = "Address shown on the other device:";
     static final String HINT = "⇥ next   esc close";
     static final String THIS_DEVICE = "This device: ";
-    static final String NO_DEVICES = "No paired devices yet. Choose Pair here and Pair with address on the other one.";
-    static final String WAITING = "Waiting for the other device at ";
+    static final String NO_DEVICES = "No paired devices yet. To pair two devices, choose Start pairing on one;"
+            + " on the other, type the address it shows and choose Join pairing.";
+    static final String WAITING = "Waiting. On the other device open Devices (Ctrl+D), type this address and choose"
+            + " Join pairing: ";
     static final String CONNECTING = "Connecting…";
-    static final String PAIR_CODE = "Pairing code: ";
+    static final String PAIR_CODE = "Pairing code:  ";
     static final String COMPARE = "Choose Yes only if both screens show the same code.";
     static final String PAIRED = "Paired: ";
     static final String NOT_PAIRED = "Nothing was paired.";
     static final String PAIR_FAILED = "Pairing did not complete: ";
-    static final String OFFER_FROM = "Offer from ";
+    static final String OFFER_FROM = "Incoming from ";
     static final String ACCEPT = "Choose Yes to add it to this vault.";
     static final String RECEIVED = "Received: ";
     static final String NOT_RECEIVED = "Nothing was received.";
-    static final String UNREACHABLE = "Could not connect: not paired, wrong address, or the window is closed.";
-    static final String BAD_ADDRESS = "Type the address the other screen shows, as ip:port.";
+    static final String UNREACHABLE = "Could not connect. Check the address, that both devices are on the same"
+            + " network, and that the other device is still sending.";
+    static final String BAD_ADDRESS = "Type the address the other device shows, such as 192.168.1.20:41234.";
     static final String BUSY = "Another step is still running; press Esc to stop it.";
     static final String SELECT_DEVICE = "Select a device first.";
     static final String REMOVE_ASK = "Remove this device? It can no longer connect, and share windows open to it close: ";
@@ -97,10 +100,14 @@ final class DevicesWindow implements InputForm {
     static final String LAN_FAILED = "The network port or this device's key could not be used.";
 
     private static final String[] COLUMNS = {"Name", "Fingerprint", "Paired"};
-    private static final int FIELD_COLUMNS = 30;
+    private static final int FIELD_COLUMNS = 24;
+    /** Status text wraps at this width, so long lines stay readable and the window keeps its size. */
+    static final int TEXT_COLUMNS = 72;
     private static final String GAP = "  ";
     private static final DateTimeFormatter PAIRED_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter CLOCK =
+            DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault());
 
     private final TuiController controller;
     private final Session session;
@@ -136,6 +143,8 @@ final class DevicesWindow implements InputForm {
         this.notice = new Notice(theme);
         self.setForegroundColor(theme.color(PmTheme.Tone.BRIGHT));
         status.setForegroundColor(theme.color(PmTheme.Tone.TEXT));
+        status.setLabelWidth(TEXT_COLUMNS);
+        self.setLabelWidth(TEXT_COLUMNS);
         addressBox.setInputFilter(DisplaySafe.rejectUnsafe(
                 () -> notice.error(Messages.UNSAFE_CHARACTER, clock.instant())));
 
@@ -155,7 +164,7 @@ final class DevicesWindow implements InputForm {
         yesNo.setVisible(false);
 
         Panel content = new Panel(new LinearLayout(Direction.VERTICAL).setSpacing(0));
-        content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        content.addComponent(new EmptySpace(new TerminalSize(TEXT_COLUMNS, 1))); // fixed width: no jump when text changes
         content.addComponent(self);
         content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
         content.addComponent(table);
@@ -171,7 +180,7 @@ final class DevicesWindow implements InputForm {
 
         basicWindow.setTheme(theme.cards());
         basicWindow.setHints(List.of(Window.Hint.CENTERED, Window.Hint.MODAL));
-        basicWindow.setComponent(content);
+        basicWindow.setComponent(Padded.of(content));
         basicWindow.setFocusedInteractable(addressBox);
         basicWindow.addWindowListener(TuiController.closeOnEscape(this::dismiss));
         refresh();
@@ -204,6 +213,7 @@ final class DevicesWindow implements InputForm {
         shown.forEach(d -> model.addRow(DisplaySafe.text(d.title()), d.fingerprint(),
                 PAIRED_FORMAT.format(d.pairedAt())));
         table.setTableModel(model);
+        table.setVisible(!shown.isEmpty());
         if (shown.isEmpty()) {
             status.setText(NO_DEVICES);
         }
@@ -330,8 +340,8 @@ final class DevicesWindow implements InputForm {
     }
 
     private SasPrompt sasPrompt(LanJob running) {
-        return (sas, peerName, peerFingerprint) -> ask(running, PAIR_CODE + sas + GAP + "("
-                + DisplaySafe.text(peerName) + GAP + peerFingerprint + ")  " + COMPARE);
+        return (sas, peerName, peerFingerprint) -> ask(running, PAIR_CODE + sas + "\n"
+                + DisplaySafe.text(peerName) + GAP + peerFingerprint + "\n" + COMPARE);
     }
 
     /** The shared LAN state; a notice and empty if its directories cannot be used. */
@@ -373,8 +383,8 @@ final class DevicesWindow implements InputForm {
         Instant deadline = clock.instant().plus(Pairing.DEFAULT_WINDOW);
         Lockout lockout = state.get().lockout(clock.instant());
         refresh();
-        status.setText(WAITING + LanAddress.show(listener.address(), listener.port()) + " until "
-                + PAIRED_FORMAT.format(deadline));
+        status.setText(WAITING + LanAddress.show(listener.address(), listener.port())
+                + "\nThis stays open until " + CLOCK.format(deadline) + ".");
         controller.background(() -> {
             Optional<PairedDevice> paired;
             try (me) {
@@ -475,7 +485,7 @@ final class DevicesWindow implements InputForm {
         OfferPrompt prompt = (offer, fingerprint) -> ask(running, OFFER_FROM
                 + trusted.stream().filter(d -> d.fingerprint().equals(fingerprint)).findFirst()
                         .map(d -> DisplaySafe.text(d.title())).orElse("?")
-                + GAP + fingerprint + ": " + DisplaySafe.text(offer.summary()) + ". " + ACCEPT);
+                + GAP + fingerprint + ":\n" + DisplaySafe.text(offer.summary()) + "\n" + ACCEPT);
         controller.background(() -> {
             String outcome;
             try (Local identity = me) {
